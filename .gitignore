@@ -1,0 +1,52 @@
+# This repository intentionally tracks only the Zhiju application source.
+*
+
+# Root project files.
+!.gitignore
+!.env.example
+!README.md
+!CHATGPT_AUTH_SETUP.md
+!alembic.ini
+!chatgpt-auth.html
+!index.html
+!launcher.py
+!pyproject.toml
+!requirements-runtime.txt
+!run_v3.py
+!start-dev.command
+!uv.lock
+!启动管理系统.applescript
+
+# Application source, migrations, tests, scripts, and required UI resources.
+!assets/
+!assets/**
+!backend/
+!backend/**
+!config/
+!config/**
+!docs/
+!docs/**
+!scripts/
+!scripts/**
+!tools/
+!tools/**
+
+# Generated files inside tracked source directories.
+**/.DS_Store
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+assets/*.iconset/
+
+# Local configuration, runtime state, databases, logs, and build output.
+.env
+.runtime/
+.venv/
+data/
+logs/
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.pid
+.server.port

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>筱宇智矩｜YouTube 多频道运营</title>
+  <link rel="icon" href="/assets/app-icon-1024.png" type="image/png">
+  <link rel="stylesheet" href="/assets/styles.css?v=3.5.0">
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark">矩</div>
+        <div class="brand-copy"><strong>筱宇智矩</strong><span>运营管理系统</span></div>
+        <button class="icon-button sidebar-toggle" id="sidebarToggle" type="button" aria-label="折叠导航" title="折叠导航"><i data-lucide="panel-left-close"></i></button>
+      </div>
+      <nav class="nav-list" id="mainNav" aria-label="主导航">
+        <button class="nav-item is-active" data-view="dashboard"><i data-lucide="layout-dashboard"></i><span>总览</span></button>
+        <div class="nav-label">运营资料</div>
+        <button class="nav-item" data-view="channels"><i data-lucide="radio-tower"></i><span>频道</span></button>
+        <button class="nav-item" data-view="dramas"><i data-lucide="library-big"></i><span>剧库</span></button>
+        <button class="nav-item" data-view="schedules"><i data-lucide="calendar-range"></i><span>排期</span></button>
+        <div class="nav-label">生产执行</div>
+        <button class="nav-item" data-view="workorders"><i data-lucide="list-checks"></i><span>工单</span></button>
+        <button class="nav-item" data-view="packages"><i data-lucide="package-check"></i><span>运营包</span></button>
+        <div class="nav-label">数据与配置</div>
+        <button class="nav-item" data-view="youtube"><i data-lucide="youtube"></i><span>YouTube</span></button>
+        <button class="nav-item" data-view="media"><i data-lucide="images"></i><span>素材</span></button>
+        <button class="nav-item" data-view="skills"><i data-lucide="braces"></i><span>Skills</span></button>
+        <button class="nav-item" data-view="logs"><i data-lucide="scroll-text"></i><span>系统日志</span></button>
+        <button class="nav-item" data-view="settings"><i data-lucide="settings"></i><span>设置</span></button>
+      </nav>
+      <div class="sidebar-foot"><span class="status-dot" id="sideStatusDot"></span><div><strong id="sideStatusText">连接中</strong><span>MySQL · 19732</span></div></div>
+    </aside>
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-title">
+          <button class="icon-button mobile-menu" id="mobileMenu" type="button" aria-label="打开导航"><i data-lucide="menu"></i></button>
+          <div><span class="breadcrumb">筱宇智矩 / <span id="breadcrumbText">总览</span></span><h1 id="pageTitle">运营总览</h1></div>
+        </div>
+        <div class="topbar-actions">
+          <div class="db-state" id="dbState"><span class="status-dot"></span><span>MySQL 连接中</span></div>
+          <button class="button button-secondary" id="refreshView" type="button"><i data-lucide="refresh-cw"></i><span>刷新</span></button>
+        </div>
+      </header>
+      <section class="view-root" id="viewRoot" aria-live="polite"></section>
+    </main>
+  </div>
+  <div class="modal-backdrop" id="modalBackdrop" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><header class="modal-head"><h2 id="modalTitle">编辑</h2><button class="icon-button" data-close-modal aria-label="关闭"><i data-lucide="x"></i></button></header><div class="modal-body" id="modalBody"></div></section></div>
+  <div class="drawer-backdrop" id="drawerBackdrop" hidden><aside class="drawer" id="drawer"><header class="drawer-head"><div><span class="eyebrow">详细信息</span><h2 id="drawerTitle">详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭"><i data-lucide="x"></i></button></header><div class="drawer-body" id="drawerBody"></div></aside></div>
+  <div class="toast-stack" id="toastStack" aria-live="assertive"></div>
+  <script src="/assets/lucide.min.js"></script>
+  <script src="/assets/app.js?v=3.9.0"></script>
+</body>
+</html>

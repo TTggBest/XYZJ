@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChatGPT 授权</title>
+  <style>
+    :root {
+      --bg: #f3f5f2;
+      --surface: #ffffff;
+      --ink: #17211d;
+      --muted: #66736d;
+      --line: #dce3dd;
+      --primary: #196b5f;
+      --warn: #b94d31;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    main {
+      max-width: 760px;
+      margin: 72px auto;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+      box-shadow: 0 18px 50px rgba(22, 35, 31, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      color: var(--warn);
+    }
+
+    p {
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    code {
+      display: block;
+      margin: 12px 0;
+      padding: 12px;
+      border-radius: 8px;
+      background: #eef2ed;
+      color: var(--ink);
+      word-break: break-all;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      margin: 20px 0 12px;
+      font-weight: 700;
+    }
+
+    input {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 0 12px;
+      font: inherit;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button {
+      min-height: 38px;
+      border: 0;
+      border-radius: 7px;
+      padding: 0 14px;
+      color: #fff;
+      background: var(--primary);
+      cursor: pointer;
+    }
+
+    .ghost {
+      border: 1px solid var(--line);
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .notice {
+      display: none;
+      margin-bottom: 16px;
+      padding: 12px;
+      border: 1px solid #edc6bd;
+      border-radius: 8px;
+      color: #9a3128;
+      background: #fff7f5;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="notice" id="fileNotice">当前页面是 file:// 方式打开的，不能写入管理系统。请回到 http://127.0.0.1:19732/，从“开始 ChatGPT 授权”按钮打开。</div>
+    <h1>ChatGPT / OpenAI 授权</h1>
+    <p>普通用户自己能拿到的是 OpenAI API Key，不是 ChatGPT 网页 Token。打开 OpenAI API Key 页面，创建 key 后粘贴到这里，系统会写入 AI 配置。</p>
+    <form id="tokenForm">
+      <label>
+        OpenAI API Key / 授权 Token
+        <input id="tokenInput" name="token" type="password" autocomplete="off" placeholder="粘贴 OpenAI API Key 或授权服务返回的 Token">
+      </label>
+      <div class="actions">
+        <button type="submit">确认授权</button>
+        <button class="ghost" id="openApiKeysBtn" type="button">打开 OpenAI API Key 页面</button>
+        <button class="ghost" type="button" onclick="window.close()">关闭窗口</button>
+      </div>
+    </form>
+    <p>如果后面接入真正的 ChatGPT 授权服务，它应在授权成功后回调到下面这个地址，并带上 <code>token</code> 或 <code>access_token</code> 参数。</p>
+    <code id="callbackUrl">正在读取回调地址...</code>
+    <p>服务端支持的授权入口环境变量：<code>CHATGPT_AUTH_URL</code>。</p>
+  </main>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const callbackUrl = params.get("callback_url") || "";
+    const state = params.get("state") || "";
+    if (window.location.protocol === "file:") {
+      document.getElementById("fileNotice").style.display = "block";
+    }
+    document.getElementById("callbackUrl").textContent = callbackUrl || "未生成回调地址";
+    document.getElementById("openApiKeysBtn").addEventListener("click", () => {
+      window.open("https://platform.openai.com/api-keys", "_blank");
+    });
+    document.getElementById("tokenForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const token = document.getElementById("tokenInput").value.trim();
+      if (!token) {
+        alert("请先粘贴 OpenAI API Key 或授权 Token");
+        return;
+      }
+      if (window.location.protocol === "file:") {
+        alert("当前是 file:// 页面，不能写入管理系统。请从 http://127.0.0.1:19732/ 的授权按钮重新打开。");
+        return;
+      }
+      const target = new URL(callbackUrl || "/api/chatgpt-auth/callback", window.location.origin);
+      target.searchParams.set("token", token);
+      if (state) target.searchParams.set("state", state);
+      window.location.href = target.toString();
+    });
+  </script>
+</body>
+</html>
