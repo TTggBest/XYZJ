@@ -345,6 +345,15 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .input-suffix { position: relative; }
 .input-suffix .input { padding-right: 44px; }
 .input-suffix span { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); color: var(--muted); font-size: 10px; pointer-events: none; }
+.workspace-settings-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 16px; border-bottom: 1px solid var(--line); }
+.image-import-panel { display: grid; grid-template-columns: minmax(180px, .8fr) repeat(2, minmax(220px, 1fr)) auto; align-items: end; gap: 10px; padding: 14px 16px; }
+.image-import-panel .input { padding: 6px; }
+.workspace-required { min-height: 118px; display: flex; align-items: center; gap: 13px; padding: 18px; }
+.workspace-required > span { width: 42px; height: 42px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); border-radius: 6px; }
+.workspace-required > span svg { width: 20px; height: 20px; }
+.workspace-required div { min-width: 0; flex: 1; }
+.workspace-required strong { font-size: 13px; }
+.workspace-required p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 
 @media (max-width: 1080px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -353,6 +362,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
   .package-module { border-right: 0; border-bottom: 1px solid var(--line); }
   .package-module:last-child { border-bottom: 0; }
   .cadence-template-slots { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .image-import-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
@@ -394,6 +404,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
   .app-icon-panel img { width: 88px; height: 88px; border-radius: 15px; }
   .app-icon-form { align-items: stretch; flex-direction: column; }
   .cadence-template-slots { grid-template-columns: 1fr; }
+  .workspace-settings-form, .image-import-panel { grid-template-columns: 1fr; }
   .field-wide { grid-column: auto; }
   .modal-backdrop { padding: 0; align-items: end; }
   .modal { width: 100%; max-height: 92vh; border-radius: 7px 7px 0 0; }

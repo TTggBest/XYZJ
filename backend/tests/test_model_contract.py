@@ -71,6 +71,10 @@ def test_foundation_tables_are_registered() -> None:
         "quota_usage_logs",
         "skills",
         "skill_versions",
+        "image_workspace_settings",
+        "channel_logo_profiles",
+        "image_processing_runs",
+        "image_processing_items",
     }.issubset(Base.metadata.tables)
 
 
