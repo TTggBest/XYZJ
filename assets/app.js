@@ -125,6 +125,11 @@
     try {
       const health = await api("/api/health");
       const ok = Boolean(health.ok && health.database?.ok);
+      const production = health.environment === "production";
+      const environmentState = el("environmentState");
+      environmentState.hidden = false;
+      environmentState.className = `environment-state ${production ? "is-production" : "is-development"}`;
+      environmentState.textContent = production ? "生产环境" : "开发环境";
       el("dbState").innerHTML = `<span class="status-dot ${ok ? "is-ok" : "is-error"}"></span><span>${ok ? "MySQL 已连接" : "MySQL 异常"}</span>`;
       el("sideStatusDot").className = `status-dot ${ok ? "is-ok" : "is-error"}`;
       el("sideStatusText").textContent = ok ? "数据库已连接" : "数据库异常";
@@ -412,7 +417,8 @@
       body = `<header class="settings-content-head"><div><h2>档期配置</h2><p>统一维护1更至5更的当地视频时间、主辅档及社群发布间隔；单更仅使用主档。</p></div></header><div class="cadence-template-list">${templates.map(cadenceTemplateForm).join("")}</div>`;
     } else if (state.settingsTab === "runtime") {
       const data = await api("/settings/runtime");
-      body = `<header class="settings-content-head"><div><h2>运行环境</h2><p>当前进程、数据库和本机运行信息，只展示真实运行状态。</p></div>${tag(data.database_ok ? "active" : "failed")}</header><div class="setting-grid">${settingValue("系统", `${data.system} ${data.version}`)}${settingValue("运行环境", data.environment)}${settingValue("设备角色", data.device_role)}${settingValue("SSE 中心", data.realtime_hub_url, true)}${settingValue("Web 服务", `${data.host}:${data.port}`, true)}${settingValue("MySQL", `${data.database_host}:${data.database_port}/${data.database_name}`, true)}${settingValue("当前设备", data.hostname)}${settingValue("操作系统", data.operating_system)}${settingValue("处理器架构", data.architecture)}${settingValue("Python", data.python_version, true)}${settingValue("项目目录", data.project_root, true)}${settingValue("运营包产物目录", data.artifact_root, true)}</div>`;
+      const environmentSwitch = data.can_switch_environment ? `<section class="environment-switch-panel"><div><strong>数据库环境</strong><span>切换后立即影响后续读取和写入；重启开发服务后默认回到开发库。</span></div><div class="environment-segmented" role="group" aria-label="数据库环境"><button class="environment-segment ${data.environment === "development" ? "is-active" : ""}" data-action="switch-database-environment" data-environment="development" ${data.environment === "development" ? "disabled" : ""}>开发环境</button><button class="environment-segment ${data.environment === "production" ? "is-active is-production" : ""}" data-action="switch-database-environment" data-environment="production" ${data.environment === "production" ? "disabled" : ""}>生产环境</button></div></section>` : "";
+      body = `<header class="settings-content-head"><div><h2>运行环境</h2><p>当前进程、数据库和本机运行信息，只展示真实运行状态。</p></div>${tag(data.database_ok ? "active" : "failed")}</header>${environmentSwitch}<div class="setting-grid">${settingValue("系统", `${data.system} ${data.version}`)}${settingValue("当前数据库环境", data.environment === "production" ? "生产环境" : "开发环境")}${settingValue("启动模式", data.base_environment)}${settingValue("设备角色", data.device_role)}${settingValue("SSE 中心", data.realtime_hub_url, true)}${settingValue("Web 服务", `${data.host}:${data.port}`, true)}${settingValue("MySQL", `${data.database_host}:${data.database_port}/${data.database_name}`, true)}${settingValue("当前设备", data.hostname)}${settingValue("操作系统", data.operating_system)}${settingValue("处理器架构", data.architecture)}${settingValue("Python", data.python_version, true)}${settingValue("项目目录", data.project_root, true)}${settingValue("运营包产物目录", data.artifact_root, true)}</div>`;
     } else if (state.settingsTab === "devices") {
       const devices = await api("/devices");
       state.devices = devices;
@@ -616,6 +622,14 @@
       else if (action === "add-device") openModal("新增设备", deviceForm());
       else if (action === "edit-device") { const device = (state.devices || []).find(item => item.id === id); if (device) openModal("编辑设备", deviceForm(device)); }
       else if (action === "register-current-device") { await api("/devices/register-current", { method: "POST" }); notify("当前设备已登记"); await loadView("settings"); }
+      else if (action === "switch-database-environment") {
+        button.disabled = true;
+        const environment = button.dataset.environment;
+        await api("/settings/runtime/environment", { method: "PUT", body: JSON.stringify({ environment }) });
+        notify(environment === "production" ? "已切换到生产数据库" : "已切换到开发数据库");
+        await checkHealth();
+        await loadView("settings");
+      }
       else if (action === "build-runtime-package") { button.disabled = true; await api("/runtime-packages/build", { method: "POST" }); notify("运行包构建完成"); await loadView("settings"); }
       else if (action === "restore-default-icon") { await api("/settings/app-icon/restore-default", { method: "POST" }); notify("默认应用图标已恢复"); await loadView("settings"); }
       else if (action === "add-integration") openModal("新增第三方服务", integrationForm());

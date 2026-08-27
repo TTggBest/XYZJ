@@ -16,6 +16,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
+from zhiju.database import can_switch_database_environment, database_router
 from zhiju.models import AppIconSetting, RuntimePackageBuild
 
 
@@ -56,7 +57,7 @@ PACKAGE_EXCLUDED_FILES = {"scripts/mysql_dev.sh"}
 
 def runtime_overview(session: Session) -> dict[str, object]:
     settings = get_settings()
-    database_url = make_url(settings.database_url)
+    database_url = make_url(database_router.active_database_url)
     database_ok = True
     try:
         session.execute(text("SELECT 1"))
@@ -65,7 +66,9 @@ def runtime_overview(session: Session) -> dict[str, object]:
     return {
         "system": "筱宇智矩",
         "version": APP_VERSION,
-        "environment": settings.env,
+        "environment": database_router.active_environment,
+        "base_environment": settings.env,
+        "can_switch_environment": can_switch_database_environment(),
         "host": settings.host,
         "port": settings.port,
         "database_host": database_url.host or "",

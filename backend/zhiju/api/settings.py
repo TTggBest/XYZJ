@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.database import can_switch_database_environment, database_router, get_db
 from zhiju.schemas.identity import DeviceRead, DeviceRegister
-from zhiju.schemas.settings import AppIconSettingRead, AppIconUpload, RuntimeOverview, RuntimePackageBuildRead
+from zhiju.schemas.settings import AppIconSettingRead, AppIconUpload, RuntimeEnvironmentUpdate, RuntimeOverview, RuntimePackageBuildRead
 from zhiju.services.identity import list_devices, register_device
 from zhiju.services.settings import build_runtime_package, get_app_icon_setting, get_current_runtime_package, list_runtime_packages, restore_default_app_icon, runtime_overview, stream_runtime_package, upload_app_icon
 
@@ -19,6 +19,21 @@ router = APIRouter(prefix="/v3", tags=["settings"])
 @router.get("/settings/runtime", response_model=RuntimeOverview)
 def get_runtime_settings(session: Session = Depends(get_db)) -> RuntimeOverview:
     return RuntimeOverview.model_validate(runtime_overview(session))
+
+
+@router.put("/settings/runtime/environment", response_model=RuntimeOverview)
+def put_runtime_environment(payload: RuntimeEnvironmentUpdate) -> RuntimeOverview:
+    try:
+        database_router.switch_environment(
+            payload.environment,
+            allow_switch=can_switch_database_environment(),
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    with database_router.open_session() as session:
+        return RuntimeOverview.model_validate(runtime_overview(session))
 
 
 @router.get("/devices", response_model=list[DeviceRead])

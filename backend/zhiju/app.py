@@ -45,7 +45,10 @@ def create_app() -> FastAPI:
         is_business_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}
             and request.url.path.startswith("/api/v3/")
-            and request.url.path != "/api/v3/events/publish"
+            and request.url.path not in {
+                "/api/v3/events/publish",
+                "/api/v3/settings/runtime/environment",
+            }
             and response.status_code < 400
         )
         if is_business_write:
