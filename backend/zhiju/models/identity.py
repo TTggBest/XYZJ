@@ -115,6 +115,7 @@ class Channel(IdMixin, TimestampMixin, Base):
     original_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="YouTube频道原名")
     operational_name: Mapped[str | None] = mapped_column(String(255), comment="运营昵称")
     youtube_channel_url: Mapped[str | None] = mapped_column(String(1000), comment="YouTube频道主页地址")
+    youtube_avatar_url: Mapped[str | None] = mapped_column(String(1000), comment="YouTube频道当前头像地址")
     country_code: Mapped[str | None] = mapped_column(String(2), comment="频道目标国家或地区代码")
     country_name_zh: Mapped[str | None] = mapped_column(String(120), comment="频道目标国家或地区中文名称")
     default_language: Mapped[str | None] = mapped_column(String(20), comment="默认语言代码")

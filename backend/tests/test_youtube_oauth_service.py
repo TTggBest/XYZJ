@@ -20,6 +20,7 @@ from zhiju.services.youtube_oauth import (
     oauth_client_status,
     parse_oauth_client_document,
     save_oauth_token,
+    youtube_channel_identity,
 )
 
 
@@ -131,6 +132,23 @@ def test_youtube_channel_must_match_requested_channel() -> None:
         choose_youtube_channel(payload, "UC-missing")
 
 
+def test_youtube_channel_identity_uses_title_and_highest_avatar() -> None:
+    title, avatar_url = youtube_channel_identity(
+        {
+            "snippet": {
+                "title": "Actual Channel",
+                "thumbnails": {
+                    "default": {"url": "https://img.example/default.jpg"},
+                    "high": {"url": "https://img.example/high.jpg"},
+                },
+            }
+        }
+    )
+
+    assert title == "Actual Channel"
+    assert avatar_url == "https://img.example/high.jpg"
+
+
 def test_oauth_token_is_saved_in_keychain_and_returns_reference() -> None:
     writes = []
 
@@ -177,7 +195,17 @@ def test_completed_authorization_binds_exact_channel_without_storing_tokens(tmp_
             channel_id=channel.id,
             identity={"sub": "google-sub", "email": "owner@example.com", "name": "Owner"},
             token={"access_token": "access", "refresh_token": "refresh", "expires_in": 3600},
-            youtube_payload={"items": [{"id": "UC-target", "snippet": {"title": "Target"}}]},
+            youtube_payload={
+                "items": [
+                    {
+                        "id": "UC-target",
+                        "snippet": {
+                            "title": "Actual Target",
+                            "thumbnails": {"high": {"url": "https://img.example/avatar.jpg"}},
+                        },
+                    }
+                ]
+            },
         )
 
         grant = session.scalar(select(OAuthGrant))
@@ -186,3 +214,6 @@ def test_completed_authorization_binds_exact_channel_without_storing_tokens(tmp_
         assert grant.credential_ref.startswith("keychain://")
         assert "access" not in grant.credential_ref
         assert "refresh" not in grant.credential_ref
+        session.refresh(channel)
+        assert channel.original_name == "Actual Target"
+        assert channel.youtube_avatar_url == "https://img.example/avatar.jpg"

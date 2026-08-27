@@ -166,11 +166,31 @@
   }
   function kpi(iconName, title, value, foot) { return `<article class="kpi"><div class="kpi-head"><span>${esc(title)}</span>${icon(iconName)}</div><div class="kpi-value">${Number(value || 0)}</div><div class="kpi-foot">${esc(foot)}</div></article>`; }
 
+  const languageNames = {
+    ar: "阿拉伯语", bn: "孟加拉语", en: "英语", es: "西班牙语", fil: "菲律宾语",
+    hi: "印地语", id: "印度尼西亚语", "pt-BR": "巴西葡萄牙语", ru: "俄语", tr: "土耳其语"
+  };
+  function languageLabel(code) {
+    if (!code) return "—";
+    const canonical = Object.keys(languageNames).find(key => key.toLowerCase() === String(code).toLowerCase());
+    return canonical ? `${languageNames[canonical]}（${code}）` : String(code);
+  }
+  function channelIdentity(item) {
+    const initial = (item.original_name || "频").slice(0, 1);
+    const avatar = item.youtube_avatar_url
+      ? `<span class="avatar"><img class="avatar-image" src="${esc(item.youtube_avatar_url)}" alt="${esc(initial)}"></span>`
+      : `<span class="avatar">${esc(initial)}</span>`;
+    const nickname = item.operational_name && item.operational_name !== item.original_name
+      ? `<span class="cell-sub">${esc(item.operational_name)}</span>`
+      : "";
+    return `<div class="identity-cell">${avatar}<div><span class="cell-main">${esc(item.original_name)}</span>${nickname}</div></div>`;
+  }
+
   async function showChannels() {
     const [channels, logoProfiles, oauthStatus] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles"), api("/settings/youtube-oauth")]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
-    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td><div class="identity-cell"><span class="avatar">${esc((item.display_name || "频").slice(0, 1))}</span><div><span class="cell-main">${esc(item.display_name)}</span><span class="cell-sub">${esc(item.original_name)}</span></div></div></td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(item.default_language || "—")}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
+    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
     root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
   }
   function channelLogoForm(channel) {
