@@ -102,7 +102,20 @@ def test_launchers_wait_for_process_exit_and_force_stuck_sse_shutdown() -> None:
         assert 'PID ${OLD_PID}' in launcher
     assert 'PID ${OLD_PID}' in (root / "scripts" / "install_downloaded_package.sh").read_text(encoding="utf-8")
     assert 'set active tab index' in browser_opener
-    assert 'reload browserTab' in browser_opener
+    assert 'set URL of browserTab to targetURL' in browser_opener
+
+
+def test_code_machine_desktop_app_only_starts_clean_dev_commit() -> None:
+    from pathlib import Path
+
+    launcher = (Path(__file__).resolve().parents[2] / "start-dev.command").read_text(encoding="utf-8")
+
+    assert 'CURRENT_BRANCH="$(git branch --show-current)"' in launcher
+    assert '[[ "$CURRENT_BRANCH" != "dev" ]]' in launcher
+    assert 'git status --porcelain' in launcher
+    assert 'DEV_COMMIT="$(git rev-parse --short=12 HEAD)"' in launcher
+    assert 'BROWSER_URL="${URL}?dev_commit=${DEV_COMMIT}"' in launcher
+    assert 'open_app_url.sh" "$BROWSER_URL" "$URL"' in launcher
 
 
 def test_system_timestamps_are_rendered_in_beijing_time() -> None:
