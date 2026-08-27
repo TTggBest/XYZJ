@@ -41,6 +41,7 @@ class Drama(IdMixin, TimestampMixin, Base):
     __tablename__ = "dramas"
     __table_args__ = (
         CheckConstraint("status IN ('active','expired','blocked','archived')", name="valid_status"),
+        CheckConstraint("source_type IN ('manual','feishu')", name="valid_source_type"),
         Index("ix_dramas_status_expiry", "status", "expires_at"),
         {"comment": "本地剧库中的剧目主档"},
     )
@@ -55,6 +56,11 @@ class Drama(IdMixin, TimestampMixin, Base):
     plot_pattern: Mapped[str | None] = mapped_column(Text, comment="剧情套路")
     core_personas: Mapped[str | None] = mapped_column(Text, comment="核心人设")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="剧目资源到期时间")
+    batch_name: Mapped[str | None] = mapped_column(String(120), comment="来源批次")
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="剧目来源")
+    source_sheet_id: Mapped[str | None] = mapped_column(String(40), comment="来源飞书工作表ID")
+    source_row_number: Mapped[int | None] = mapped_column(Integer, comment="来源飞书原始行号")
+    source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="剧目状态")
 
 

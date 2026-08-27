@@ -33,7 +33,7 @@
 - Produces: `Drama.batch_name`, `source_type`, `source_sheet_id`, `source_row_number`, `source_synced_at`。
 - Produces: `FeishuSyncRun.sync_type == "dramas"` 可通过数据库约束。
 
-- [ ] **Step 1: 写失败的模型契约测试**，断言五个字段、`source_type` 合法值及迁移的 `down_revision` 指向当前 head。
+- [ ] **Step 1: 写失败的模型契约测试**，断言五个字段、`source_type` 合法值及迁移的 `down_revision` 指向当前 `dev` head `b14c7e2a90d3`。
 - [ ] **Step 2: 运行 `uv run pytest backend/tests/test_drama_library_contract.py -q`**，确认字段不存在而失败。
 - [ ] **Step 3: 增加模型字段和 Alembic 迁移**；已有剧目回填 `source_type='manual'`，然后设为非空。
 - [ ] **Step 4: 运行该测试并执行 `uv run alembic upgrade head`**，确认开发 MySQL 迁移成功。
