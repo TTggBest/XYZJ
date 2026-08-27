@@ -40,7 +40,7 @@ class ProductionBatch(IdMixin, TimestampMixin, Base):
 class FeishuSyncRun(IdMixin, TimestampMixin, Base):
     __tablename__ = "feishu_sync_runs"
     __table_args__ = (
-        CheckConstraint("sync_type IN ('work_orders','operation_packages','channels','dramas')", name="valid_sync_type"),
+        CheckConstraint("sync_type IN ('work_orders','operation_packages','channels','dramas','drama_languages')", name="valid_sync_type"),
         CheckConstraint("status IN ('running','completed','failed')", name="valid_status"),
         Index("ix_feishu_sync_runs_type_time", "sync_type", "started_at"),
         {"comment": "飞书工单与运营包同步执行记录"},
