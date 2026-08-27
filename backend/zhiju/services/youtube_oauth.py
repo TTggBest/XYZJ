@@ -294,6 +294,23 @@ def choose_youtube_channel(
     return channel
 
 
+def youtube_channel_identity(channel_payload: Mapping[str, object]) -> tuple[str | None, str | None]:
+    snippet = channel_payload.get("snippet")
+    if not isinstance(snippet, dict):
+        return None, None
+    title = str(snippet.get("title") or "").strip() or None
+    thumbnails = snippet.get("thumbnails")
+    if not isinstance(thumbnails, dict):
+        return title, None
+    for size in ("maxres", "standard", "high", "medium", "default"):
+        thumbnail = thumbnails.get(size)
+        if isinstance(thumbnail, dict):
+            url = str(thumbnail.get("url") or "").strip()
+            if url:
+                return title, url
+    return title, None
+
+
 def _request_json(
     url: str,
     *,
@@ -370,7 +387,8 @@ def complete_channel_authorization(
     channel = session.get(Channel, channel_id)
     if channel is None or channel.deleted_at is not None:
         raise ValueError("目标频道不存在")
-    choose_youtube_channel(youtube_payload, channel.youtube_channel_id)
+    youtube_channel = choose_youtube_channel(youtube_payload, channel.youtube_channel_id)
+    youtube_title, youtube_avatar_url = youtube_channel_identity(youtube_channel)
 
     subject = str(identity.get("sub") or "").strip()
     email = str(identity.get("email") or "").strip().lower()
@@ -459,6 +477,10 @@ def complete_channel_authorization(
         binding.revoked_at = None
     if channel.status == "new":
         channel.status = "authorized"
+    if youtube_title:
+        channel.original_name = youtube_title
+    if youtube_avatar_url:
+        channel.youtube_avatar_url = youtube_avatar_url
     session.add(
         AuthorizationEvent(
             account_id=account.id,

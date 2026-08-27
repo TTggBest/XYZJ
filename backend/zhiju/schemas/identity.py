@@ -48,6 +48,7 @@ class ChannelRead(BaseModel):
     original_name: str
     operational_name: str | None
     youtube_channel_url: str | None
+    youtube_avatar_url: str | None
     country_code: str | None
     country_name_zh: str | None
     default_language: str | None
@@ -80,6 +81,7 @@ class ChannelOverview(BaseModel):
     original_name: str
     operational_name: str | None
     display_name: str
+    youtube_avatar_url: str | None
     country_code: str | None
     country_name_zh: str | None
     default_language: str | None

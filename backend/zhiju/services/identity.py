@@ -262,6 +262,7 @@ def list_channel_overview(
                 "original_name": channel.original_name,
                 "operational_name": channel.operational_name,
                 "display_name": channel.operational_name or channel.original_name,
+                "youtube_avatar_url": channel.youtube_avatar_url,
                 "country_code": channel.country_code,
                 "country_name_zh": channel.country_name_zh,
                 "default_language": channel.default_language,
