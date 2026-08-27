@@ -9,6 +9,7 @@ from zhiju.services.feishu_sync import (
     cell_text,
     normalized_video_id,
     operation_package_completeness,
+    operation_package_sync_decision,
     video_id_from_url,
 )
 
@@ -89,6 +90,14 @@ def test_operation_package_completeness_reports_each_missing_group() -> None:
         "标题翻译": "A\nB\nC",
         "封面4：5": "标题1：x\n标题2：y\n标题3：z",
         "封面16：9": "标题1：x\n标题2：y\n标题3：z",
+        "播放列表": "主播放列表",
+        "说明": "本地语言说明",
+        "说明翻译": "中文说明",
+        "是否需要社区": "2",
+        "社群文案1": "第一条社群文案",
+        "社群图描述1": "第一张社群图提示词",
+        "社群文案2": "第二条社群文案",
+        "社群图描述2": "第二张社群图提示词",
     }
 
     assert operation_package_completeness(complete_row) == (True, None)
@@ -98,3 +107,33 @@ def test_operation_package_completeness_reports_each_missing_group() -> None:
         False,
         "封面16：9需要3组，当前0组",
     )
+
+    incomplete_row = {**complete_row, "说明": "", "社群图描述2": ""}
+    assert operation_package_completeness(incomplete_row) == (
+        False,
+        "说明不能为空；社群图描述2不能为空",
+    )
+
+
+def test_complete_operation_package_is_only_skipped_when_outputs_are_unchanged() -> None:
+    assert operation_package_sync_decision(
+        existing_source_complete=True,
+        incoming_source_complete=True,
+        outputs_match=True,
+    ) == "skip"
+    assert operation_package_sync_decision(
+        existing_source_complete=True,
+        incoming_source_complete=True,
+        outputs_match=False,
+    ) == "refresh"
+    assert operation_package_sync_decision(
+        existing_source_complete=True,
+        incoming_source_complete=False,
+        outputs_match=True,
+    ) == "refresh"
+
+
+def test_incomplete_package_actions_are_blocked_in_the_ui() -> None:
+    app_source = (feishu_sync.APP_ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert 'button.closest(".source-incomplete")' in app_source
