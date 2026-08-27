@@ -26,7 +26,14 @@ from zhiju.models.identity import (
     OAuthGrantScope,
 )
 from zhiju.models.integration import Integration, IntegrationAccount, IntegrationCredential
-from zhiju.models.settings import AppIconSetting, RuntimePackageBuild
+from zhiju.models.settings import (
+    AppIconSetting,
+    ChannelLogoProfile,
+    ImageProcessingItem,
+    ImageProcessingRun,
+    ImageWorkspaceSetting,
+    RuntimePackageBuild,
+)
 from zhiju.models.skill import Skill, SkillVersion
 from zhiju.models.operations import (
     ChannelCommunitySlot,
@@ -114,6 +121,10 @@ __all__ = [
     "IntegrationAccount",
     "IntegrationCredential",
     "AppIconSetting",
+    "ChannelLogoProfile",
+    "ImageProcessingItem",
+    "ImageProcessingRun",
+    "ImageWorkspaceSetting",
     "RuntimePackageBuild",
     "Language",
     "MediaAsset",

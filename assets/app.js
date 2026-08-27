@@ -10,14 +10,15 @@
     reserved: "已预留", confirmed: "已确认", published: "已发布", draft: "草稿", ready: "已就绪", review_pending: "待审核", approved: "已通过",
     changes_requested: "需重做", delivered: "已交付", waiting: "等待中", in_progress: "进行中", succeeded: "已完成", skipped: "已跳过", retrying: "重试中",
     private: "私享", public: "公开", unlisted: "不公开", upload: "已上传", processed: "已处理", disabled: "停用", deprecated: "已弃用",
-    missing: "缺失", partial: "部分就绪", expired: "已过期", blocked: "禁用"
+    missing: "缺失", partial: "部分就绪", expired: "已过期", blocked: "禁用", calibrated: "已校准",
+    processing: "处理中", classified: "分类完成", partially_classified: "部分匹配", logo_ready: "Logo 已生成", partially_generated: "部分生成"
   };
   const VIEW_META = {
     dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], schedules: [], publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], schedules: [], publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -49,10 +50,10 @@
   function shortId(value) { return value ? `${String(value).slice(0, 8)}…` : "—"; }
   function label(value) { return STATUS_LABELS[value] || value || "—"; }
   function statusClass(value) {
-    if (["active", "authorized", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed"].includes(value)) return "is-green";
+    if (["active", "authorized", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed", "calibrated", "classified", "logo_ready"].includes(value)) return "is-green";
     if (["failed", "cancelled", "blocked", "changes_requested", "expired"].includes(value)) return "is-red";
     if (["running", "in_progress", "dispatched", "review_pending", "retrying"].includes(value)) return "is-blue";
-    if (["pending", "pending_dispatch", "reserved", "draft", "partial", "waiting"].includes(value)) return "is-amber";
+    if (["pending", "pending_dispatch", "reserved", "draft", "partial", "partially_classified", "partially_generated", "waiting"].includes(value)) return "is-amber";
     return "";
   }
   function tag(value) { return `<span class="tag ${statusClass(value)}">${esc(label(value))}</span>`; }
@@ -64,9 +65,10 @@
     return search.toString() ? `?${search}` : "";
   }
   async function api(path, options = {}) {
+    const isFormData = options.body instanceof FormData;
     const response = await fetch(path.startsWith("/api") ? path : `${API}${path}`, {
       ...options,
-      headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
+      headers: { ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
     });
     const text = await response.text();
     let data = null;
@@ -165,9 +167,14 @@
   function kpi(iconName, title, value, foot) { return `<article class="kpi"><div class="kpi-head"><span>${esc(title)}</span>${icon(iconName)}</div><div class="kpi-value">${Number(value || 0)}</div><div class="kpi-foot">${esc(foot)}</div></article>`; }
 
   async function showChannels() {
-    const channels = await api("/channels/overview"); state.channels = channels;
-    const rows = channels.map(item => `<tr><td><div class="identity-cell"><span class="avatar">${esc((item.display_name || "频").slice(0, 1))}</span><div><span class="cell-main">${esc(item.display_name)}</span><span class="cell-sub">${esc(item.original_name)}</span></div></div></td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(item.default_language || "—")}</td><td>${item.daily_publish_count}</td><td>${item.authorized_account_count ? tag("authorized") : tag("pending")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="channel-detail" data-id="${item.channel_id}">查看</button></div></td></tr>`);
-    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · 昵称优先显示`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "状态", ""], rows, 900) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
+    const [channels, logoProfiles] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles")]);
+    Object.assign(state, { channels, logoProfiles });
+    const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
+    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); return `<tr><td><div class="identity-cell"><span class="avatar">${esc((item.display_name || "频").slice(0, 1))}</span><div><span class="cell-main">${esc(item.display_name)}</span><span class="cell-sub">${esc(item.original_name)}</span></div></div></td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(item.default_language || "—")}</td><td>${item.daily_publish_count}</td><td>${item.authorized_account_count ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
+    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
+  }
+  function channelLogoForm(channel) {
+    return `<form class="form-grid" id="channelLogoForm"><input type="hidden" name="channel_id" value="${esc(channel.channel_id)}"><div class="field field-wide"><label>频道</label><input class="input" value="${esc(channel.display_name)}" disabled></div><div class="field"><label>左 Logo</label><input class="input" type="file" name="left_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field"><label>右 Logo</label><input class="input" type="file" name="right_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field field-wide"><label>tem 模板图</label><input class="input" type="file" name="template" accept="image/png,image/jpeg,image/webp" required></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("wand-sparkles")} 上传并自动校准</button></div></form>`;
   }
   function channelForm() {
     return `<form class="form-grid" id="channelForm"><div class="field field-wide"><label>原始频道名称</label><input class="input" name="original_name" required maxlength="255"></div><div class="field"><label>运营昵称</label><input class="input" name="operational_name" maxlength="255"></div><div class="field"><label>YouTube Channel ID</label><input class="input mono" name="youtube_channel_id" required maxlength="64"></div><div class="field"><label>目标国家/地区</label><input class="input" name="country_name_zh" required maxlength="120" placeholder="孟加拉国"></div><div class="field"><label>国家/地区代码</label><input class="input mono" name="country_code" required minlength="2" maxlength="2" placeholder="BD"></div><div class="field"><label>默认语言</label><input class="input" name="default_language" required placeholder="bn"></div><div class="field"><label>时区</label><input class="input mono" name="timezone" value="Asia/Shanghai" required></div><div class="field field-wide"><label>默认题材</label><input class="input" name="default_genre"></div><input type="hidden" name="daily_publish_count" value="0"><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存频道</button></div></form>`;
@@ -365,9 +372,13 @@
   }
 
   async function showMedia() {
-    const assets = await api("/media-assets");
+    const [workspace, batches, runs, assets] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets")]);
+    state.imageRuns = runs;
+    const batchOptions = batches.map(batch => `<option value="${batch.id}">${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
+    const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
+    const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
     const rows = assets.map(a => `<tr><td><span class="cell-main">${esc(a.original_filename || a.storage_key)}</span><span class="cell-sub mono">${esc(a.storage_key)}</span></td><td>${esc(a.asset_type)}</td><td>${esc(a.asset_role || "—")}</td><td>${esc(a.storage_provider)}</td><td>${tag(a.status)}</td><td>${fmtUtc(a.created_at)}</td></tr>`);
-    root.innerHTML = `<div class="page-stack">${section("素材资产", `${assets.length} 项素材元数据 · 文件状态以数据库为准`, rows.length ? table(["素材", "类型", "用途", "存储", "状态", "创建时间"], rows, 900) : empty("还没有素材资产", "封面、社区图和文档产物生成后会登记到素材资产表。"))}</div>`;
+    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${assets.length} 项素材元数据 · 文件状态以数据库为准`, rows.length ? table(["素材", "类型", "用途", "存储", "状态", "创建时间"], rows, 900) : empty("还没有素材资产", "封面、社区图和文档产物生成后会登记到素材资产表。"))}</div>`;
   }
 
   async function showSkills() {
@@ -392,7 +403,7 @@
     return items.length ? table(type === "status" ? ["时间", "实体", "实体 ID", "新状态", "原因", "执行者"] : ["时间", "动作", "实体", "实体 ID", "变更摘要", "执行者"], rows, 900) : empty("暂无日志", "数据库中尚无对应记录。");
   }
 
-  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
     return `<div class="settings-layout"><aside class="settings-tabs">${tabs}</aside><div class="settings-content">${body}</div></div>`;
@@ -415,6 +426,9 @@
       const templates = await api("/cadence-templates");
       state.cadenceTemplates = templates;
       body = `<header class="settings-content-head"><div><h2>档期配置</h2><p>统一维护1更至5更的当地视频时间、主辅档及社群发布间隔；单更仅使用主档。</p></div></header><div class="cadence-template-list">${templates.map(cadenceTemplateForm).join("")}</div>`;
+    } else if (state.settingsTab === "images") {
+      const workspace = await api("/settings/image-workspace");
+      body = `<header class="settings-content-head"><div><h2>图片目录</h2><p>相对路径以当前设备 ZHJ_SHARED_ROOT 为根；绝对路径只用于本机独立目录。</p></div></header><form id="imageWorkspaceForm" class="workspace-settings-form"><div class="field"><label>根目录</label><input class="input mono" name="root_path" value="${esc(workspace?.root_path || "images")}" required maxlength="1000"></div><button class="button button-primary" type="submit">${icon("save")} 保存目录</button></form>${workspace ? `<div class="setting-grid">${settingValue("当前设备解析路径", workspace.resolved_root, true)}${settingValue("系统素材（不随产物清理）", workspace.persistent_root, true)}${settingValue("用户产物（可重新生成）", workspace.output_root, true)}</div>` : ""}`;
     } else if (state.settingsTab === "runtime") {
       const data = await api("/settings/runtime");
       const environmentSwitch = data.can_switch_environment ? `<section class="environment-switch-panel"><div><strong>数据库环境</strong><span>切换后立即影响后续读取和写入；重启开发服务后默认回到开发库。</span></div><div class="environment-segmented" role="group" aria-label="数据库环境"><button class="environment-segment ${data.environment === "development" ? "is-active" : ""}" data-action="switch-database-environment" data-environment="development" ${data.environment === "development" ? "disabled" : ""}>开发环境</button><button class="environment-segment ${data.environment === "production" ? "is-active is-production" : ""}" data-action="switch-database-environment" data-environment="production" ${data.environment === "production" ? "disabled" : ""}>生产环境</button></div></section>` : "";
@@ -553,6 +567,7 @@
     const action = button.dataset.action, id = button.dataset.id;
     try {
       if (action === "add-channel") openModal("新增频道", channelForm());
+      else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
       else if (action === "add-drama") openModal("录入剧目", dramaForm());
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
       else if (action === "add-schedule") await openScheduleForm();
@@ -617,6 +632,15 @@
       else if (action === "view-demo-workorders") { state.date = state.demo?.batch?.start_date || localDate(); state.dateManuallySet = false; await loadView("workorders"); }
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }
       else if (action === "go-tasks") await loadView("workorders");
+      else if (action === "go-image-settings") { state.settingsTab = "images"; await loadView("settings"); }
+      else if (action === "generate-run-logo") { button.disabled = true; const run = await api(`/image-processing/runs/${id}/generate-logo`, { method: "POST" }); notify(`已生成 ${run.generated_files} 张 Logo 图`); await loadView("media", { preservePosition: true }); }
+      else if (action === "image-run-detail") {
+        const run = state.imageRuns.find(item => item.id === id);
+        if (run) {
+          const rows = run.items.map(item => `<tr><td>${esc(item.original_filename)}</td><td>${tag(item.match_status)}</td><td>${esc(item.image_role || "—")}</td><td class="mono">${esc(item.output_path || item.stored_path)}</td><td>${esc(item.error_message || "—")}</td></tr>`);
+          openDrawer(`${run.batch_number} 处理明细`, table(["原文件", "匹配", "图片位", "文件路径", "说明"], rows, 820));
+        }
+      }
       else if (action === "go-workorders") await loadView("workorders");
       else if (action === "go-schedules") await loadView("schedules");
       else if (action === "add-device") openModal("新增设备", deviceForm());
@@ -649,6 +673,23 @@
     event.preventDefault(); const form = event.target; const data = formData(form);
     try {
       if (form.id === "channelForm") { data.daily_publish_count = Number(data.daily_publish_count); data.country_code = data.country_code.toUpperCase(); for (const key of ["operational_name", "default_genre"]) if (!data[key]) data[key] = null; await api("/channels", { method: "POST", body: JSON.stringify(data) }); notify("频道已保存"); closeModal(); await loadView("channels"); }
+      if (form.id === "channelLogoForm") {
+        const payload = new FormData();
+        payload.append("left_logo", form.elements.left_logo.files[0]);
+        payload.append("right_logo", form.elements.right_logo.files[0]);
+        payload.append("template", form.elements.template.files[0]);
+        await api(`/channels/${data.channel_id}/logo-profile`, { method: "PUT", body: payload });
+        notify("Logo 素材已上传并自动校准"); closeModal(); await loadView("channels");
+      }
+      if (form.id === "imageWorkspaceForm") { await api("/settings/image-workspace", { method: "PUT", body: JSON.stringify({ root_path: data.root_path }) }); notify("图片目录已保存"); await loadView("settings"); }
+      if (form.id === "imageImportForm") {
+        const files = [...form.elements.folder_files.files, ...form.elements.image_files.files];
+        if (!files.length) throw new Error("请选择文件夹或图片");
+        const payload = new FormData(); payload.append("batch_id", data.batch_id);
+        files.forEach(file => payload.append("files", file, file.name));
+        const run = await api("/image-processing/import", { method: "POST", body: payload });
+        notify(`分类完成：匹配 ${run.matched_files}，未匹配 ${run.unmatched_files}`); await loadView("media", { preservePosition: true });
+      }
       if (form.matches(".cadence-template-form")) {
         const count = Number(form.dataset.cadenceCount), slots = [];
         for (let slotNumber = 1; slotNumber <= count; slotNumber += 1) slots.push({ slot_number: slotNumber, slot_type: data[`slot_${slotNumber}_type`], local_video_time: data[`slot_${slotNumber}_time`], engagement_offset_minutes: Number(data[`slot_${slotNumber}_offset`]) });

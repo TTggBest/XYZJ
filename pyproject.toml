@@ -11,6 +11,8 @@ dependencies = [
   "pymysql>=1.1,<2",
   "sqlalchemy>=2.0,<3",
   "uvicorn>=0.35,<1",
+  "pillow>=12.3.0",
+  "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]
