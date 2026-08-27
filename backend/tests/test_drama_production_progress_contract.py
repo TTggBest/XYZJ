@@ -1,8 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint, UniqueConstraint
 
 from zhiju import models
+from zhiju.app import app
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,3 +72,47 @@ def test_drama_progress_migration_follows_phase_one_head() -> None:
     assert "drama_production_states" in source
     assert "priority_tier" in source
     assert "drama_languages" in source
+
+
+def _state(*values: str) -> SimpleNamespace:
+    fields = (
+        "cloud_download_status",
+        "parameter_normalization_status",
+        "subtitle_extraction_status",
+        "guishou_upload_status",
+        "role_extraction_status",
+        "production_completion_status",
+    )
+    return SimpleNamespace(**dict(zip(fields, values, strict=True)))
+
+
+def test_progress_calculation_uses_fixed_six_node_order() -> None:
+    from zhiju.services.drama_progress import calculate_progress
+
+    assert calculate_progress(_state(*(["not_started"] * 6))) == (
+        0,
+        "not_started",
+        "cloud_download",
+    )
+    assert calculate_progress(
+        _state("completed", "completed", "in_progress", "not_started", "not_started", "not_started")
+    ) == (33, "in_progress", "subtitle_extraction")
+    assert calculate_progress(_state(*(["completed"] * 6))) == (100, "completed", None)
+
+
+def test_progress_validation_rejects_completed_node_after_unfinished_predecessor() -> None:
+    from zhiju.services.drama_progress import validate_progress_order
+
+    with pytest.raises(ValueError, match="统一参数"):
+        validate_progress_order(
+            _state("not_started", "completed", "not_started", "not_started", "not_started", "not_started")
+        )
+
+
+def test_drama_progress_routes_are_registered() -> None:
+    paths = TestClient(app).get("/openapi.json").json()["paths"]
+
+    assert "get" in paths["/api/v3/drama-production"]
+    assert {"get", "put"}.issubset(
+        paths["/api/v3/dramas/{drama_id}/production-state"]
+    )

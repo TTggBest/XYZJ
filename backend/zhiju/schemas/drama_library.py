@@ -4,6 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from zhiju.schemas.operations import DramaAliasRead, DramaCoreTermInput, DramaCoreTermRead
+from zhiju.schemas.drama_progress import DramaProductionStateRead
 
 
 DramaStatus = Literal["active", "expired", "blocked", "archived"]
@@ -135,5 +136,6 @@ class DramaLibraryDetail(DramaLibraryRow):
     core_terms: list[DramaCoreTermRead]
     languages: list[DramaLanguageCoverage]
     channels: list[DramaChannelPublication]
+    production_state: DramaProductionStateRead
     created_at: datetime
     updated_at: datetime

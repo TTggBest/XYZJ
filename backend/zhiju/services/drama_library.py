@@ -13,6 +13,7 @@ from zhiju.models import (
     Drama,
     DramaAlias,
     DramaCoreTerm,
+    DramaProductionState,
     DramaTranslation,
     Language,
     YoutubeVideo,
@@ -23,6 +24,7 @@ from zhiju.schemas.drama_library import (
     DramaLibraryWrite,
 )
 from zhiju.services.channel import NotFoundError
+from zhiju.services.drama_progress import production_state_payload
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.operations import normalize_drama_title
 
@@ -174,12 +176,16 @@ def get_drama_library_detail(session: Session, drama_id: str) -> dict[str, objec
         }
         for video, channel in channel_rows
     ]
+    production_state = session.scalar(
+        select(DramaProductionState).where(DramaProductionState.drama_id == drama.id)
+    )
     return {
         **drama.__dict__,
         "aliases": aliases,
         "core_terms": core_terms,
         "languages": languages,
         "channels": channels,
+        "production_state": production_state_payload(production_state, drama.id),
         "language_count": sum(item["translation_status"] != "missing" or item["asset_status"] != "missing" for item in languages),
         "published_channel_count": len({item["channel_id"] for item in channels}),
     }
