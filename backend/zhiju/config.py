@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     feishu_channel_master_sheet_id: str = "7b1e16"
     feishu_channel_info_sheet_id: str = "CMo2j2"
     feishu_channel_branding_sheet_id: str = "NYJWdE"
+    feishu_drama_wiki_token: str = "TzkWwanAAikv7pkOJcTcddiVnoh"
+    feishu_drama_sheet_title: str = "剧库表"
 
 
 @lru_cache

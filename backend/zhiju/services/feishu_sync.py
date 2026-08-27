@@ -22,6 +22,7 @@ from zhiju.models import (
     ChannelPublishSlot,
     ChannelScheduleEntry,
     Drama,
+    DramaAlias,
     FeishuSyncRun,
     OperationPackage,
     OperationTask,
@@ -168,7 +169,7 @@ class FeishuClient:
             raise FeishuSyncError(f"飞书接口失败：{result.get('msg') or result.get('code')}")
         return result
 
-    def rows(self, wiki_token: str, sheet_id: str, last_column: str) -> list[dict[str, str]]:
+    def _spreadsheet_access(self, wiki_token: str) -> tuple[str, str]:
         auth = self._request("POST", "/auth/v3/tenant_access_token/internal", payload={
             "app_id": self.app_id, "app_secret": self.app_secret,
         })
@@ -177,6 +178,31 @@ class FeishuClient:
         spreadsheet_token = ((node.get("data") or {}).get("node") or {}).get("obj_token")
         if not spreadsheet_token:
             raise FeishuSyncError("未能解析飞书表格标识")
+        return token, spreadsheet_token
+
+    def sheet_id_by_title(self, wiki_token: str, title: str) -> str:
+        token, spreadsheet_token = self._spreadsheet_access(wiki_token)
+        result = self._request(
+            "GET",
+            f"/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query?page_size=100",
+            token=token,
+        )
+        matches = [
+            sheet.get("sheet_id")
+            for sheet in ((result.get("data") or {}).get("sheets") or [])
+            if str(sheet.get("title") or "").strip() == title.strip()
+        ]
+        if len(matches) != 1 or not matches[0]:
+            raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
+        return str(matches[0])
+
+    def _rows_from_sheet(
+        self,
+        token: str,
+        spreadsheet_token: str,
+        sheet_id: str,
+        last_column: str,
+    ) -> list[dict[str, str]]:
         cell_range = quote(f"{sheet_id}!A1:{last_column}5000", safe="!")
         values = self._request(
             "GET",
@@ -195,12 +221,53 @@ class FeishuClient:
                 rows.append(row)
         return rows
 
+    def rows(self, wiki_token: str, sheet_id: str, last_column: str) -> list[dict[str, str]]:
+        token, spreadsheet_token = self._spreadsheet_access(wiki_token)
+        return self._rows_from_sheet(token, spreadsheet_token, sheet_id, last_column)
+
+    def rows_by_title(
+        self,
+        wiki_token: str,
+        title: str,
+        last_column: str,
+    ) -> tuple[str, list[dict[str, str]]]:
+        token, spreadsheet_token = self._spreadsheet_access(wiki_token)
+        result = self._request(
+            "GET",
+            f"/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query?page_size=100",
+            token=token,
+        )
+        matches = [
+            sheet.get("sheet_id")
+            for sheet in ((result.get("data") or {}).get("sheets") or [])
+            if str(sheet.get("title") or "").strip() == title.strip()
+        ]
+        if len(matches) != 1 or not matches[0]:
+            raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
+        sheet_id = str(matches[0])
+        return sheet_id, self._rows_from_sheet(token, spreadsheet_token, sheet_id, last_column)
+
 
 def _parse_date(value: str) -> date:
     normalized = re.sub(r"\D", "", value)
     if len(normalized) < 8:
         raise FeishuSyncError(f"日期格式不正确：{value}")
     return datetime.strptime(normalized[:8], "%Y%m%d").date()
+
+
+def parse_drama_expiry(value: str) -> datetime | None:
+    if not value.strip():
+        return None
+    return datetime.combine(_parse_date(value), time(23, 59, 59))
+
+
+def map_drama_status(value: str) -> str:
+    normalized = value.strip()
+    if normalized in {"", "制作"}:
+        return "active"
+    if normalized == "已删":
+        return "archived"
+    raise FeishuSyncError(f"未知剧库状态：{value}")
 
 
 def _parse_slot(value: str) -> tuple[date, time]:
@@ -678,7 +745,7 @@ def _sync_rows(session: Session, sync_type: str, rows: list[dict[str, str]], she
         raise FeishuSyncError(f"同步写入失败：{exc}") from exc
 
 
-def _client_rows(sheet_id: str, last_column: str) -> list[dict[str, str]]:
+def _client() -> FeishuClient:
     settings = get_settings()
     app_id, app_secret = settings.feishu_app_id, settings.feishu_app_secret
     if settings.env == "development" and (not app_id or not app_secret):
@@ -687,9 +754,12 @@ def _client_rows(sheet_id: str, last_column: str) -> list[dict[str, str]]:
             config = json.loads(config_path.read_text(encoding="utf-8"))
             app_id = str(config.get("app_id") or "")
             app_secret = str(config.get("app_secret") or "")
-    return FeishuClient(app_id, app_secret).rows(
-        settings.feishu_wiki_token, sheet_id, last_column,
-    )
+    return FeishuClient(app_id, app_secret)
+
+
+def _client_rows(sheet_id: str, last_column: str) -> list[dict[str, str]]:
+    settings = get_settings()
+    return _client().rows(settings.feishu_wiki_token, sheet_id, last_column)
 
 
 def sync_work_orders(session: Session) -> dict[str, object]:
@@ -702,6 +772,120 @@ def sync_operation_packages(session: Session) -> dict[str, object]:
     settings = get_settings()
     rows = _client_rows(settings.feishu_operation_package_sheet_id, OPERATION_PACKAGE_LAST_COLUMN)
     return _sync_rows(session, "operation_packages", rows, settings.feishu_operation_package_sheet_id)
+
+
+def sync_dramas(session: Session) -> dict[str, object]:
+    settings = get_settings()
+    sheet_id, rows = _client().rows_by_title(
+        settings.feishu_drama_wiki_token,
+        settings.feishu_drama_sheet_title,
+        "I",
+    )
+    now = datetime.now(timezone.utc)
+    run = FeishuSyncRun(
+        sync_type="dramas",
+        sheet_id=sheet_id,
+        environment=settings.env,
+        device_key=settings.device_key or None,
+        status="running",
+        started_at=now,
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    inserted = updated = skipped = 0
+    try:
+        prepared = []
+        normalized_seen: dict[str, int] = {}
+        for row in rows:
+            row_number = int(row.get("__source_row_number") or 0)
+            title = row.get("作品名称", "").strip()
+            if not title:
+                raise FeishuSyncError(f"飞书剧库第 {row_number} 行缺少作品名称")
+            normalized_title = normalize_drama_title(title)
+            previous_row = normalized_seen.get(normalized_title)
+            if previous_row is not None:
+                raise FeishuSyncError(f"飞书剧库第 {previous_row}、{row_number} 行作品名称重复：{title}")
+            normalized_seen[normalized_title] = row_number
+            prepared.append((row_number, normalized_title, {
+                "chinese_title": title,
+                "normalized_title": normalized_title,
+                "baidu_cloud_url": row.get("百度网盘链接", "").strip() or None,
+                "content_summary": row.get("内容概述", "").strip() or None,
+                "plot_archive": row.get("剧情档案", "").strip() or None,
+                "plot_pattern": row.get("剧情套路", "").strip() or None,
+                "core_personas": row.get("核心人设", "").strip() or None,
+                "expires_at": parse_drama_expiry(row.get("到期时间", "")),
+                "batch_name": row.get("批次", "").strip() or None,
+                "status": map_drama_status(row.get("状态", "")),
+                "source_type": "feishu",
+                "source_sheet_id": sheet_id,
+                "source_row_number": row_number,
+            }))
+
+        existing = {
+            drama.normalized_title: drama
+            for drama in session.scalars(select(Drama).where(Drama.normalized_title.in_(normalized_seen)))
+        }
+        aliases = set(session.scalars(select(DramaAlias.normalized_alias).where(DramaAlias.normalized_alias.in_(normalized_seen))))
+        for row_number, normalized_title, values in prepared:
+            drama = existing.get(normalized_title)
+            if drama is None:
+                if normalized_title in aliases:
+                    raise FeishuSyncError(f"飞书剧库第 {row_number} 行作品名称与现有别名冲突：{values['chinese_title']}")
+                drama = Drama(
+                    drama_code=f"DRM-{now:%Y%m%d}-{uuid.uuid4().hex[:8].upper()}",
+                    source_synced_at=now,
+                    **values,
+                )
+                session.add(drama)
+                existing[normalized_title] = drama
+                inserted += 1
+                continue
+            changed = False
+            for field, value in values.items():
+                if getattr(drama, field) != value:
+                    setattr(drama, field, value)
+                    changed = True
+            if changed:
+                drama.source_synced_at = now
+                updated += 1
+            else:
+                skipped += 1
+
+        run = session.get(FeishuSyncRun, run.id)
+        run.status = "completed"
+        run.rows_read = len(rows)
+        run.rows_inserted = inserted
+        run.rows_updated = updated
+        run.rows_skipped = skipped
+        run.completed_at = now
+        session.commit()
+        return {
+            "sync_type": "dramas",
+            "environment": settings.env,
+            "rows_read": len(rows),
+            "rows_inserted": inserted,
+            "rows_updated": updated,
+            "rows_skipped": skipped,
+            "latest_date": None,
+            "completed_at": run.completed_at,
+        }
+    except Exception as exc:
+        session.rollback()
+        failed_run = session.get(FeishuSyncRun, run.id)
+        if failed_run:
+            failed_run.status = "failed"
+            failed_run.rows_read = len(rows)
+            failed_run.rows_inserted = inserted
+            failed_run.rows_updated = updated
+            failed_run.rows_skipped = skipped
+            failed_run.error_message = str(exc)[:2000]
+            failed_run.completed_at = datetime.now(timezone.utc)
+            session.commit()
+        if isinstance(exc, FeishuSyncError):
+            raise
+        raise FeishuSyncError(f"剧库同步写入失败：{exc}") from exc
 
 
 def _sync_channel_profile(session: Session, channel: Channel, row: dict[str, str], branding: dict[str, str]) -> None:

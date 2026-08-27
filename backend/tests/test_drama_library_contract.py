@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -5,6 +6,7 @@ from sqlalchemy import CheckConstraint
 
 from zhiju.app import app
 from zhiju.models import Drama, FeishuSyncRun
+from zhiju.services import feishu_sync
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -67,3 +69,48 @@ def test_drama_library_summary_casts_boolean_counts_to_integers() -> None:
 
     assert 'cast(Drama.status == "active", Integer)' in source
     assert 'cast(Drama.status == "archived", Integer)' in source
+
+
+def test_drama_feishu_sync_route_is_registered() -> None:
+    paths = TestClient(app).get("/openapi.json").json()["paths"]
+
+    assert "post" in paths["/api/v3/feishu-sync/dramas"]
+
+
+def test_drama_feishu_value_mapping_uses_beijing_day_end() -> None:
+    parse_expiry = getattr(feishu_sync, "parse_drama_expiry", None)
+    map_status = getattr(feishu_sync, "map_drama_status", None)
+
+    assert callable(parse_expiry)
+    assert callable(map_status)
+    assert parse_expiry("2026-08-31") == datetime(2026, 8, 31, 23, 59, 59)
+    assert parse_expiry("") is None
+    assert map_status("制作") == "active"
+    assert map_status("") == "active"
+    assert map_status("已删") == "archived"
+
+
+def test_feishu_client_resolves_sheet_by_exact_title(monkeypatch) -> None:
+    resolver = getattr(feishu_sync.FeishuClient, "sheet_id_by_title", None)
+    assert callable(resolver)
+    client = feishu_sync.FeishuClient("app", "secret")
+
+    monkeypatch.setattr(
+        client,
+        "_spreadsheet_access",
+        lambda wiki_token: ("token", "spreadsheet"),
+    )
+    monkeypatch.setattr(
+        client,
+        "_request",
+        lambda method, path, token="", payload=None: {
+            "data": {
+                "sheets": [
+                    {"sheet_id": "OHTcqg", "title": "语言"},
+                    {"sheet_id": "b8b567", "title": "剧库表"},
+                ]
+            }
+        },
+    )
+
+    assert client.sheet_id_by_title("wiki", "剧库表") == "b8b567"
