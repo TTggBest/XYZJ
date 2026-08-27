@@ -1,10 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from zhiju.app import app
+import zhiju.database as database_module
 from zhiju.database import DatabaseRouter, read_database_url
 
 
@@ -47,18 +49,45 @@ def test_failed_connection_keeps_current_environment(tmp_path: Path) -> None:
     router.dispose()
 
 
-def test_database_switch_requires_builder_development_mode(tmp_path: Path) -> None:
+def test_database_switch_requires_builder_device(tmp_path: Path) -> None:
     router = DatabaseRouter(
         f"sqlite:///{tmp_path / 'development.db'}",
         initial_environment="development",
         production_url_loader=lambda: f"sqlite:///{tmp_path / 'production.db'}",
     )
 
-    with pytest.raises(PermissionError, match="仅代码机开发模式"):
+    with pytest.raises(PermissionError, match="仅代码机"):
         router.switch_environment("production", allow_switch=False)
 
     assert router.active_environment == "development"
     router.dispose()
+
+
+def test_builder_started_in_production_can_switch_to_development(tmp_path: Path) -> None:
+    development_url = f"sqlite:///{tmp_path / 'development.db'}"
+    production_url = f"sqlite:///{tmp_path / 'production.db'}"
+    router = DatabaseRouter(
+        production_url,
+        initial_environment="production",
+        development_url_loader=lambda: development_url,
+    )
+
+    router.switch_environment("development", allow_switch=True)
+
+    assert router.active_environment == "development"
+    with router.open_session() as session:
+        assert session.get_bind().url.database == str(tmp_path / "development.db")
+    router.dispose()
+
+
+def test_switch_permission_depends_on_builder_role_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        database_module,
+        "settings",
+        SimpleNamespace(env="production", device_role="builder"),
+    )
+
+    assert database_module.can_switch_database_environment() is True
 
 
 def test_read_database_url_uses_existing_runtime_config(tmp_path: Path) -> None:
