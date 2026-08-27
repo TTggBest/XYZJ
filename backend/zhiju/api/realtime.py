@@ -7,6 +7,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from zhiju.config import get_settings
+from zhiju.database import database_router
 from zhiju.realtime import broker, encode_sse, realtime_stream_url
 
 
@@ -19,6 +20,7 @@ def get_realtime_config() -> dict[str, object]:
     return {
         "enabled": True,
         "device_role": settings.device_role,
+        "environment": database_router.active_environment,
         "stream_url": realtime_stream_url(),
         "subscriber_count": broker.subscriber_count,
     }

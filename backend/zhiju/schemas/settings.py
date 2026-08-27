@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,6 +26,8 @@ class RuntimeOverview(BaseModel):
     system: str
     version: str
     environment: str
+    base_environment: str
+    can_switch_environment: bool
     host: str
     port: int
     database_host: str
@@ -39,6 +42,10 @@ class RuntimeOverview(BaseModel):
     python_version: str
     device_role: str
     realtime_hub_url: str
+
+
+class RuntimeEnvironmentUpdate(BaseModel):
+    environment: Literal["development", "production"]
 
 
 class AppIconUpload(BaseModel):
