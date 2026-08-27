@@ -114,3 +114,29 @@ def test_feishu_client_resolves_sheet_by_exact_title(monkeypatch) -> None:
     )
 
     assert client.sheet_id_by_title("wiki", "剧库表") == "b8b567"
+
+
+def test_drama_library_frontend_uses_paginated_workspace() -> None:
+    source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert 'api(`/dramas/library${query(' in source
+    assert 'data-action="sync-feishu-dramas"' in source
+    assert 'data-action="bulk-add-dramas"' in source
+    assert 'data-action="drama-library-page"' in source
+    assert 'data-drama-tab="languages"' in source
+    assert 'data-drama-tab="channels"' in source
+
+
+def test_drama_bulk_csv_route_and_parser_support_quoted_content() -> None:
+    paths = TestClient(app).get("/openapi.json").json()["paths"]
+    parser = getattr(__import__("zhiju.services.drama_library", fromlist=["parse_drama_csv"]), "parse_drama_csv", None)
+
+    assert "post" in paths["/api/v3/dramas/bulk-csv"]
+    assert callable(parser)
+    payload = parser(
+        '作品名称,内容概述,批次,状态\n'
+        '测试剧,"第一行,仍是同一字段\n第二行",B-01,制作\n'
+    )
+    assert payload.rows[0].chinese_title == "测试剧"
+    assert payload.rows[0].content_summary == "第一行,仍是同一字段\n第二行"
+    assert payload.rows[0].batch_name == "B-01"

@@ -20,8 +20,15 @@ class DramaLibraryWrite(BaseModel):
     batch_name: str | None = Field(default=None, max_length=120)
     status: DramaStatus = "active"
 
+    @field_validator("chinese_title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("中文剧名不能为空")
+        return normalized
+
     @field_validator(
-        "chinese_title",
         "baidu_cloud_url",
         "content_summary",
         "plot_archive",
@@ -30,7 +37,7 @@ class DramaLibraryWrite(BaseModel):
         "batch_name",
     )
     @classmethod
-    def normalize_text(cls, value: str | None) -> str | None:
+    def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()
@@ -44,6 +51,10 @@ class DramaLibraryUpdate(DramaLibraryWrite):
 
 class DramaLibraryBulkRequest(BaseModel):
     rows: list[DramaLibraryWrite] = Field(min_length=1, max_length=2000)
+
+
+class DramaLibraryCsvRequest(BaseModel):
+    content: str = Field(min_length=1)
 
 
 class DramaLibraryBulkRowResult(BaseModel):

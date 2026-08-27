@@ -35,8 +35,17 @@ class DramaCreate(BaseModel):
     plot_pattern: str | None = None
     core_personas: str | None = None
     expires_at: datetime | None = None
+    batch_name: str | None = Field(default=None, max_length=120)
     status: Literal["active", "expired", "blocked", "archived"] = "active"
     core_terms: list[DramaCoreTermInput] = Field(default_factory=list)
+
+    @field_validator("chinese_title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("中文剧名不能为空")
+        return normalized
 
 
 class DramaRead(BaseModel):
@@ -50,6 +59,10 @@ class DramaRead(BaseModel):
     plot_pattern: str | None
     core_personas: str | None
     expires_at: datetime | None
+    batch_name: str | None = None
+    source_type: str = "manual"
+    source_row_number: int | None = None
+    source_synced_at: datetime | None = None
     status: str
     aliases: list[DramaAliasRead]
     core_terms: list[DramaCoreTermRead]

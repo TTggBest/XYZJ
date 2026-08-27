@@ -7,6 +7,7 @@ from zhiju.database import get_db
 from zhiju.schemas.drama_library import (
     DramaLibraryBulkRequest,
     DramaLibraryBulkResult,
+    DramaLibraryCsvRequest,
     DramaLibraryDetail,
     DramaLibraryPage,
     DramaLibraryUpdate,
@@ -16,6 +17,7 @@ from zhiju.services.drama_library import (
     bulk_upsert_dramas,
     get_drama_library_detail,
     list_drama_library,
+    parse_drama_csv,
     update_drama_library_item,
 )
 from zhiju.services.identity import ConflictError
@@ -78,5 +80,16 @@ def post_library_bulk(
 ) -> DramaLibraryBulkResult:
     try:
         return bulk_upsert_dramas(session, payload)
+    except ConflictError as exc:
+        raise _raise(exc) from exc
+
+
+@router.post("/dramas/bulk-csv", response_model=DramaLibraryBulkResult, status_code=status.HTTP_201_CREATED)
+def post_library_bulk_csv(
+    payload: DramaLibraryCsvRequest,
+    session: Session = Depends(get_db),
+) -> DramaLibraryBulkResult:
+    try:
+        return bulk_upsert_dramas(session, parse_drama_csv(payload.content))
     except ConflictError as exc:
         raise _raise(exc) from exc

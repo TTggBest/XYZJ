@@ -1,4 +1,7 @@
-from datetime import datetime, timedelta, timezone
+import csv
+import io
+import re
+from datetime import datetime, time, timedelta, timezone
 from math import ceil
 
 from sqlalchemy import Integer, cast, distinct, func, or_, select
@@ -277,3 +280,43 @@ def bulk_upsert_dramas(session: Session, payload: DramaLibraryBulkRequest) -> di
         "rows_conflicted": 0,
         "results": results,
     }
+
+
+def parse_drama_csv(content: str) -> DramaLibraryBulkRequest:
+    reader = csv.DictReader(io.StringIO(content.lstrip("\ufeff")))
+    if not reader.fieldnames or "作品名称" not in reader.fieldnames:
+        raise ConflictError("CSV 缺少必要列：作品名称")
+    rows = []
+    for row_number, row in enumerate(reader, start=2):
+        title = (row.get("作品名称") or "").strip()
+        if not title:
+            raise ConflictError(f"CSV 第 {row_number} 行缺少作品名称")
+        expiry_text = (row.get("到期时间") or "").strip()
+        expires_at = None
+        if expiry_text:
+            normalized = re.sub(r"\D", "", expiry_text)
+            if len(normalized) < 8:
+                raise ConflictError(f"CSV 第 {row_number} 行到期时间格式不正确")
+            expires_at = datetime.combine(
+                datetime.strptime(normalized[:8], "%Y%m%d").date(),
+                time(23, 59, 59),
+            )
+        source_status = (row.get("状态") or "").strip()
+        status_map = {"": "active", "制作": "active", "已删": "archived", "启用": "active", "到期": "expired", "禁用": "blocked", "归档": "archived"}
+        status = status_map.get(source_status, source_status)
+        if status not in {"active", "expired", "blocked", "archived"}:
+            raise ConflictError(f"CSV 第 {row_number} 行状态不正确：{source_status}")
+        rows.append(DramaLibraryWrite(
+            chinese_title=title,
+            baidu_cloud_url=(row.get("百度网盘链接") or "").strip() or None,
+            content_summary=(row.get("内容概述") or "").strip() or None,
+            plot_archive=(row.get("剧情档案") or "").strip() or None,
+            plot_pattern=(row.get("剧情套路") or "").strip() or None,
+            core_personas=(row.get("核心人设") or "").strip() or None,
+            expires_at=expires_at,
+            batch_name=(row.get("批次") or "").strip() or None,
+            status=status,
+        ))
+    if not rows:
+        raise ConflictError("CSV 没有可录入的数据")
+    return DramaLibraryBulkRequest(rows=rows)

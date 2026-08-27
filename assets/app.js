@@ -18,7 +18,7 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], schedules: [], publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -200,13 +200,49 @@
     return `<form class="form-grid" id="channelForm"><div class="field field-wide"><label>原始频道名称</label><input class="input" name="original_name" required maxlength="255"></div><div class="field"><label>运营昵称</label><input class="input" name="operational_name" maxlength="255"></div><div class="field"><label>YouTube Channel ID</label><input class="input mono" name="youtube_channel_id" required maxlength="64"></div><div class="field"><label>目标国家/地区</label><input class="input" name="country_name_zh" required maxlength="120" placeholder="孟加拉国"></div><div class="field"><label>国家/地区代码</label><input class="input mono" name="country_code" required minlength="2" maxlength="2" placeholder="BD"></div><div class="field"><label>默认语言</label><input class="input" name="default_language" required placeholder="bn"></div><div class="field"><label>时区</label><input class="input mono" name="timezone" value="Asia/Shanghai" required></div><div class="field field-wide"><label>默认题材</label><input class="input" name="default_genre"></div><input type="hidden" name="daily_publish_count" value="0"><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存频道</button></div></form>`;
   }
 
-  async function showDramas() {
-    const dramas = await api("/dramas"); state.dramas = dramas;
-    const rows = dramas.map(item => `<tr><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub">${esc(item.aliases.map(a => a.alias).join("、") || "无别名")}</span></td><td class="mono">${esc(item.drama_number)}</td><td><span class="cell-main">${esc(item.content_summary || "尚未录入剧情简介")}</span></td><td>${item.core_terms.length}</td><td>${tag(item.status)}</td><td><button class="button button-secondary button-small" data-action="drama-detail" data-id="${item.id}">查看</button></td></tr>`);
-    root.innerHTML = `<div class="page-stack">${section("本地剧库", `${dramas.length} 部剧目 · 中文剧名完全匹配，别名独立维护`, rows.length ? table(["剧目", "剧库 ID", "剧情简介", "核心词", "状态", ""], rows, 850) : empty("剧库是空的", "录入中文剧名、别名、剧情与核心词，搜索节点会优先完全匹配剧库。", "add-drama", "录入剧目"), `<button class="button button-primary" data-action="add-drama">${icon("plus")} 录入剧目</button>`)}</div>`;
+  function dramaExpiryValue(value) { return value ? String(value).slice(0, 10) : ""; }
+  function dramaStatusOptions(current = "active") {
+    return [["active", "启用"], ["expired", "已到期"], ["blocked", "禁用"], ["archived", "已归档"]].map(([value, text]) => `<option value="${value}" ${current === value ? "selected" : ""}>${text}</option>`).join("");
   }
-  function dramaForm() {
-    return `<form class="form-grid" id="dramaForm"><div class="field field-wide"><label>中文剧名</label><input class="input" name="chinese_title" required maxlength="255"></div><div class="field field-wide"><label>别名（使用逗号分隔）</label><input class="input" name="aliases" placeholder="别名一, 别名二"></div><div class="field field-wide"><label>剧情简介</label><textarea class="textarea" name="content_summary"></textarea></div><div class="field field-wide"><label>核心词（使用逗号分隔）</label><input class="input" name="core_terms" placeholder="逆袭, 豪门, 复仇"></div><div class="field field-wide"><label>资源地址</label><input class="input" name="baidu_cloud_url" type="url"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存剧目</button></div></form>`;
+  async function showDramas() {
+    const params = { page: state.dramaLibraryPage, page_size: 30, search: state.dramaLibrarySearch, status: state.dramaLibraryStatus, batch_name: state.dramaLibraryBatch };
+    const data = await api(`/dramas/library${query(params)}`); state.dramaLibrary = data;
+    const offset = (data.page - 1) * data.page_size;
+    const rows = data.items.map((item, index) => `<tr><td class="serial-cell">${offset + index + 1}</td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)} · ${item.source_row_number ? `飞书第 ${item.source_row_number} 行` : "手工录入"}</span></td><td>${esc(item.batch_name || "—")}</td><td>${fmt(item.expires_at, true)}</td><td><span class="cell-summary">${esc(item.content_summary || "尚未录入")}</span></td><td>${item.language_count}</td><td>${item.published_channel_count}</td><td>${tag(item.status)}</td><td><button class="icon-button" title="查看剧目" aria-label="查看剧目" data-action="drama-detail" data-id="${item.id}">${icon("arrow-right")}</button></td></tr>`);
+    const filters = `<div class="drama-library-toolbar"><div class="field search-field"><label>搜索</label><input class="input" id="dramaLibrarySearch" value="${esc(state.dramaLibrarySearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>状态</label><select class="select" id="dramaLibraryStatus"><option value="">全部状态</option>${dramaStatusOptions(state.dramaLibraryStatus)}</select></div><div class="field"><label>批次</label><input class="input" id="dramaLibraryBatch" value="${esc(state.dramaLibraryBatch)}" placeholder="全部批次"></div><button class="button button-secondary" data-action="apply-drama-library-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div><button class="button button-secondary" data-action="sync-feishu-dramas">${icon("refresh-cw")} 同步飞书</button><button class="button button-secondary" data-action="bulk-add-dramas">${icon("file-up")} 批量录入</button><button class="button button-primary" data-action="add-drama">${icon("plus")} 新增剧目</button></div>`;
+    const pager = data.pages > 1 ? `<div class="pagination"><button class="button button-secondary button-small" data-action="drama-library-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${data.page} / ${data.pages} 页 · ${data.total} 条</span><button class="button button-secondary button-small" data-action="drama-library-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
+    const tableContent = rows.length
+      ? table(["序号", "剧目", "批次", "到期时间", "内容概述", "语言", "频道", "状态", ""], rows, 1280, "drama-library-table")
+      : empty("没有符合条件的剧目", "调整筛选条件，或从飞书同步剧库。");
+    const libraryContent = `<div class="section-body drama-filter-body">${filters}</div>${tableContent}${pager}`;
+    const summary = `${kpi("library", "总剧目", data.summary.total, "MySQL 剧目主档")}${kpi("circle-check", "启用", data.summary.active, "可用于新排期")}${kpi("calendar-clock", "30 天内到期", data.summary.expiring, "按北京时间计算")}${kpi("archive", "归档", data.summary.archived, "保留历史关系")}`;
+    root.innerHTML = `<div class="page-stack"><div class="drama-kpis">${summary}</div>${section("剧库总表", "飞书增量同步 · 剧目主档、语言覆盖与频道分布", libraryContent)}</div>`;
+  }
+  function dramaForm(drama = null) {
+    const aliases = (drama?.aliases || []).map(item => item.alias).join("，");
+    const terms = (drama?.core_terms || []).map(item => item.term).join("，");
+    return `<form class="form-grid" id="dramaForm"><input type="hidden" name="drama_id" value="${esc(drama?.id || "")}"><div class="field field-wide"><label>中文剧名</label><input class="input" name="chinese_title" value="${esc(drama?.chinese_title || "")}" required maxlength="255"></div><div class="field"><label>批次</label><input class="input" name="batch_name" value="${esc(drama?.batch_name || "")}" maxlength="120"></div><div class="field"><label>到期时间</label><input class="input" type="date" name="expires_at" value="${esc(dramaExpiryValue(drama?.expires_at))}"></div><div class="field field-wide"><label>百度网盘链接</label><input class="input" name="baidu_cloud_url" value="${esc(drama?.baidu_cloud_url || "")}" maxlength="1000"></div><div class="field field-wide"><label>内容概述</label><textarea class="textarea" name="content_summary">${esc(drama?.content_summary || "")}</textarea></div><div class="field field-wide"><label>剧情档案</label><textarea class="textarea textarea-tall" name="plot_archive">${esc(drama?.plot_archive || "")}</textarea></div><div class="field field-wide"><label>剧情套路</label><textarea class="textarea" name="plot_pattern">${esc(drama?.plot_pattern || "")}</textarea></div><div class="field field-wide"><label>核心人设</label><textarea class="textarea" name="core_personas">${esc(drama?.core_personas || "")}</textarea></div><div class="field field-wide"><label>别名（逗号分隔）</label><input class="input" name="aliases" value="${esc(aliases)}"></div><div class="field field-wide"><label>核心词（逗号分隔）</label><input class="input" name="core_terms" value="${esc(terms)}"></div><div class="field"><label>状态</label><select class="select" name="status">${dramaStatusOptions(drama?.status || "active")}</select></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存剧目</button></div></form>`;
+  }
+  function dramaBulkForm() {
+    return `<form class="form-grid" id="dramaBulkForm"><div class="field field-wide"><label>CSV 文件</label><input class="input" type="file" name="csv_file" accept=".csv,text/csv" required><span class="field-help">表头：作品名称、百度网盘链接、内容概述、剧情档案、剧情套路、核心人设、到期时间、批次、状态</span></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">开始录入</button></div></form>`;
+  }
+  function dramaDetailBody(drama, tab) {
+    const tabs = `<div class="detail-tabs"><button class="detail-tab ${tab === "basic" ? "is-active" : ""}" data-drama-tab="basic" data-action="drama-tab" data-id="${drama.id}">基本资料</button><button class="detail-tab ${tab === "languages" ? "is-active" : ""}" data-drama-tab="languages" data-action="drama-tab" data-id="${drama.id}">语言覆盖</button><button class="detail-tab ${tab === "channels" ? "is-active" : ""}" data-drama-tab="channels" data-action="drama-tab" data-id="${drama.id}">频道分布</button></div>`;
+    let body = "";
+    if (tab === "languages") {
+      const rows = drama.languages.map(item => `<tr><td>${esc(item.language_name_zh)}</td><td class="mono">${esc(item.language_code)}</td><td>${esc(item.translated_title || "—")}</td><td>${tag(item.translation_status)}</td><td>${tag(item.asset_status)}</td></tr>`);
+      body = rows.length ? table(["语言", "代码", "目标语言剧名", "翻译", "素材"], rows, 620) : empty("尚未配置语言", "语言清单建立后，这里会显示该剧的覆盖状态。");
+    } else if (tab === "channels") {
+      const rows = drama.channels.map(item => `<tr><td>${esc(item.channel_name)}</td><td class="mono">${esc(item.youtube_video_id)}</td><td><span class="cell-summary">${esc(item.video_title)}</span></td><td>${fmt(item.published_at)}</td><td>${tag(item.publish_status)}</td></tr>`);
+      body = rows.length ? table(["频道", "Video ID", "视频标题", "发布时间", "状态"], rows, 760) : empty("尚无频道发布记录", "YouTube 同步并关联剧目后会在这里显示。");
+    } else {
+      body = `<div class="detail-actions"><button class="button button-primary button-small" data-action="edit-drama" data-id="${drama.id}">${icon("pencil")} 编辑</button></div><div class="detail-grid"><div class="detail-item"><span>剧库编号</span><strong class="mono">${esc(drama.drama_code)}</strong></div><div class="detail-item"><span>批次</span><strong>${esc(drama.batch_name || "—")}</strong></div><div class="detail-item"><span>到期时间</span><strong>${fmt(drama.expires_at, true)}</strong></div><div class="detail-item"><span>状态</span><strong>${tag(drama.status)}</strong></div><div class="detail-item"><span>来源</span><strong>${drama.source_type === "feishu" ? `飞书第 ${drama.source_row_number} 行` : "手工录入"}</strong></div><div class="detail-item"><span>最后同步</span><strong>${fmt(drama.source_synced_at)}</strong></div></div>${[["百度网盘链接", drama.baidu_cloud_url], ["内容概述", drama.content_summary], ["剧情档案", drama.plot_archive], ["剧情套路", drama.plot_pattern], ["核心人设", drama.core_personas]].map(([title, value]) => `<div class="detail-block"><h3>${title}</h3><p>${esc(value || "尚未录入")}</p></div>`).join("")}<div class="detail-block"><h3>别名</h3><p>${esc(drama.aliases.map(item => item.alias).join("、") || "—")}</p></div>`;
+    }
+    return `${tabs}<div class="drama-detail-content">${body}</div>`;
+  }
+  async function showDramaDetail(id, tab = "basic") {
+    const drama = await api(`/dramas/${id}`); state.dramaDetail = drama; state.dramaDetailTab = tab;
+    openDrawer(drama.chinese_title, dramaDetailBody(drama, tab));
   }
 
   async function showSchedules() {
@@ -591,7 +627,22 @@
     try {
       if (action === "add-channel") openModal("新增频道", channelForm());
       else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
-      else if (action === "add-drama") openModal("录入剧目", dramaForm());
+      else if (action === "add-drama") openModal("新增剧目", dramaForm());
+      else if (action === "bulk-add-dramas") openModal("批量录入剧目", dramaBulkForm());
+      else if (action === "apply-drama-library-filters") {
+        state.dramaLibrarySearch = el("dramaLibrarySearch")?.value.trim() || "";
+        state.dramaLibraryStatus = el("dramaLibraryStatus")?.value || "";
+        state.dramaLibraryBatch = el("dramaLibraryBatch")?.value.trim() || "";
+        state.dramaLibraryPage = 1;
+        await loadView("dramas", { preservePosition: true });
+      }
+      else if (action === "drama-library-page") { state.dramaLibraryPage = Number(button.dataset.page); await loadView("dramas"); }
+      else if (action === "sync-feishu-dramas") {
+        button.disabled = true;
+        const result = await api("/feishu-sync/dramas", { method: "POST" });
+        notify(`飞书剧库同步完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`);
+        await loadView("dramas", { preservePosition: true });
+      }
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
       else if (action === "add-schedule") await openScheduleForm();
       else if (action === "go-publish-slots") await loadView("publishSlots");
@@ -650,7 +701,9 @@
       }
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
       else if (action === "channel-detail") { const data = await api(`/channels/${id}`); openDrawer(data.channel?.operational_name || data.channel?.original_name || "频道详情", `<pre class="code-preview">${esc(JSON.stringify(data, null, 2))}</pre>`); }
-      else if (action === "drama-detail") { const d = state.dramas.find(x => x.id === id); openDrawer(d?.chinese_title || "剧目详情", `<div class="detail-grid"><div class="detail-item"><span>剧库 ID</span><strong class="mono">${esc(d?.drama_number)}</strong></div><div class="detail-item"><span>状态</span><strong>${tag(d?.status)}</strong></div><div class="detail-item"><span>别名</span><strong>${esc(d?.aliases.map(a => a.alias).join("、") || "—")}</strong></div><div class="detail-item"><span>资源地址</span><strong>${esc(d?.baidu_cloud_url || "—")}</strong></div></div><div class="detail-block"><h3>剧情简介</h3><div class="detail-item"><strong>${esc(d?.content_summary || "尚未录入")}</strong></div></div><div class="detail-block"><h3>核心词</h3>${(d?.core_terms || []).map(t => `<span class="tag">${esc(t.term)}</span>`).join(" ") || "—"}</div>`); }
+      else if (action === "drama-detail") await showDramaDetail(id);
+      else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
+      else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
       else if (action === "skill-detail") await skillDetail(id);
       else if (action === "view-demo-workorders") { state.date = state.demo?.batch?.start_date || localDate(); state.dateManuallySet = false; await loadView("workorders"); }
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }
@@ -732,7 +785,21 @@
         await api(`/cadence-templates/${count}`, { method: "PUT", body: JSON.stringify({ slots }) });
         notify(`${count}更档期模板已保存`); await loadView("settings");
       }
-      if (form.id === "dramaForm") { data.aliases = data.aliases.split(/[,，]/).map(x => x.trim()).filter(Boolean); data.core_terms = data.core_terms.split(/[,，]/).map((term, index) => ({ term_type: "keyword", term: term.trim(), weight: Math.max(.1, 1 - index * .1), source: "manual" })).filter(x => x.term); data.status = "active"; await api("/dramas", { method: "POST", body: JSON.stringify(data) }); notify("剧目已入库"); closeModal(); await loadView("dramas"); }
+      if (form.id === "dramaForm") {
+        const dramaId = data.drama_id; delete data.drama_id;
+        data.aliases = data.aliases.split(/[,，]/).map(x => x.trim()).filter(Boolean);
+        data.core_terms = data.core_terms.split(/[,，]/).map((term, index) => ({ term_type: "keyword", term: term.trim(), weight: Math.max(.1, 1 - index * .1), source: "manual" })).filter(x => x.term);
+        for (const key of ["batch_name", "baidu_cloud_url", "content_summary", "plot_archive", "plot_pattern", "core_personas"]) if (!data[key]) data[key] = null;
+        data.expires_at = data.expires_at ? `${data.expires_at}T23:59:59` : null;
+        await api(dramaId ? `/dramas/${dramaId}` : "/dramas", { method: dramaId ? "PATCH" : "POST", body: JSON.stringify(data) });
+        notify(dramaId ? "剧目资料已更新" : "剧目已入库"); closeModal(); closeDrawer(); await loadView("dramas", { preservePosition: true });
+      }
+      if (form.id === "dramaBulkForm") {
+        const file = form.elements.csv_file.files[0];
+        if (!file) throw new Error("请选择 CSV 文件");
+        const result = await api("/dramas/bulk-csv", { method: "POST", body: JSON.stringify({ content: await file.text() }) });
+        notify(`批量录入完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`); closeModal(); await loadView("dramas", { preservePosition: true });
+      }
       if (form.id === "skillForm") { await api("/skills", { method: "POST", body: JSON.stringify(data) }); notify("Skill 已创建"); closeModal(); await loadView("skills"); }
       if (form.id === "scheduleForm") { const channelId = data.channel_id; delete data.channel_id; data.community_count = Number(data.community_count); data.priority = Number(data.priority); if (!data.playlist_id) data.playlist_id = null; data.idempotency_key = idempotency("schedule", channelId, data.drama_id, data.publish_date); await api(`/channels/${channelId}/schedules`, { method: "POST", body: JSON.stringify(data) }); notify("排期已保存"); closeModal(); state.date = data.publish_date; await loadView("schedules"); }
       if (form.id === "publishSlotForm") { const channelId = data.channel_id, slotId = data.publish_slot_id; delete data.channel_id; delete data.publish_slot_id; data.slot_number = Number(data.slot_number); const path = slotId ? `/channels/${channelId}/publish-slots/${slotId}` : `/channels/${channelId}/publish-slots`; await api(path, { method: slotId ? "PATCH" : "POST", body: JSON.stringify(data) }); notify("频道档期已保存"); closeModal(); await loadView("publishSlots"); }

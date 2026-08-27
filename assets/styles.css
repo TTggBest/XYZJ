@@ -195,6 +195,9 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .button-small { min-height: 29px; padding: 4px 9px; font-size: 12px; }
 
 .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.drama-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.drama-kpis .kpi { min-height: 88px; }
+.drama-kpis .kpi-value { margin-top: 9px; font-size: 25px; }
 .kpi { min-height: 108px; padding: 15px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .kpi-head { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
 .kpi-head svg { color: var(--green); }
@@ -203,6 +206,22 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .72fr); gap: 14px; }
 
 .table-wrap { overflow-x: auto; }
+.drama-filter-body { padding-bottom: 12px; }
+.drama-library-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 9px; }
+.drama-library-toolbar .search-field { min-width: 260px; flex: 1 1 320px; }
+.drama-library-table { max-height: calc(100vh - 330px); overflow: auto; }
+.drama-library-table .data-table thead { position: sticky; top: 0; z-index: 4; }
+.drama-library-table .data-table th { box-shadow: 0 1px 0 var(--line); }
+.cell-summary { display: -webkit-box; max-width: 360px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; }
+.pagination { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 9px 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.detail-tabs { display: flex; gap: 3px; padding: 0 0 12px; border-bottom: 1px solid var(--line); }
+.detail-tab { min-height: 34px; padding: 6px 12px; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; font-weight: 650; }
+.detail-tab:hover { color: var(--text); }
+.detail-tab.is-active { color: var(--green-dark); border-bottom-color: var(--green); }
+.drama-detail-content { padding-top: 14px; }
+.detail-actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.detail-block p { margin: 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field-help { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .cadence-table-wrap { max-height: calc(100vh - 210px); overflow: auto; }
 .cadence-table-wrap .data-table thead { position: sticky; top: 0; z-index: 4; }
 .cadence-table-wrap .data-table th { box-shadow: 0 1px 0 var(--line); }
