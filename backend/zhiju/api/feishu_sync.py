@@ -3,7 +3,14 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
 from zhiju.schemas.feishu_sync import FeishuSyncResult
-from zhiju.services.feishu_sync import FeishuSyncError, sync_channels, sync_dramas, sync_operation_packages, sync_work_orders
+from zhiju.services.feishu_sync import (
+    FeishuSyncError,
+    sync_channels,
+    sync_drama_languages,
+    sync_dramas,
+    sync_operation_packages,
+    sync_work_orders,
+)
 
 
 router = APIRouter(prefix="/v3/feishu-sync", tags=["feishu-sync"])
@@ -21,6 +28,14 @@ def post_channel_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
 def post_drama_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
     try:
         return sync_dramas(session)
+    except FeishuSyncError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/drama-languages", response_model=FeishuSyncResult)
+def post_drama_language_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+    try:
+        return sync_drama_languages(session)
     except FeishuSyncError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

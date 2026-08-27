@@ -23,7 +23,9 @@ from zhiju.models import (
     ChannelScheduleEntry,
     Drama,
     DramaAlias,
+    DramaTranslation,
     FeishuSyncRun,
+    Language,
     OperationPackage,
     OperationTask,
     PackageCommunityPost,
@@ -55,6 +57,29 @@ CHANNEL_LANGUAGE_CONFIG = {
     "阿拉伯语": ("ar", "SA", "沙特阿拉伯", "Asia/Riyadh"),
     "英语": ("en", "US", "美国", "America/New_York"),
     "俄语": ("ru", "RU", "俄罗斯", "Europe/Moscow"),
+}
+DRAMA_LANGUAGE_COLUMNS = {
+    "印地语 Hindi": ("hi", "印地语", "Hindi"),
+    "孟加拉语 Bengali": ("bn", "孟加拉语", "Bengali"),
+    "印尼语 Indonesian": ("id", "印度尼西亚语", "Indonesian"),
+    "菲律宾语 Filipino / Tagalog": ("fil", "菲律宾语", "Filipino / Tagalog"),
+    "西班牙语 Spanish": ("es", "西班牙语", "Spanish"),
+    "葡萄牙语 Brazilian Portuguese": ("pt-BR", "巴西葡萄牙语", "Brazilian Portuguese"),
+    "土耳其语 Turkish": ("tr", "土耳其语", "Turkish"),
+    "阿拉伯语 Arabic": ("ar", "阿拉伯语", "Arabic"),
+    "英语 English": ("en", "英语", "English"),
+    "俄语 Russian": ("ru", "俄语", "Russian"),
+    "泰语 Thai": ("th", "泰语", "Thai"),
+    "越南语 Vietnamese": ("vi", "越南语", "Vietnamese"),
+    "法语 French": ("fr", "法语", "French"),
+    "马来语 Malay": ("ms", "马来语", "Malay"),
+    "德语 German": ("de", "德语", "German"),
+    "乌尔都语 Urdu": ("ur", "乌尔都语", "Urdu"),
+    "意大利语 Italian": ("it", "意大利语", "Italian"),
+    "韩语 Korean": ("ko", "韩语", "Korean"),
+    "日语 Japanese": ("ja", "日语", "Japanese"),
+    "波兰语 Polish": ("pl", "波兰语", "Polish"),
+    "希腊语": ("el", "希腊语", None),
 }
 
 
@@ -246,6 +271,100 @@ class FeishuClient:
             raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
         sheet_id = str(matches[0])
         return sheet_id, self._rows_from_sheet(token, spreadsheet_token, sheet_id, last_column)
+
+    def matrix_by_title(
+        self,
+        wiki_token: str,
+        title: str,
+        last_column: str,
+    ) -> tuple[str, list[list[str]]]:
+        token, spreadsheet_token = self._spreadsheet_access(wiki_token)
+        result = self._request(
+            "GET",
+            f"/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query?page_size=100",
+            token=token,
+        )
+        matches = [
+            sheet.get("sheet_id")
+            for sheet in ((result.get("data") or {}).get("sheets") or [])
+            if str(sheet.get("title") or "").strip() == title.strip()
+        ]
+        if len(matches) != 1 or not matches[0]:
+            raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
+        sheet_id = str(matches[0])
+        cell_range = quote(f"{sheet_id}!A1:{last_column}5000", safe="!")
+        values = self._request(
+            "GET",
+            f"/sheets/v2/spreadsheets/{spreadsheet_token}/values/{cell_range}?valueRenderOption=FormattedValue",
+            token=token,
+        )
+        matrix = (((values.get("data") or {}).get("valueRange") or {}).get("values") or [])
+        return sheet_id, [[cell_text(value) for value in row] for row in matrix]
+
+
+def parse_language_matrix(matrix: list[list[str]]) -> dict[str, object]:
+    if len(matrix) < 2:
+        raise FeishuSyncError("飞书语言表缺少两行表头")
+    tiers, names = matrix[0], matrix[1]
+    languages = []
+    language_columns: list[tuple[int, str]] = []
+    seen_codes: set[str] = set()
+    for column_index in range(3, max(len(tiers), len(names))):
+        name = cell_text(names[column_index] if column_index < len(names) else "").strip()
+        if not name:
+            continue
+        definition = DRAMA_LANGUAGE_COLUMNS.get(name)
+        if definition is None:
+            raise FeishuSyncError(f"未知语言列：{name}")
+        code, name_zh, native_name = definition
+        if code in seen_codes:
+            raise FeishuSyncError(f"飞书语言表存在重复语言列：{name}")
+        tier = cell_text(tiers[column_index] if column_index < len(tiers) else "").strip()
+        if tier not in {"S", "A", "B", "C"}:
+            raise FeishuSyncError(f"语言 {name} 的优先级不正确：{tier or '空'}")
+        seen_codes.add(code)
+        language_columns.append((column_index, code))
+        languages.append({
+            "code": code,
+            "name_zh": name_zh,
+            "native_name": native_name,
+            "priority_tier": tier,
+        })
+    expected_codes = {definition[0] for definition in DRAMA_LANGUAGE_COLUMNS.values()}
+    if seen_codes != expected_codes:
+        missing = ", ".join(sorted(expected_codes - seen_codes))
+        raise FeishuSyncError(f"飞书语言表缺少语言列：{missing}")
+
+    dramas = []
+    seen_titles: dict[str, int] = {}
+    for source_row_number, raw in enumerate(matrix[2:], start=3):
+        if not any(cell_text(value).strip() for value in raw):
+            continue
+        title = cell_text(raw[0] if raw else "").strip()
+        if not title:
+            raise FeishuSyncError(f"飞书语言表第 {source_row_number} 行缺少作品名称")
+        normalized_title = normalize_drama_title(title)
+        previous_row = seen_titles.get(normalized_title)
+        if previous_row is not None:
+            raise FeishuSyncError(f"飞书语言表第 {previous_row}、{source_row_number} 行作品名称重复：{title}")
+        seen_titles[normalized_title] = source_row_number
+        covered_codes = set()
+        for column_index, code in language_columns:
+            value = cell_text(raw[column_index] if column_index < len(raw) else "").strip()
+            if value == "1":
+                covered_codes.add(code)
+            elif value:
+                raise FeishuSyncError(
+                    f"飞书语言表第 {source_row_number} 行语言 {code} 的值必须为 1 或空"
+                )
+        dramas.append({
+            "source_row_number": source_row_number,
+            "chinese_title": title,
+            "normalized_title": normalized_title,
+            "batch_name": cell_text(raw[2] if len(raw) > 2 else "").strip() or None,
+            "covered_codes": covered_codes,
+        })
+    return {"languages": languages, "dramas": dramas}
 
 
 def _parse_date(value: str) -> date:
@@ -886,6 +1005,137 @@ def sync_dramas(session: Session) -> dict[str, object]:
         if isinstance(exc, FeishuSyncError):
             raise
         raise FeishuSyncError(f"剧库同步写入失败：{exc}") from exc
+
+
+def sync_drama_languages(session: Session) -> dict[str, object]:
+    settings = get_settings()
+    sheet_id, matrix = _client().matrix_by_title(settings.feishu_drama_wiki_token, "语言", "X")
+    started_at = datetime.now(timezone.utc)
+    run = FeishuSyncRun(
+        sync_type="drama_languages",
+        sheet_id=sheet_id,
+        environment=settings.env,
+        device_key=settings.device_key or None,
+        status="running",
+        started_at=started_at,
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    inserted = updated = skipped = 0
+    rows_read = max(len(matrix) - 2, 0)
+    try:
+        payload = parse_language_matrix(matrix)
+        language_payloads = payload["languages"]
+        drama_payloads = payload["dramas"]
+        rows_read = len(drama_payloads)
+
+        normalized_titles = {item["normalized_title"] for item in drama_payloads}
+        dramas = {
+            drama.normalized_title: drama
+            for drama in session.scalars(select(Drama).where(Drama.normalized_title.in_(normalized_titles)))
+        }
+        missing = [item for item in drama_payloads if item["normalized_title"] not in dramas]
+        if missing:
+            first = missing[0]
+            raise FeishuSyncError(
+                f"飞书语言表第 {first['source_row_number']} 行剧目不在剧库中：{first['chinese_title']}"
+            )
+
+        existing_languages = {
+            language.code: language
+            for language in session.scalars(select(Language))
+        }
+        languages: dict[str, Language] = {}
+        for values in language_payloads:
+            code = values["code"]
+            language = existing_languages.get(code)
+            if language is None:
+                language = Language(**values, status="active")
+                session.add(language)
+            else:
+                for field, value in values.items():
+                    setattr(language, field, value)
+                language.status = "active"
+            languages[code] = language
+        session.flush()
+
+        drama_ids = [drama.id for drama in dramas.values()]
+        language_ids = [language.id for language in languages.values()]
+        translations = {
+            (translation.drama_id, translation.language_id): translation
+            for translation in session.scalars(select(DramaTranslation).where(
+                DramaTranslation.drama_id.in_(drama_ids),
+                DramaTranslation.language_id.in_(language_ids),
+            ))
+        }
+        synced_at = datetime.now(timezone.utc)
+        for drama_values in drama_payloads:
+            drama = dramas[drama_values["normalized_title"]]
+            covered_codes = drama_values["covered_codes"]
+            for code, language in languages.items():
+                translation = translations.get((drama.id, language.id))
+                if code in covered_codes:
+                    if translation is None:
+                        session.add(DramaTranslation(
+                            drama_id=drama.id,
+                            language_id=language.id,
+                            translation_status="ready",
+                            asset_status="ready",
+                            source_type="feishu",
+                            source_synced_at=synced_at,
+                        ))
+                        inserted += 1
+                    elif translation.source_type == "manual":
+                        skipped += 1
+                    elif translation.source_type == "feishu":
+                        if translation.translation_status != "ready" or translation.asset_status != "ready":
+                            translation.translation_status = "ready"
+                            translation.asset_status = "ready"
+                            translation.source_synced_at = synced_at
+                            updated += 1
+                        else:
+                            skipped += 1
+                elif translation is not None and translation.source_type == "feishu":
+                    session.delete(translation)
+                    updated += 1
+                elif translation is not None and translation.source_type == "manual":
+                    skipped += 1
+
+        completed_at = datetime.now(timezone.utc)
+        run = session.get(FeishuSyncRun, run.id)
+        run.status = "completed"
+        run.rows_read = rows_read
+        run.rows_inserted = inserted
+        run.rows_updated = updated
+        run.rows_skipped = skipped
+        run.completed_at = completed_at
+        session.commit()
+        return {
+            "sync_type": "drama_languages",
+            "environment": settings.env,
+            "rows_read": rows_read,
+            "rows_inserted": inserted,
+            "rows_updated": updated,
+            "rows_skipped": skipped,
+            "latest_date": None,
+            "completed_at": completed_at,
+        }
+    except Exception as exc:
+        session.rollback()
+        failed_run = session.get(FeishuSyncRun, run.id)
+        if failed_run:
+            failed_run.status = "failed"
+            failed_run.rows_read = rows_read
+            failed_run.rows_inserted = inserted
+            failed_run.rows_updated = updated
+            failed_run.rows_skipped = skipped
+            failed_run.error_message = str(exc)[:2000]
+            failed_run.completed_at = datetime.now(timezone.utc)
+            session.commit()
+        if isinstance(exc, FeishuSyncError):
+            raise
+        raise FeishuSyncError(f"剧目语言同步写入失败：{exc}") from exc
 
 
 def _sync_channel_profile(session: Session, channel: Channel, row: dict[str, str], branding: dict[str, str]) -> None:
