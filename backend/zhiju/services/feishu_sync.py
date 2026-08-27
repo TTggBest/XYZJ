@@ -246,7 +246,26 @@ def operation_package_completeness(row: dict[str, str]) -> tuple[bool, str | Non
         "封面16：9": len(_split_cover_blocks(row.get("封面16：9", ""))),
     }
     missing = [f"{name}需要3组，当前{count}组" for name, count in counts.items() if count != 3]
+    for field in ("播放列表", "说明", "说明翻译"):
+        if not row.get(field, "").strip():
+            missing.append(f"{field}不能为空")
+    community_count = int(row.get("是否需要社区") or 0)
+    for sequence in range(1, community_count + 1):
+        for field in (f"社群文案{sequence}", f"社群图描述{sequence}"):
+            if not row.get(field, "").strip():
+                missing.append(f"{field}不能为空")
     return (not missing, "；".join(missing) or None)
+
+
+def operation_package_sync_decision(
+    *,
+    existing_source_complete: bool,
+    incoming_source_complete: bool,
+    outputs_match: bool,
+) -> str:
+    if existing_source_complete and incoming_source_complete and outputs_match:
+        return "skip"
+    return "refresh"
 
 
 def _cover_prompt(block: str) -> str:
@@ -609,18 +628,20 @@ def _sync_rows(session: Session, sync_type: str, rows: list[dict[str, str]], she
                     )
                     for sequence, node_type in enumerate(NODE_SEQUENCE, start=1)
                 ])
+                outputs_match = False
             else:
                 package.batch_id = batch.id
                 package.ready_at = completed_at
-                if package.source_complete and source_complete:
+                outputs_match = _package_outputs_match(session, package, row, drama_publish_time)
+                if operation_package_sync_decision(
+                    existing_source_complete=package.source_complete,
+                    incoming_source_complete=source_complete,
+                    outputs_match=outputs_match,
+                ) == "skip":
                     skipped += 1
                     updated -= 1
                     continue
-                if package.source_complete and not source_complete:
-                    package.source_complete = False
-                    package.source_incomplete_reason = incomplete_reason
-                    continue
-            if not source_complete or not _package_outputs_match(session, package, row, drama_publish_time):
+            if not source_complete or not outputs_match:
                 _replace_package_outputs(session, package, channel, row, drama_publish_time)
             package.source_complete = source_complete
             package.source_incomplete_reason = incomplete_reason

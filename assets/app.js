@@ -586,6 +586,7 @@
       const box = el("logTable"), type = tab.dataset.logTab, items = JSON.parse(type === "status" ? box.dataset.events : box.dataset.audits); box.innerHTML = logTable(items, type); renderIcons(); return;
     }
     const button = event.target.closest("[data-action]"); if (!button) return;
+    if (button.closest(".source-incomplete")) return;
     const action = button.dataset.action, id = button.dataset.id;
     try {
       if (action === "add-channel") openModal("新增频道", channelForm());
