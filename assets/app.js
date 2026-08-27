@@ -11,14 +11,23 @@
     changes_requested: "需重做", delivered: "已交付", waiting: "等待中", in_progress: "进行中", succeeded: "已完成", skipped: "已跳过", retrying: "重试中",
     private: "私享", public: "公开", unlisted: "不公开", upload: "已上传", processed: "已处理", disabled: "停用", deprecated: "已弃用",
     missing: "缺失", partial: "部分就绪", expired: "已过期", blocked: "禁用", calibrated: "已校准",
-    processing: "处理中", classified: "分类完成", partially_classified: "部分匹配", logo_ready: "Logo 已生成", partially_generated: "部分生成"
+    processing: "处理中", classified: "分类完成", partially_classified: "部分匹配", logo_ready: "Logo 已生成", partially_generated: "部分生成",
+    not_started: "未开始"
   };
+  const DRAMA_PRODUCTION_NODES = [
+    ["cloud_download_status", "网盘下载"],
+    ["parameter_normalization_status", "统一参数"],
+    ["subtitle_extraction_status", "字幕提取"],
+    ["guishou_upload_status", "鬼手上传"],
+    ["role_extraction_status", "角色提取"],
+    ["production_completion_status", "制作完成"]
+  ];
   const VIEW_META = {
-    dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
+    dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -209,7 +218,7 @@
     const data = await api(`/dramas/library${query(params)}`); state.dramaLibrary = data;
     const offset = (data.page - 1) * data.page_size;
     const rows = data.items.map((item, index) => `<tr><td class="serial-cell">${offset + index + 1}</td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)} · ${item.source_row_number ? `飞书第 ${item.source_row_number} 行` : "手工录入"}</span></td><td>${esc(item.batch_name || "—")}</td><td>${fmt(item.expires_at, true)}</td><td><span class="cell-summary">${esc(item.content_summary || "尚未录入")}</span></td><td>${item.language_count}</td><td>${item.published_channel_count}</td><td>${tag(item.status)}</td><td><button class="icon-button" title="查看剧目" aria-label="查看剧目" data-action="drama-detail" data-id="${item.id}">${icon("arrow-right")}</button></td></tr>`);
-    const filters = `<div class="drama-library-toolbar"><div class="field search-field"><label>搜索</label><input class="input" id="dramaLibrarySearch" value="${esc(state.dramaLibrarySearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>状态</label><select class="select" id="dramaLibraryStatus"><option value="">全部状态</option>${dramaStatusOptions(state.dramaLibraryStatus)}</select></div><div class="field"><label>批次</label><input class="input" id="dramaLibraryBatch" value="${esc(state.dramaLibraryBatch)}" placeholder="全部批次"></div><button class="button button-secondary" data-action="apply-drama-library-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div><button class="button button-secondary" data-action="sync-feishu-dramas">${icon("refresh-cw")} 同步飞书</button><button class="button button-secondary" data-action="bulk-add-dramas">${icon("file-up")} 批量录入</button><button class="button button-primary" data-action="add-drama">${icon("plus")} 新增剧目</button></div>`;
+    const filters = `<div class="drama-library-toolbar"><div class="field search-field"><label>搜索</label><input class="input" id="dramaLibrarySearch" value="${esc(state.dramaLibrarySearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>状态</label><select class="select" id="dramaLibraryStatus"><option value="">全部状态</option>${dramaStatusOptions(state.dramaLibraryStatus)}</select></div><div class="field"><label>批次</label><input class="input" id="dramaLibraryBatch" value="${esc(state.dramaLibraryBatch)}" placeholder="全部批次"></div><button class="button button-secondary" data-action="apply-drama-library-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div><button class="button button-secondary" data-action="go-drama-progress">${icon("workflow")} 制剧进度</button><button class="button button-secondary" data-action="sync-feishu-dramas">${icon("refresh-cw")} 同步飞书</button><button class="button button-secondary" data-action="bulk-add-dramas">${icon("file-up")} 批量录入</button><button class="button button-primary" data-action="add-drama">${icon("plus")} 新增剧目</button></div>`;
     const pager = data.pages > 1 ? `<div class="pagination"><button class="button button-secondary button-small" data-action="drama-library-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${data.page} / ${data.pages} 页 · ${data.total} 条</span><button class="button button-secondary button-small" data-action="drama-library-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
     const tableContent = rows.length
       ? table(["序号", "剧目", "批次", "到期时间", "内容概述", "语言", "频道", "状态", ""], rows, 1280, "drama-library-table")
@@ -217,6 +226,22 @@
     const libraryContent = `<div class="section-body drama-filter-body">${filters}</div>${tableContent}${pager}`;
     const summary = `${kpi("library", "总剧目", data.summary.total, "MySQL 剧目主档")}${kpi("circle-check", "启用", data.summary.active, "可用于新排期")}${kpi("calendar-clock", "30 天内到期", data.summary.expiring, "按北京时间计算")}${kpi("archive", "归档", data.summary.archived, "保留历史关系")}`;
     root.innerHTML = `<div class="page-stack"><div class="drama-kpis">${summary}</div>${section("剧库总表", "飞书增量同步 · 剧目主档、语言覆盖与频道分布", libraryContent)}</div>`;
+  }
+  function productionStatusOptions(current = "") {
+    return [["", "全部状态"], ["not_started", "未开始"], ["in_progress", "进行中"], ["completed", "已完成"], ["failed", "失败"]].map(([value, text]) => `<option value="${value}" ${current === value ? "selected" : ""}>${text}</option>`).join("");
+  }
+  function productionNodeOptions(current = "") {
+    return `<option value="">全部节点</option>${DRAMA_PRODUCTION_NODES.map(([field, text]) => { const value = field.replace(/_status$/, ""); return `<option value="${value}" ${current === value ? "selected" : ""}>${text}</option>`; }).join("")}`;
+  }
+  async function showDramaProgress() {
+    const params = { page: state.dramaProgressPage, page_size: 30, search: state.dramaProgressSearch, batch_name: state.dramaProgressBatch, overall_status: state.dramaProgressStatus, current_node: state.dramaProgressNode };
+    const data = await api(`/drama-production${query(params)}`); state.dramaProgress = data;
+    const offset = (data.page - 1) * data.page_size;
+    const rows = data.items.map((item, index) => `<tr data-drama-progress-id="${item.drama_id}"><td class="serial-cell">${offset + index + 1}</td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}</span></td><td>${esc(item.batch_name || "—")}</td>${DRAMA_PRODUCTION_NODES.map(([field]) => `<td>${tag(item[field])}</td>`).join("")}<td>${progress(item.progress_percent)}</td><td>${fmt(item.updated_at)}</td><td><button class="icon-button" title="编辑制剧进度" aria-label="编辑制剧进度" data-action="edit-drama-progress" data-id="${item.drama_id}">${icon("pencil")}</button></td></tr>`);
+    const filters = `<div class="drama-library-toolbar"><button class="button button-secondary" data-action="back-drama-library">${icon("arrow-left")} 返回剧库</button><div class="field search-field"><label>搜索</label><input class="input" id="dramaProgressSearch" value="${esc(state.dramaProgressSearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>批次</label><input class="input" id="dramaProgressBatch" value="${esc(state.dramaProgressBatch)}" placeholder="全部批次"></div><div class="field"><label>整体状态</label><select class="select" id="dramaProgressStatus">${productionStatusOptions(state.dramaProgressStatus)}</select></div><div class="field"><label>当前节点</label><select class="select" id="dramaProgressNode">${productionNodeOptions(state.dramaProgressNode)}</select></div><button class="button button-primary" data-action="apply-drama-progress-filters">${icon("search")} 查询</button></div>`;
+    const pager = data.pages > 1 ? `<div class="pagination"><button class="button button-secondary button-small" data-action="drama-progress-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${data.page} / ${data.pages} 页 · ${data.total} 条</span><button class="button button-secondary button-small" data-action="drama-progress-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
+    const content = `<div class="section-body drama-filter-body">${filters}</div>${rows.length ? table(["序号", "剧目", "批次", ...DRAMA_PRODUCTION_NODES.map(([, text]) => text), "整体进度", "最后更新", ""], rows, 1540, "drama-progress-table") : empty("没有符合条件的剧目", "调整筛选条件后重试。")}${pager}`;
+    root.innerHTML = `<div class="page-stack">${section("制剧进度", "每部剧唯一一套进度 · 与语言覆盖无关", content)}</div>`;
   }
   function dramaForm(drama = null) {
     const aliases = (drama?.aliases || []).map(item => item.alias).join("，");
@@ -226,12 +251,22 @@
   function dramaBulkForm() {
     return `<form class="form-grid" id="dramaBulkForm"><div class="field field-wide"><label>CSV 文件</label><input class="input" type="file" name="csv_file" accept=".csv,text/csv" required><span class="field-help">表头：作品名称、百度网盘链接、内容概述、剧情档案、剧情套路、核心人设、到期时间、批次、状态</span></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">开始录入</button></div></form>`;
   }
+  function progressEditForm(dramaId, productionState) {
+    const options = current => [["not_started", "未开始"], ["in_progress", "进行中"], ["completed", "已完成"], ["failed", "失败"]].map(([value, text]) => `<option value="${value}" ${current === value ? "selected" : ""}>${text}</option>`).join("");
+    return `<form class="form-grid" id="dramaProgressForm"><input type="hidden" name="drama_id" value="${esc(dramaId)}">${DRAMA_PRODUCTION_NODES.map(([field, text]) => `<div class="field"><label>${text}</label><select class="select" name="${field}">${options(productionState[field])}</select></div>`).join("")}<div class="field"><label>剧集数</label><input class="input" type="number" min="0" name="episode_count" value="${esc(productionState.episode_count ?? "")}"></div><div class="field"><label>合集总时长（秒）</label><input class="input" type="number" min="0" name="total_duration_seconds" value="${esc(productionState.total_duration_seconds ?? "")}"></div><div class="field field-wide"><label>失败原因</label><textarea class="textarea" name="last_error">${esc(productionState.last_error || "")}</textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("save")} 保存进度</button></div></form>`;
+  }
   function dramaDetailBody(drama, tab) {
-    const tabs = `<div class="detail-tabs"><button class="detail-tab ${tab === "basic" ? "is-active" : ""}" data-drama-tab="basic" data-action="drama-tab" data-id="${drama.id}">基本资料</button><button class="detail-tab ${tab === "languages" ? "is-active" : ""}" data-drama-tab="languages" data-action="drama-tab" data-id="${drama.id}">语言覆盖</button><button class="detail-tab ${tab === "channels" ? "is-active" : ""}" data-drama-tab="channels" data-action="drama-tab" data-id="${drama.id}">频道分布</button></div>`;
+    const tabs = `<div class="detail-tabs"><button class="detail-tab ${tab === "basic" ? "is-active" : ""}" data-drama-tab="basic" data-action="drama-tab" data-id="${drama.id}">基本资料</button><button class="detail-tab ${tab === "production" ? "is-active" : ""}" data-drama-tab="production" data-action="drama-tab" data-id="${drama.id}">制剧进度</button><button class="detail-tab ${tab === "languages" ? "is-active" : ""}" data-drama-tab="languages" data-action="drama-tab" data-id="${drama.id}">语言覆盖</button><button class="detail-tab ${tab === "channels" ? "is-active" : ""}" data-drama-tab="channels" data-action="drama-tab" data-id="${drama.id}">频道分布</button></div>`;
     let body = "";
     if (tab === "languages") {
-      const rows = drama.languages.map(item => `<tr><td>${esc(item.language_name_zh)}</td><td class="mono">${esc(item.language_code)}</td><td>${esc(item.translated_title || "—")}</td><td>${tag(item.translation_status)}</td><td>${tag(item.asset_status)}</td></tr>`);
-      body = rows.length ? table(["语言", "代码", "目标语言剧名", "翻译", "素材"], rows, 620) : empty("尚未配置语言", "语言清单建立后，这里会显示该剧的覆盖状态。");
+      const groups = ["S", "A", "B", "C"].map(tier => {
+        const items = drama.languages.filter(item => item.priority_tier === tier);
+        return `<section class="language-tier"><header><strong>${tier} 级语言</strong><span>${items.filter(item => item.translation_status !== "missing" || item.asset_status !== "missing").length} / ${items.length}</span></header><div class="language-grid">${items.map(item => { const covered = item.translation_status !== "missing" || item.asset_status !== "missing"; return `<button class="language-toggle ${covered ? "is-covered" : ""}" data-action="toggle-drama-language" data-id="${drama.id}" data-language-id="${item.language_id}" data-covered="${covered ? "1" : "0"}"><span>${esc(item.language_name_zh)}</span><span class="mono">${esc(item.language_code)}</span><strong>${covered ? "已完成" : "未完成"}</strong>${item.source_type ? `<small>${item.source_type === "feishu" ? "飞书" : "人工"}</small>` : ""}</button>`; }).join("")}</div></section>`;
+      }).join("");
+      body = `<div class="detail-actions"><button class="button button-secondary button-small" data-action="sync-feishu-drama-languages" data-id="${drama.id}">${icon("refresh-cw")} 同步飞书语言</button></div>${groups || empty("尚未配置语言", "先同步飞书语言表。")}`;
+    } else if (tab === "production") {
+      const productionState = drama.production_state;
+      body = `<div class="detail-actions"><button class="button button-primary button-small" data-action="edit-drama-progress" data-id="${drama.id}">${icon("pencil")} 编辑进度</button></div><div class="production-node-grid">${DRAMA_PRODUCTION_NODES.map(([field, text]) => `<div class="detail-item"><span>${text}</span><strong>${tag(productionState[field])}</strong></div>`).join("")}</div><div class="detail-grid"><div class="detail-item"><span>整体进度</span><strong>${productionState.progress_percent}%</strong></div><div class="detail-item"><span>剧集数</span><strong>${productionState.episode_count ?? "—"}</strong></div><div class="detail-item"><span>合集总时长</span><strong>${productionState.total_duration_seconds == null ? "—" : `${productionState.total_duration_seconds} 秒`}</strong></div><div class="detail-item"><span>数据来源</span><strong>${productionState.source_type === "zhihe" ? "智核" : "人工"}</strong></div><div class="detail-item"><span>最近同步</span><strong>${fmt(productionState.source_synced_at)}</strong></div><div class="detail-item"><span>最后更新</span><strong>${fmt(productionState.updated_at)}</strong></div></div>${productionState.last_error ? `<div class="detail-block"><h3>失败原因</h3><p>${esc(productionState.last_error)}</p></div>` : ""}`;
     } else if (tab === "channels") {
       const rows = drama.channels.map(item => `<tr><td>${esc(item.channel_name)}</td><td class="mono">${esc(item.youtube_video_id)}</td><td><span class="cell-summary">${esc(item.video_title)}</span></td><td>${fmt(item.published_at)}</td><td>${tag(item.publish_status)}</td></tr>`);
       body = rows.length ? table(["频道", "Video ID", "视频标题", "发布时间", "状态"], rows, 760) : empty("尚无频道发布记录", "YouTube 同步并关联剧目后会在这里显示。");
@@ -533,7 +568,7 @@
     return `<form class="form-grid" id="credentialForm"><input type="hidden" name="account_id" value="${esc(accountId)}"><div class="field"><label>凭证类型</label><input class="input mono" name="credential_type" required placeholder="oauth / bot_token / api_key"></div><div class="field field-wide"><label>Secret 引用</label><input class="input mono" name="secret_reference" required placeholder="keychain://zhiju/feishu/main"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存引用</button></div></form>`;
   }
 
-  const renderers = { dashboard: showDashboard, channels: showChannels, dramas: showDramas, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings };
+  const renderers = { dashboard: showDashboard, channels: showChannels, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings };
   function captureViewPosition() {
     const topbarBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom || 0;
     const anchor = [...document.querySelectorAll(".package-card")].find(card => card.getBoundingClientRect().bottom > topbarBottom);
@@ -642,6 +677,33 @@
         const result = await api("/feishu-sync/dramas", { method: "POST" });
         notify(`飞书剧库同步完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`);
         await loadView("dramas", { preservePosition: true });
+      }
+      else if (action === "go-drama-progress") await loadView("dramaProgress");
+      else if (action === "back-drama-library") await loadView("dramas");
+      else if (action === "apply-drama-progress-filters") {
+        state.dramaProgressSearch = el("dramaProgressSearch")?.value.trim() || "";
+        state.dramaProgressBatch = el("dramaProgressBatch")?.value.trim() || "";
+        state.dramaProgressStatus = el("dramaProgressStatus")?.value || "";
+        state.dramaProgressNode = el("dramaProgressNode")?.value || "";
+        state.dramaProgressPage = 1;
+        await loadView("dramaProgress", { preservePosition: true });
+      }
+      else if (action === "drama-progress-page") { state.dramaProgressPage = Number(button.dataset.page); await loadView("dramaProgress"); }
+      else if (action === "edit-drama-progress") {
+        const productionState = await api(`/dramas/${id}/production-state`);
+        openModal("编辑制剧进度", progressEditForm(id, productionState));
+      }
+      else if (action === "sync-feishu-drama-languages") {
+        button.disabled = true;
+        const result = await api("/feishu-sync/drama-languages", { method: "POST" });
+        notify(`飞书语言同步完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`);
+        await showDramaDetail(id, "languages");
+      }
+      else if (action === "toggle-drama-language") {
+        const languageId = button.dataset.languageId;
+        if (button.dataset.covered === "1") await api(`/dramas/${id}/languages/${languageId}`, { method: "DELETE" });
+        else await api(`/dramas/${id}/languages/${languageId}`, { method: "PUT", body: JSON.stringify({ translation_status: "ready", asset_status: "ready" }) });
+        await showDramaDetail(id, "languages");
       }
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
       else if (action === "add-schedule") await openScheduleForm();
@@ -799,6 +861,16 @@
         if (!file) throw new Error("请选择 CSV 文件");
         const result = await api("/dramas/bulk-csv", { method: "POST", body: JSON.stringify({ content: await file.text() }) });
         notify(`批量录入完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`); closeModal(); await loadView("dramas", { preservePosition: true });
+      }
+      if (form.id === "dramaProgressForm") {
+        const dramaId = data.drama_id; delete data.drama_id;
+        data.episode_count = data.episode_count === "" ? null : Number(data.episode_count);
+        data.total_duration_seconds = data.total_duration_seconds === "" ? null : Number(data.total_duration_seconds);
+        data.last_error = data.last_error.trim() || null;
+        await api(`/dramas/${dramaId}/production-state`, { method: "PUT", body: JSON.stringify(data) });
+        notify("制剧进度已保存"); closeModal();
+        if (!el("drawerBackdrop").hidden && state.dramaDetail?.id === dramaId) await showDramaDetail(dramaId, "production");
+        if (state.view === "dramaProgress") await loadView("dramaProgress", { preservePosition: true });
       }
       if (form.id === "skillForm") { await api("/skills", { method: "POST", body: JSON.stringify(data) }); notify("Skill 已创建"); closeModal(); await loadView("skills"); }
       if (form.id === "scheduleForm") { const channelId = data.channel_id; delete data.channel_id; data.community_count = Number(data.community_count); data.priority = Number(data.priority); if (!data.playlist_id) data.playlist_id = null; data.idempotency_key = idempotency("schedule", channelId, data.drama_id, data.publish_date); await api(`/channels/${channelId}/schedules`, { method: "POST", body: JSON.stringify(data) }); notify("排期已保存"); closeModal(); state.date = data.publish_date; await loadView("schedules"); }

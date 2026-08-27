@@ -116,3 +116,24 @@ def test_drama_progress_routes_are_registered() -> None:
     assert {"get", "put"}.issubset(
         paths["/api/v3/dramas/{drama_id}/production-state"]
     )
+
+
+def test_manual_drama_language_routes_are_registered() -> None:
+    paths = TestClient(app).get("/openapi.json").json()["paths"]
+
+    assert {"put", "delete"}.issubset(
+        paths["/api/v3/dramas/{drama_id}/languages/{language_id}"]
+    )
+
+
+def test_frontend_exposes_progress_workspace_and_language_groups() -> None:
+    source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert 'dramaProgress: ["剧库", "制剧进度"]' in source
+    assert 'data-action="go-drama-progress"' in source
+    assert 'data-action="edit-drama-progress"' in source
+    assert 'data-action="sync-feishu-drama-languages"' in source
+    assert 'data-action="toggle-drama-language"' in source
+    for label in ("网盘下载", "统一参数", "字幕提取", "鬼手上传", "角色提取", "制作完成"):
+        assert label in source
+    assert '["S", "A", "B", "C"]' in source

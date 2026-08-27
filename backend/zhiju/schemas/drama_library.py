@@ -111,9 +111,19 @@ class DramaLanguageCoverage(BaseModel):
     language_id: str
     language_code: str
     language_name_zh: str
+    priority_tier: str | None
     translated_title: str | None
     translation_status: str
     asset_status: str
+    source_type: str | None
+    source_synced_at: datetime | None
+
+
+class DramaLanguageCoverageUpdate(BaseModel):
+    translated_title: str | None = Field(default=None, max_length=500)
+    translation_status: Literal["missing", "pending", "in_progress", "ready", "failed"] = "ready"
+    asset_status: Literal["missing", "partial", "ready", "expired"] = "ready"
+    resource_uri: str | None = Field(default=None, max_length=1000)
 
 
 class DramaChannelPublication(BaseModel):

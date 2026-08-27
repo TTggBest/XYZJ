@@ -20,6 +20,7 @@ from zhiju.models import (
 )
 from zhiju.schemas.drama_library import (
     DramaLibraryBulkRequest,
+    DramaLanguageCoverageUpdate,
     DramaLibraryUpdate,
     DramaLibraryWrite,
 )
@@ -152,9 +153,12 @@ def get_drama_library_detail(session: Session, drama_id: str) -> dict[str, objec
             "language_id": language.id,
             "language_code": language.code,
             "language_name_zh": language.name_zh,
+            "priority_tier": language.priority_tier,
             "translated_title": translation.translated_title if translation else None,
             "translation_status": translation.translation_status if translation else "missing",
             "asset_status": translation.asset_status if translation else "missing",
+            "source_type": translation.source_type if translation else None,
+            "source_synced_at": translation.source_synced_at if translation else None,
         }
         for language, translation in language_rows
     ]
@@ -189,6 +193,64 @@ def get_drama_library_detail(session: Session, drama_id: str) -> dict[str, objec
         "language_count": sum(item["translation_status"] != "missing" or item["asset_status"] != "missing" for item in languages),
         "published_channel_count": len({item["channel_id"] for item in channels}),
     }
+
+
+def upsert_drama_language(
+    session: Session,
+    drama_id: str,
+    language_id: str,
+    payload: DramaLanguageCoverageUpdate,
+) -> dict[str, object]:
+    _require_drama(session, drama_id)
+    language = session.get(Language, language_id)
+    if language is None or language.status != "active":
+        raise NotFoundError("语言不存在")
+    translation = session.scalar(select(DramaTranslation).where(
+        DramaTranslation.drama_id == drama_id,
+        DramaTranslation.language_id == language_id,
+    ))
+    values = payload.model_dump()
+    if translation is None:
+        translation = DramaTranslation(
+            drama_id=drama_id,
+            language_id=language_id,
+            source_type="manual",
+            **values,
+        )
+        session.add(translation)
+    else:
+        for field, value in values.items():
+            setattr(translation, field, value)
+        translation.source_type = "manual"
+        translation.source_synced_at = None
+    _audit(session, "drama.language_updated", "drama", drama_id, f"language={language.code}")
+    session.commit()
+    return {
+        "language_id": language.id,
+        "language_code": language.code,
+        "language_name_zh": language.name_zh,
+        "priority_tier": language.priority_tier,
+        "translated_title": translation.translated_title,
+        "translation_status": translation.translation_status,
+        "asset_status": translation.asset_status,
+        "source_type": translation.source_type,
+        "source_synced_at": translation.source_synced_at,
+    }
+
+
+def delete_drama_language(session: Session, drama_id: str, language_id: str) -> None:
+    _require_drama(session, drama_id)
+    language = session.get(Language, language_id)
+    if language is None:
+        raise NotFoundError("语言不存在")
+    translation = session.scalar(select(DramaTranslation).where(
+        DramaTranslation.drama_id == drama_id,
+        DramaTranslation.language_id == language_id,
+    ))
+    if translation is not None:
+        session.delete(translation)
+        _audit(session, "drama.language_deleted", "drama", drama_id, f"language={language.code}")
+        session.commit()
 
 
 def _assert_title_available(session: Session, normalized_title: str, drama_id: str | None = None) -> None:

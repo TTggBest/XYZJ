@@ -11,13 +11,17 @@ from zhiju.schemas.drama_library import (
     DramaLibraryDetail,
     DramaLibraryPage,
     DramaLibraryUpdate,
+    DramaLanguageCoverage,
+    DramaLanguageCoverageUpdate,
 )
 from zhiju.services.channel import NotFoundError
 from zhiju.services.drama_library import (
     bulk_upsert_dramas,
+    delete_drama_language,
     get_drama_library_detail,
     list_drama_library,
     parse_drama_csv,
+    upsert_drama_language,
     update_drama_library_item,
 )
 from zhiju.services.identity import ConflictError
@@ -70,6 +74,37 @@ def patch_library_item(
     try:
         return update_drama_library_item(session, drama_id, payload)
     except (NotFoundError, ConflictError) as exc:
+        raise _raise(exc) from exc
+
+
+@router.put(
+    "/dramas/{drama_id}/languages/{language_id}",
+    response_model=DramaLanguageCoverage,
+)
+def put_drama_language(
+    drama_id: str,
+    language_id: str,
+    payload: DramaLanguageCoverageUpdate,
+    session: Session = Depends(get_db),
+) -> DramaLanguageCoverage:
+    try:
+        return upsert_drama_language(session, drama_id, language_id, payload)
+    except NotFoundError as exc:
+        raise _raise(exc) from exc
+
+
+@router.delete(
+    "/dramas/{drama_id}/languages/{language_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_drama_language(
+    drama_id: str,
+    language_id: str,
+    session: Session = Depends(get_db),
+) -> None:
+    try:
+        delete_drama_language(session, drama_id, language_id)
+    except NotFoundError as exc:
         raise _raise(exc) from exc
 
 
