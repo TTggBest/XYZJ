@@ -167,10 +167,10 @@
   function kpi(iconName, title, value, foot) { return `<article class="kpi"><div class="kpi-head"><span>${esc(title)}</span>${icon(iconName)}</div><div class="kpi-value">${Number(value || 0)}</div><div class="kpi-foot">${esc(foot)}</div></article>`; }
 
   async function showChannels() {
-    const [channels, logoProfiles] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles")]);
-    Object.assign(state, { channels, logoProfiles });
+    const [channels, logoProfiles, oauthStatus] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles"), api("/settings/youtube-oauth")]);
+    Object.assign(state, { channels, logoProfiles, oauthStatus });
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
-    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); return `<tr><td><div class="identity-cell"><span class="avatar">${esc((item.display_name || "频").slice(0, 1))}</span><div><span class="cell-main">${esc(item.display_name)}</span><span class="cell-sub">${esc(item.original_name)}</span></div></div></td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(item.default_language || "—")}</td><td>${item.daily_publish_count}</td><td>${item.authorized_account_count ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
+    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td><div class="identity-cell"><span class="avatar">${esc((item.display_name || "频").slice(0, 1))}</span><div><span class="cell-main">${esc(item.display_name)}</span><span class="cell-sub">${esc(item.original_name)}</span></div></div></td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(item.default_language || "—")}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
     root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
   }
   function channelLogoForm(channel) {
@@ -450,7 +450,7 @@
       const iconPanel = `<section class="app-icon-panel"><img src="${esc(appIcon.preview_url)}" alt="当前智矩应用图标"><div class="app-icon-copy"><h3>应用图标</h3><p>当前来源：${appIcon.source_type === "custom" ? "自定义上传" : "系统默认"} · 更新于 ${fmtUtc(appIcon.applied_at)}</p><p class="mono">${esc(appIcon.desktop_app_path)}</p><form id="appIconForm" class="app-icon-form"><input class="input" type="file" name="icon_file" accept="image/png,image/jpeg" required><button class="button button-primary" type="submit">${icon("upload")} 上传并应用</button><button class="button button-secondary" type="button" data-action="restore-default-icon">恢复默认图标</button></form><span class="settings-muted">请选择至少 512×512 的正方形 PNG 或 JPEG，最大 10 MB。系统会自动生成透明圆角、安全边距和桌面阴影。</span></div></section>`;
       body = `<header class="settings-content-head"><div><h2>运行包打包</h2><p>构建不含业务数据和密钥的仅代码生产运行包；所有运行包固定为 production。</p></div><button class="button button-primary" data-action="build-runtime-package">${icon("package-plus")} 构建生产运行包</button></header>${iconPanel}<div class="settings-subhead"><h3>构建历史</h3></div>${packages.length ? table(["版本", "状态", "目标环境", "文件", "大小", "完成时间", "下载"], rows, 980) : empty("还没有运行包", "点击构建后，只保留版本和构建结果记录。", "build-runtime-package", "构建生产运行包")}`;
     } else {
-      const [integrations, googleAccounts, oauthGrants] = await Promise.all([api("/integrations"), api("/accounts"), api("/oauth-grants")]);
+      const [integrations, googleAccounts, oauthGrants, youtubeOAuth] = await Promise.all([api("/integrations"), api("/accounts"), api("/oauth-grants"), api("/settings/youtube-oauth")]);
       const integrationCards = await Promise.all(integrations.map(async integration => {
         const accounts = await api(`/integrations/${integration.id}/accounts`);
         const accountCards = await Promise.all(accounts.map(async account => {
@@ -461,7 +461,9 @@
         return `<section class="integration-card"><header><div><h3>${esc(integration.name)}</h3><p>${esc(integration.provider_type)} · ${esc(integration.code)}</p></div>${tag(integration.status)}</header>${accountCards.join("") || `<p class="settings-muted">尚未绑定账号</p>`}<button class="button button-secondary button-small" data-action="add-integration-account" data-id="${integration.id}">${icon("user-plus")} 添加账号</button></section>`;
       }));
       const youtubeRows = googleAccounts.map(account => `<div class="credential-row"><div><strong>${esc(account.nickname)}</strong><span>${esc(account.google_email)} · ${oauthGrants.filter(grant => grant.account_id === account.id).length} 个授权</span></div>${tag(account.authorization_status)}</div>`).join("");
-      body = `<header class="settings-content-head"><div><h2>第三方凭证</h2><p>统一管理外部服务账号与 Secret 引用，不保存或显示密钥明文。</p></div><button class="button button-primary" data-action="add-integration">${icon("plus")} 新增服务</button></header><div class="integration-grid"><section class="integration-card"><header><div><h3>YouTube OAuth</h3><p>Google 主账号与授权状态</p></div>${tag(googleAccounts.length ? "active" : "pending")}</header>${youtubeRows || `<p class="settings-muted">尚未登记 YouTube 授权账号</p>`}</section>${integrationCards.join("")}</div>`;
+      const clientDetails = youtubeOAuth.configured ? `<div class="credential-row"><div><strong>Google OAuth 客户端</strong><span>${esc(youtubeOAuth.project_id || "未命名项目")} · ${esc(youtubeOAuth.client_type || "—")}</span><span class="mono">${esc(youtubeOAuth.redirect_uri || "—")}</span><span class="mono">${esc(youtubeOAuth.credential_ref || "—")}</span></div>${tag("active")}</div>` : `<p class="settings-muted">尚未导入 Google OAuth 客户端凭证</p>`;
+      const importButton = youtubeOAuth.can_manage && youtubeOAuth.legacy_file_available ? `<button class="button button-secondary button-small" data-action="import-legacy-youtube-oauth">${icon("download")} ${youtubeOAuth.configured ? "重新导入旧版凭证" : "导入旧版凭证"}</button>` : "";
+      body = `<header class="settings-content-head"><div><h2>第三方凭证</h2><p>统一管理外部服务账号与 Secret 引用，不保存或显示密钥明文。</p></div><button class="button button-primary" data-action="add-integration">${icon("plus")} 新增服务</button></header><div class="integration-grid"><section class="integration-card"><header><div><h3>YouTube OAuth</h3><p>Google OAuth 客户端、主账号与频道授权</p></div>${tag(youtubeOAuth.configured ? "active" : "pending")}</header>${clientDetails}${importButton}${youtubeRows || `<p class="settings-muted">尚未登记 YouTube 授权账号</p>`}</section>${integrationCards.join("")}</div>`;
     }
     root.innerHTML = `<div class="page-stack">${settingsLayout(body)}</div>`;
   }
@@ -656,6 +658,19 @@
       }
       else if (action === "build-runtime-package") { button.disabled = true; await api("/runtime-packages/build", { method: "POST" }); notify("运行包构建完成"); await loadView("settings"); }
       else if (action === "restore-default-icon") { await api("/settings/app-icon/restore-default", { method: "POST" }); notify("默认应用图标已恢复"); await loadView("settings"); }
+      else if (action === "import-legacy-youtube-oauth") {
+        button.disabled = true;
+        await api("/settings/youtube-oauth/import-legacy", { method: "POST" });
+        notify("旧版 Google OAuth 凭证已导入钥匙串");
+        await loadView("settings", { preservePosition: true });
+      }
+      else if (action === "authorize-youtube-channel") {
+        button.disabled = true;
+        const authorization = await api(`/channels/${id}/youtube-authorization/start`, { method: "POST" });
+        const popup = window.open(authorization.authorization_url, "zhiju-youtube-oauth", "popup,width=680,height=780");
+        if (!popup) throw new Error("浏览器阻止了授权窗口，请允许此站点打开弹窗");
+        popup.focus();
+      }
       else if (action === "add-integration") openModal("新增第三方服务", integrationForm());
       else if (action === "add-integration-account") openModal("添加第三方账号", integrationAccountForm(id));
       else if (action === "add-credential") openModal("添加凭证引用", credentialForm(id));
@@ -721,6 +736,15 @@
     connectRealtime();
   });
   window.addEventListener("pagehide", closeRealtime);
+  window.addEventListener("message", async event => {
+    if (event.origin !== window.location.origin || !event.data?.type?.startsWith("youtube-auth-")) return;
+    if (event.data.type === "youtube-auth-complete") {
+      notify(event.data.message || "YouTube频道授权完成");
+      await loadView(state.view, { preservePosition: true });
+    } else {
+      notify(event.data.message || "YouTube频道授权失败", true);
+    }
+  });
 
   if (localStorage.getItem("zhiju.nav.collapsed") === "1" && window.innerWidth > 760) el("appShell").classList.add("is-collapsed");
   checkHealth(); loadView("dashboard"); connectRealtime(); renderIcons();

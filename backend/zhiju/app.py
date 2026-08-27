@@ -19,6 +19,7 @@ from zhiju.api.demo import router as demo_router
 from zhiju.api.realtime import router as realtime_router
 from zhiju.api.feishu_sync import router as feishu_sync_router
 from zhiju.api.image_processing import router as image_processing_router
+from zhiju.api.youtube_oauth import router as youtube_oauth_router
 from zhiju.realtime import build_change_event, publish_change_event
 
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(identity_router, prefix="/api")
     app.include_router(integration_router, prefix="/api")
     app.include_router(image_processing_router, prefix="/api")
+    app.include_router(youtube_oauth_router, prefix="/api")
     app.include_router(channel_router, prefix="/api")
     app.include_router(operations_router, prefix="/api")
     app.include_router(production_router, prefix="/api")
