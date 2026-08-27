@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-from zhiju.config import get_settings
+from zhiju.config import APP_ROOT, get_settings
 
 
 PRODUCTION_CONFIG_CANDIDATES = (
@@ -35,6 +35,16 @@ def load_production_database_url() -> str:
     raise FileNotFoundError("未找到智矩生产配置，请确认 XYData/XYZJ 已挂载")
 
 
+def load_development_database_url() -> str:
+    path = APP_ROOT / ".env"
+    if not path.is_file():
+        raise FileNotFoundError(f"未找到代码机开发配置：{path}")
+    database_url = read_database_url(path)
+    if make_url(database_url).database != "zhiju_dev":
+        raise ValueError(f"代码机开发配置未指向 zhiju_dev：{path}")
+    return database_url
+
+
 def _create_database_engine(database_url: str) -> Engine:
     options: dict[str, object] = {"pool_pre_ping": True}
     url = make_url(database_url)
@@ -51,12 +61,14 @@ class DatabaseRouter:
         database_url: str,
         *,
         initial_environment: str,
+        development_url_loader: Callable[[], str] = load_development_database_url,
         production_url_loader: Callable[[], str] = load_production_database_url,
     ) -> None:
         environment = "production" if initial_environment == "production" else "development"
         engine = _create_database_engine(database_url)
         self._lock = RLock()
         self._active_environment = environment
+        self._development_url_loader = development_url_loader
         self._production_url_loader = production_url_loader
         self._engines = {environment: engine}
         self._session_factories = {
@@ -84,7 +96,7 @@ class DatabaseRouter:
 
     def switch_environment(self, environment: str, *, allow_switch: bool) -> None:
         if not allow_switch:
-            raise PermissionError("仅代码机开发模式允许切换数据库环境")
+            raise PermissionError("仅代码机允许切换数据库环境")
         if environment not in {"development", "production"}:
             raise ValueError("数据库环境只能是 development 或 production")
 
@@ -95,14 +107,18 @@ class DatabaseRouter:
 
         created_engine = False
         if engine is None:
-            if environment != "production":
-                raise RuntimeError("当前进程没有开发数据库配置")
             try:
-                database_url = self._production_url_loader()
+                loader = (
+                    self._production_url_loader
+                    if environment == "production"
+                    else self._development_url_loader
+                )
+                database_url = loader()
                 engine = _create_database_engine(database_url)
                 created_engine = True
             except Exception as exc:
-                raise RuntimeError(f"生产数据库配置读取失败：{exc}") from exc
+                label = "生产" if environment == "production" else "开发"
+                raise RuntimeError(f"{label}数据库配置读取失败：{exc}") from exc
 
         try:
             with engine.connect() as connection:
@@ -138,7 +154,7 @@ database_router = DatabaseRouter(
 
 
 def can_switch_database_environment() -> bool:
-    return settings.env == "development" and settings.device_role == "builder"
+    return settings.device_role == "builder"
 
 
 def get_db() -> Generator[Session, None, None]:
