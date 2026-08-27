@@ -59,6 +59,13 @@ def create_app() -> FastAPI:
             await publish_change_event(build_change_event(request))
         return response
 
+    @app.middleware("http")
+    async def revalidate_frontend_files(request, call_next):
+        response = await call_next(request)
+        if request.url.path in {"/", "/assets/app.js", "/assets/styles.css"}:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.get("/", include_in_schema=False)
     def root() -> FileResponse:
         return FileResponse(frontend_root / "index.html")
