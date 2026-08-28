@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from zhiju.schemas.operations import (
     CadenceTemplateUpdate,
     ChannelCadenceOverview,
     ChannelCadenceUpdate,
+    ChannelSchedulePage,
     CommunitySlotCreate,
     CommunitySlotRead,
     CommunitySlotStatusChange,
@@ -57,6 +59,7 @@ from zhiju.services.operations import (
     list_schedulable_dramas,
     list_schedules,
     list_schedule_overview,
+    list_channel_schedule_page,
     list_schedule_candidates,
     match_drama,
     select_schedule_candidate,
@@ -367,6 +370,25 @@ def get_schedules(
 @router.get("/schedules/eligible-dramas", response_model=list[DramaRead])
 def get_schedulable_dramas(session: Session = Depends(get_db)) -> list[DramaRead]:
     return list_schedulable_dramas(session)
+
+
+@router.get("/schedules/channel-view", response_model=ChannelSchedulePage)
+def get_channel_schedule_page(
+    channel_id: str,
+    query: str | None = None,
+    sort_order: Literal["asc", "desc"] = "asc",
+    page: int = Query(default=1, ge=1),
+    page_size: Literal[50, 100, 150] = 50,
+    session: Session = Depends(get_db),
+) -> ChannelSchedulePage:
+    return list_channel_schedule_page(
+        session,
+        channel_id=channel_id,
+        query=query,
+        sort_order=sort_order,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/schedules/overview", response_model=list[ScheduleOverview])
