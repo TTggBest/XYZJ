@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -8,6 +9,9 @@ from zhiju import models
 from zhiju.app import app
 from zhiju.database import database_router
 from zhiju.services import operations
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_channel_schedule_page_supports_search_sort_and_total() -> None:
@@ -132,3 +136,32 @@ def test_channel_schedule_page_route_restricts_page_sizes() -> None:
         params={"channel_id": "missing", "page_size": 60},
     )
     assert response.status_code == 422
+
+
+def test_schedule_frontend_has_full_channel_view_and_read_only_sync_controls() -> None:
+    source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    for marker in (
+        "频道完整排期",
+        "按日查看",
+        "sync-feishu-channel-schedules",
+        "scheduleFullSearch",
+        "scheduleFullSortOrder",
+        "scheduleFullPageSize",
+        'value="50"',
+        'value="100"',
+        'value="150"',
+        "Video ID / 链接",
+        "已上传",
+        "已上线",
+        "已写任务",
+        "数据来源",
+        "同步时间",
+    ):
+        assert marker in source
+    assert 'api("/feishu-sync/channel-schedules", { method: "POST" })' in source
+    assert "window.confirm" in source
+
+    styles = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+    assert ".channel-schedule-table" in styles
+    assert "overflow-y: visible" in styles
