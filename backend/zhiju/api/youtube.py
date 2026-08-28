@@ -29,7 +29,6 @@ from zhiju.schemas.youtube import (
     SyncWatermarkRead,
     VideoDailyMetricRead,
     VideoDailyMetricUpsert,
-    VideoDramaBindingUpdate,
     VideoRead,
     VideoUpsert,
 )
@@ -37,7 +36,6 @@ from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError
 from zhiju.services.youtube import (
     complete_sync,
-    bind_video_to_drama,
     create_comment_reply,
     list_breakdowns,
     list_api_requests,
@@ -153,18 +151,6 @@ def get_videos(
 def post_video(payload: VideoUpsert, session: Session = Depends(get_db)) -> VideoRead:
     try:
         return upsert_video(session, payload)
-    except (NotFoundError, ConflictError) as exc:
-        raise _raise(exc) from exc
-
-
-@router.patch("/videos/{video_id}/drama-binding", response_model=VideoRead)
-def patch_video_drama_binding(
-    video_id: str,
-    payload: VideoDramaBindingUpdate,
-    session: Session = Depends(get_db),
-) -> VideoRead:
-    try:
-        return bind_video_to_drama(session, video_id, payload.drama_id)
     except (NotFoundError, ConflictError) as exc:
         raise _raise(exc) from exc
 

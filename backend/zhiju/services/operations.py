@@ -17,6 +17,7 @@ from zhiju.models import (
     Drama,
     DramaAlias,
     DramaCoreTerm,
+    DramaProductionState,
     DramaTranslation,
     Language,
     OperationTask,
@@ -98,6 +99,58 @@ def create_drama(session: Session, payload: DramaCreate) -> dict[str, object]:
 def list_dramas(session: Session) -> list[dict[str, object]]:
     dramas = list(session.scalars(select(Drama).order_by(Drama.created_at.desc())))
     return [_drama_payload(session, drama) for drama in dramas]
+
+
+SCHEDULABLE_PRODUCTION_FIELDS = (
+    "cloud_download_status",
+    "parameter_normalization_status",
+    "youtube_upload_status",
+    "copyright_verification_status",
+    "subtitle_extraction_status",
+    "guishou_upload_status",
+    "role_extraction_status",
+    "tts_status",
+    "production_completion_status",
+)
+
+
+def _is_schedulable_drama(drama: Drama, production_state: DramaProductionState | None) -> bool:
+    expires_at = drama.expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return bool(
+        drama.status == "active"
+        and (expires_at is None or expires_at > datetime.now(timezone.utc))
+        and production_state is not None
+        and not production_state.is_production_excluded
+        and all(getattr(production_state, field) == "completed" for field in SCHEDULABLE_PRODUCTION_FIELDS)
+    )
+
+
+def list_schedulable_dramas(session: Session) -> list[dict[str, object]]:
+    rows = session.execute(
+        select(Drama, DramaProductionState)
+        .join(DramaProductionState, DramaProductionState.drama_id == Drama.id)
+        .where(
+            Drama.status == "active",
+            DramaProductionState.is_production_excluded.is_(False),
+            *(getattr(DramaProductionState, field) == "completed" for field in SCHEDULABLE_PRODUCTION_FIELDS),
+        )
+        .order_by(Drama.drama_number)
+    ).all()
+    return [_drama_payload(session, drama) for drama, state in rows if _is_schedulable_drama(drama, state)]
+
+
+def _require_schedulable_drama(session: Session, drama_id: str, *, missing_message: str = "剧目不存在") -> Drama:
+    drama = session.get(Drama, drama_id)
+    if drama is None:
+        raise NotFoundError(missing_message)
+    production_state = session.scalar(
+        select(DramaProductionState).where(DramaProductionState.drama_id == drama.id)
+    )
+    if not _is_schedulable_drama(drama, production_state):
+        raise ConflictError("只有制剧全部完成且未标记不制作的剧目才能排期")
+    return drama
 
 
 def match_drama(session: Session, title: str) -> dict[str, object] | None:
@@ -759,15 +812,7 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
             raise ConflictError("幂等键已被其他频道使用")
         return existing
     _active_channel(session, channel_id, lock=True)
-    drama = session.get(Drama, payload.drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
-    now = datetime.now(timezone.utc)
-    expires_at = drama.expires_at
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if drama.status != "active" or (expires_at and expires_at <= now):
-        raise ConflictError("剧目不是可排期状态或已经到期")
+    drama = _require_schedulable_drama(session, payload.drama_id)
     slot = session.get(ChannelPublishSlot, payload.publish_slot_id)
     if slot is None or slot.channel_id != channel_id or slot.status != "active":
         raise ConflictError("发布时间档位无效或不属于当前频道")
@@ -968,15 +1013,11 @@ def create_schedule_candidate(
     payload: ScheduleCandidateCreate,
 ) -> dict[str, object]:
     _require_open_schedule(session, schedule_id)
-    drama = session.get(Drama, payload.drama_id)
-    if drama is None:
-        raise NotFoundError("候选剧目不存在")
-    now = datetime.now(timezone.utc)
-    expires_at = drama.expires_at
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if drama.status != "active" or (expires_at and expires_at <= now):
-        raise ConflictError("候选剧目不是可排期状态或已经到期")
+    drama = _require_schedulable_drama(
+        session,
+        payload.drama_id,
+        missing_message="候选剧目不存在",
+    )
     candidate = ScheduleCandidate(
         schedule_id=schedule_id,
         drama_id=payload.drama_id,
@@ -1032,15 +1073,12 @@ def select_schedule_candidate(
         raise NotFoundError("排期候选剧目不存在")
     if selected.status != "available":
         raise ConflictError("只有可用候选剧目可以被选择")
-    drama = session.get(Drama, selected.drama_id)
-    if drama is None:
-        raise NotFoundError("候选剧目不存在")
+    drama = _require_schedulable_drama(
+        session,
+        selected.drama_id,
+        missing_message="候选剧目不存在",
+    )
     now = datetime.now(timezone.utc)
-    expires_at = drama.expires_at
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if drama.status != "active" or (expires_at and expires_at <= now):
-        raise ConflictError("候选剧目已经不可用或到期")
     previous = next((item for item in candidates if item.status == "selected"), None)
     old_drama_id = schedule.drama_id
     if previous is not None:

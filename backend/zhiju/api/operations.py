@@ -54,6 +54,7 @@ from zhiju.services.operations import (
     list_playlists,
     list_publish_slot_overview,
     list_publish_slots,
+    list_schedulable_dramas,
     list_schedules,
     list_schedule_overview,
     list_schedule_candidates,
@@ -361,6 +362,11 @@ def get_schedules(
         publish_date_to=date_to,
         status=schedule_status,
     )
+
+
+@router.get("/schedules/eligible-dramas", response_model=list[DramaRead])
+def get_schedulable_dramas(session: Session = Depends(get_db)) -> list[DramaRead]:
+    return list_schedulable_dramas(session)
 
 
 @router.get("/schedules/overview", response_model=list[ScheduleOverview])
