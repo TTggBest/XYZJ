@@ -12,3 +12,7 @@ class FeishuSyncResult(BaseModel):
     rows_skipped: int
     latest_date: date | None
     completed_at: datetime
+    metadata_rows_read: int | None = None
+    metadata_rows_inserted: int | None = None
+    metadata_rows_updated: int | None = None
+    metadata_rows_skipped: int | None = None

@@ -23,6 +23,7 @@ from zhiju.models import (
     ChannelScheduleEntry,
     Drama,
     DramaAlias,
+    DramaProductionState,
     DramaTranslation,
     FeishuSyncRun,
     Language,
@@ -899,6 +900,120 @@ def new_drama_rows_in_insert_order(
     return list(reversed(rows))
 
 
+def parse_operation_duration(value: str, *, row_number: int) -> int | None:
+    normalized = value.strip()
+    if not normalized:
+        return None
+    parts = normalized.split(":")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        raise FeishuSyncError(f"飞书操作表第 {row_number} 行时长格式不正确：{value}")
+    hours, minutes, seconds = (int(part) for part in parts)
+    if minutes >= 60 or seconds >= 60:
+        raise FeishuSyncError(f"飞书操作表第 {row_number} 行时长格式不正确：{value}")
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def sync_drama_operation_metadata(
+    session: Session,
+    *,
+    now: datetime,
+) -> dict[str, int]:
+    settings = get_settings()
+    _, matrix = _client().matrix_by_title(
+        settings.feishu_drama_wiki_token,
+        "操作表",
+        "S",
+    )
+    if not matrix:
+        raise FeishuSyncError("飞书操作表为空")
+    header = [cell_text(value).strip() for value in matrix[0]]
+    try:
+        title_index = header.index("剧名")
+        duration_index = header.index("时长")
+        episode_index = header.index("集数")
+    except ValueError as exc:
+        raise FeishuSyncError("飞书操作表缺少剧名、时长或集数列") from exc
+
+    prepared: list[tuple[str, int | None, int | None]] = []
+    normalized_seen: dict[str, int] = {}
+    rows_read = 0
+    for row_number, row in enumerate(matrix[1:], start=2):
+        title = cell_text(row[title_index] if title_index < len(row) else "").strip()
+        if not title:
+            continue
+        rows_read += 1
+        normalized_title = normalize_drama_title(title)
+        previous_row = normalized_seen.get(normalized_title)
+        if previous_row is not None:
+            raise FeishuSyncError(
+                f"飞书操作表第 {previous_row}、{row_number} 行剧名重复：{title}"
+            )
+        normalized_seen[normalized_title] = row_number
+        duration_text = cell_text(
+            row[duration_index] if duration_index < len(row) else ""
+        )
+        episode_text = cell_text(
+            row[episode_index] if episode_index < len(row) else ""
+        ).strip()
+        if episode_text and not episode_text.isdigit():
+            raise FeishuSyncError(
+                f"飞书操作表第 {row_number} 行集数格式不正确：{episode_text}"
+            )
+        prepared.append((
+            normalized_title,
+            int(episode_text) if episode_text else None,
+            parse_operation_duration(duration_text, row_number=row_number),
+        ))
+
+    dramas = {
+        drama.normalized_title: drama
+        for drama in session.scalars(
+            select(Drama).where(Drama.normalized_title.in_(normalized_seen))
+        )
+    }
+    states = {
+        state.drama_id: state
+        for state in session.scalars(
+            select(DramaProductionState).where(
+                DramaProductionState.drama_id.in_([drama.id for drama in dramas.values()])
+            )
+        )
+    }
+    inserted = updated = skipped = 0
+    for normalized_title, episode_count, duration_seconds in prepared:
+        drama = dramas.get(normalized_title)
+        if drama is None or (episode_count is None and duration_seconds is None):
+            skipped += 1
+            continue
+        state = states.get(drama.id)
+        created = state is None
+        if state is None:
+            state = DramaProductionState(drama_id=drama.id)
+            session.add(state)
+            states[drama.id] = state
+            inserted += 1
+        changed = False
+        if episode_count is not None and state.episode_count != episode_count:
+            state.episode_count = episode_count
+            changed = True
+        if duration_seconds is not None and state.total_duration_seconds != duration_seconds:
+            state.total_duration_seconds = duration_seconds
+            changed = True
+        if changed:
+            state.source_synced_at = now
+            if not created:
+                updated += 1
+        elif not created:
+            skipped += 1
+
+    return {
+        "rows_read": rows_read,
+        "rows_inserted": inserted,
+        "rows_updated": updated,
+        "rows_skipped": skipped,
+    }
+
+
 def sync_dramas(session: Session) -> dict[str, object]:
     settings = get_settings()
     sheet_id, rows = _client().rows_by_title(
@@ -982,6 +1097,9 @@ def sync_dramas(session: Session) -> dict[str, object]:
             existing[normalized_title] = drama
             inserted += 1
 
+        session.flush()
+        metadata = sync_drama_operation_metadata(session, now=now)
+
         run = session.get(FeishuSyncRun, run.id)
         run.status = "completed"
         run.rows_read = len(rows)
@@ -997,6 +1115,10 @@ def sync_dramas(session: Session) -> dict[str, object]:
             "rows_inserted": inserted,
             "rows_updated": updated,
             "rows_skipped": skipped,
+            "metadata_rows_read": metadata["rows_read"],
+            "metadata_rows_inserted": metadata["rows_inserted"],
+            "metadata_rows_updated": metadata["rows_updated"],
+            "metadata_rows_skipped": metadata["rows_skipped"],
             "latest_date": None,
             "completed_at": run.completed_at,
         }

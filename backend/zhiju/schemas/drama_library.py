@@ -96,6 +96,8 @@ class DramaLibraryRow(BaseModel):
     source_synced_at: datetime | None
     language_count: int
     published_channel_count: int
+    episode_count: int | None
+    total_duration_seconds: int | None
 
 
 class DramaLibraryPage(BaseModel):
