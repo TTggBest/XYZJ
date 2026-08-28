@@ -210,6 +210,9 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .72fr); gap: 14px; }
 
 .table-wrap { overflow-x: auto; }
+.channel-schedule-table { overflow-x: auto; overflow-y: visible; overscroll-behavior-x: contain; }
+.schedule-toolbar .search-field { min-width: 230px; flex: 1 1 280px; }
+.schedule-view-switch { display: flex; align-items: end; gap: 5px; }
 .drama-filter-body { padding-bottom: 12px; }
 .drama-library-toolbar { display: flex; align-items: end; flex-wrap: wrap; gap: 9px; }
 .drama-library-toolbar .search-field { min-width: 260px; flex: 1 1 320px; }

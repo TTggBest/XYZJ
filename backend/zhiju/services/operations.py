@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -974,6 +974,84 @@ def list_schedule_overview(
             }
         )
     return result
+
+
+def list_channel_schedule_page(
+    session: Session,
+    *,
+    channel_id: str,
+    query: str | None = None,
+    sort_order: str = "asc",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, object]:
+    filters = [ChannelScheduleEntry.channel_id == channel_id]
+    normalized_query = (query or "").strip()
+    if normalized_query:
+        filters.append(or_(
+            Drama.chinese_title.contains(normalized_query),
+            Drama.drama_code.contains(normalized_query),
+            ChannelScheduleEntry.source_video_id.contains(normalized_query),
+        ))
+    total = session.scalar(
+        select(func.count(ChannelScheduleEntry.id))
+        .join(Drama, Drama.id == ChannelScheduleEntry.drama_id)
+        .where(*filters)
+    ) or 0
+    order_columns = (
+        ChannelScheduleEntry.planned_beijing_time,
+        ChannelScheduleEntry.created_at,
+    )
+    if sort_order == "desc":
+        ordering = tuple(column.desc() for column in order_columns)
+    else:
+        ordering = order_columns
+    statement = (
+        select(
+            ChannelScheduleEntry,
+            Channel,
+            Drama,
+            ChannelPublishSlot,
+            OperationTask,
+        )
+        .join(Channel, Channel.id == ChannelScheduleEntry.channel_id)
+        .join(Drama, Drama.id == ChannelScheduleEntry.drama_id)
+        .join(ChannelPublishSlot, ChannelPublishSlot.id == ChannelScheduleEntry.publish_slot_id)
+        .outerjoin(OperationTask, OperationTask.schedule_id == ChannelScheduleEntry.id)
+        .where(*filters)
+        .order_by(*ordering)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    items = []
+    for schedule, channel, drama, slot, task in session.execute(statement):
+        items.append({
+            "schedule_id": schedule.id,
+            "channel_id": channel.id,
+            "channel_name": channel.operational_name or channel.original_name,
+            "channel_timezone": channel.timezone,
+            "drama_id": drama.id,
+            "drama_code": drama.drama_code,
+            "chinese_title": drama.chinese_title,
+            "publish_date": schedule.publish_date,
+            "planned_local_time": schedule.planned_local_time,
+            "planned_beijing_time": schedule.planned_beijing_time,
+            "slot_type": slot.slot_type,
+            "slot_number": slot.slot_number,
+            "schedule_status": schedule.status,
+            "source_type": schedule.source_type,
+            "source_sheet_id": schedule.source_sheet_id,
+            "source_row_number": schedule.source_row_number,
+            "source_synced_at": schedule.source_synced_at,
+            "source_video_id": schedule.source_video_id,
+            "source_video_url": schedule.source_video_url,
+            "is_uploaded": schedule.is_uploaded,
+            "is_published": schedule.is_published,
+            "is_task_written": schedule.is_task_written,
+            "task_id": task.id if task else None,
+            "task_status": task.status if task else None,
+        })
+    return {"page": page, "page_size": page_size, "total": total, "items": items}
 
 
 def _candidate_payload(

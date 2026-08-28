@@ -324,6 +324,15 @@ class ScheduleRead(BaseModel):
     priority: int
     idempotency_key: str
     replaced_by_schedule_id: str | None
+    source_type: str
+    source_sheet_id: str | None
+    source_row_number: int | None
+    source_synced_at: datetime | None
+    source_video_id: str | None
+    source_video_url: str | None
+    is_uploaded: bool
+    is_published: bool
+    is_task_written: bool
     created_at: datetime
     updated_at: datetime
 
@@ -363,6 +372,40 @@ class ScheduleOverview(BaseModel):
     replaced_by_schedule_id: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ChannelScheduleRow(BaseModel):
+    schedule_id: str
+    channel_id: str
+    channel_name: str
+    channel_timezone: str
+    drama_id: str
+    drama_code: str
+    chinese_title: str
+    publish_date: date
+    planned_local_time: datetime
+    planned_beijing_time: datetime
+    slot_type: str
+    slot_number: int
+    schedule_status: str
+    source_type: str
+    source_sheet_id: str | None
+    source_row_number: int | None
+    source_synced_at: datetime | None
+    source_video_id: str | None
+    source_video_url: str | None
+    is_uploaded: bool
+    is_published: bool
+    is_task_written: bool
+    task_id: str | None
+    task_status: str | None
+
+
+class ChannelSchedulePage(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    items: list[ChannelScheduleRow]
 
 
 class ScheduleStatusChange(BaseModel):

@@ -5,6 +5,7 @@ from zhiju.database import get_db
 from zhiju.schemas.feishu_sync import FeishuSyncResult
 from zhiju.services.feishu_sync import (
     FeishuSyncError,
+    sync_channel_schedules,
     sync_channels,
     sync_drama_languages,
     sync_dramas,
@@ -14,6 +15,14 @@ from zhiju.services.feishu_sync import (
 
 
 router = APIRouter(prefix="/v3/feishu-sync", tags=["feishu-sync"])
+
+
+@router.post("/channel-schedules", response_model=FeishuSyncResult)
+def post_channel_schedule_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+    try:
+        return sync_channel_schedules(session)
+    except FeishuSyncError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/channels", response_model=FeishuSyncResult)
