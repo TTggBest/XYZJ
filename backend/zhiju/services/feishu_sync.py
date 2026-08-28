@@ -173,6 +173,204 @@ def normalized_video_id(video_url: str, explicit_video_id: str) -> str:
     return explicit_video_id if re.fullmatch(r"[A-Za-z0-9_-]{11}", explicit_video_id) else ""
 
 
+def parse_feishu_schedule_datetime(
+    value: str,
+    *,
+    sheet_title: str,
+    row_number: int,
+) -> tuple[datetime, bool]:
+    normalized = value.strip()
+    corrected = False
+    if normalized == "2026-08-010 12:00":
+        normalized = "2026-08-10 12:00"
+        corrected = True
+    for pattern in ("%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):
+        try:
+            return datetime.strptime(normalized, pattern), corrected
+        except ValueError:
+            continue
+    raise FeishuSyncError(
+        f"飞书频道排期表 {sheet_title} 第 {row_number} 行档期时间格式不正确：{value}"
+    )
+
+
+def parse_feishu_schedule_flag(
+    value: str,
+    *,
+    field_name: str,
+    sheet_title: str,
+    row_number: int,
+) -> bool:
+    normalized = value.strip()
+    if normalized in {"", "0"}:
+        return False
+    if normalized == "1":
+        return True
+    raise FeishuSyncError(
+        f"飞书频道排期表 {sheet_title} 第 {row_number} 行{field_name}只能为 1、0 或空"
+    )
+
+
+def feishu_sheet_id_from_url(value: str) -> str:
+    return (parse_qs(urlparse(value.strip()).query).get("sheet") or [""])[0].strip()
+
+
+def _unique_channel_for_directory(
+    channels: list[Channel],
+    *,
+    channel_name: str,
+    channel_nickname: str,
+    row_number: int,
+) -> Channel:
+    names = {name for name in (channel_name, channel_nickname) if name}
+    matches = [
+        channel
+        for channel in channels
+        if channel.original_name in names or (channel.operational_name or "") in names
+    ]
+    if len(matches) != 1:
+        detail = "未匹配智矩频道" if not matches else "匹配到多个智矩频道"
+        raise FeishuSyncError(
+            f"飞书频道目录第 {row_number} 行{detail}：{channel_nickname or channel_name}"
+        )
+    return matches[0]
+
+
+def prepare_channel_schedule_rows(
+    session: Session,
+    *,
+    directory_rows: list[dict[str, str]],
+    sheet_rows: list[tuple[str, str, list[dict[str, str]]]],
+) -> tuple[list[dict[str, object]], int]:
+    channels = list(session.scalars(select(Channel).where(Channel.deleted_at.is_(None))))
+    directory_by_sheet: dict[str, Channel] = {}
+    for row in directory_rows:
+        row_number = int(row.get("__source_row_number") or 0)
+        sheet_id = feishu_sheet_id_from_url(row.get("链接", ""))
+        if not sheet_id:
+            raise FeishuSyncError(f"飞书频道目录第 {row_number} 行缺少频道工作表链接")
+        if sheet_id in directory_by_sheet:
+            raise FeishuSyncError(f"飞书频道目录第 {row_number} 行工作表重复：{sheet_id}")
+        directory_by_sheet[sheet_id] = _unique_channel_for_directory(
+            channels,
+            channel_name=row.get("频道名", "").strip(),
+            channel_nickname=row.get("频道昵称", "").strip(),
+            row_number=row_number,
+        )
+
+    dramas = list(session.scalars(select(Drama)))
+    dramas_by_title = {drama.normalized_title: drama for drama in dramas}
+    aliases_by_title = {
+        alias.normalized_alias: drama
+        for alias, drama in session.execute(
+            select(DramaAlias, Drama).join(Drama, Drama.id == DramaAlias.drama_id)
+        )
+    }
+    channel_ids = {channel.id for channel in directory_by_sheet.values()}
+    slots = list(
+        session.scalars(
+            select(ChannelPublishSlot).where(
+                ChannelPublishSlot.channel_id.in_(channel_ids),
+                ChannelPublishSlot.status == "active",
+            )
+        )
+    ) if channel_ids else []
+
+    prepared: list[dict[str, object]] = []
+    corrected_count = 0
+    beijing_zone = ZoneInfo("Asia/Shanghai")
+    for sheet_id, sheet_title, rows in sheet_rows:
+        channel = directory_by_sheet.get(sheet_id)
+        if channel is None:
+            raise FeishuSyncError(f"飞书频道工作表不在频道目录中：{sheet_title}")
+        for row in rows:
+            row_number = int(row.get("__source_row_number") or 0)
+            drama_title = row.get("剧名", "").strip()
+            if not drama_title:
+                raise FeishuSyncError(
+                    f"飞书频道排期表 {sheet_title} 第 {row_number} 行缺少剧名"
+                )
+            normalized_title = normalize_drama_title(drama_title)
+            drama = dramas_by_title.get(normalized_title) or aliases_by_title.get(normalized_title)
+            if drama is None:
+                raise FeishuSyncError(
+                    f"飞书频道排期表 {sheet_title} 第 {row_number} 行剧目不在公共剧库：{drama_title}"
+                )
+            beijing_datetime, corrected = parse_feishu_schedule_datetime(
+                row.get("档期时间", ""),
+                sheet_title=sheet_title,
+                row_number=row_number,
+            )
+            corrected_count += int(corrected)
+            beijing_aware = beijing_datetime.replace(tzinfo=beijing_zone)
+            utc_aware = beijing_aware.astimezone(timezone.utc)
+            local_aware = utc_aware.astimezone(ZoneInfo(channel.timezone))
+            slot_label = row.get("档期", "").strip()
+            slot_type = {"主档": "main", "辅档": "aux"}.get(slot_label)
+            if slot_type is None:
+                raise FeishuSyncError(
+                    f"飞书频道排期表 {sheet_title} 第 {row_number} 行档期必须为主档或辅档：{slot_label}"
+                )
+            matching_slots = [
+                slot
+                for slot in slots
+                if slot.channel_id == channel.id
+                and slot.slot_type == slot_type
+                and slot.local_time == local_aware.time().replace(tzinfo=None)
+            ]
+            if len(matching_slots) != 1:
+                raise FeishuSyncError(
+                    f"飞书频道排期表 {sheet_title} 第 {row_number} 行未匹配唯一频道档位："
+                    f"{slot_label} {local_aware:%H:%M}"
+                )
+            video_url = row.get("链接", "").strip()
+            explicit_video_id = row.get("videoId", "").strip()
+            video_id = (
+                video_id_from_url(video_url)
+                or video_id_from_url(explicit_video_id)
+                or normalized_video_id(video_url, explicit_video_id)
+            )
+            task_field = (
+                "是否写入任务"
+                if "是否写入任务" in row
+                else "是否上传工单表"
+            )
+            prepared.append({
+                "channel_id": channel.id,
+                "drama_id": drama.id,
+                "publish_slot_id": matching_slots[0].id,
+                "publish_date": local_aware.date(),
+                "planned_local_time": local_aware.replace(tzinfo=None),
+                "planned_beijing_time": beijing_aware.replace(tzinfo=None),
+                "planned_utc_time": utc_aware.replace(tzinfo=None),
+                "source_type": "feishu",
+                "source_sheet_id": sheet_id,
+                "source_sheet_title": sheet_title,
+                "source_row_number": row_number,
+                "source_video_id": video_id or None,
+                "source_video_url": video_url or (explicit_video_id if video_id_from_url(explicit_video_id) else None),
+                "is_uploaded": parse_feishu_schedule_flag(
+                    row.get("是否上传", ""),
+                    field_name="是否上传",
+                    sheet_title=sheet_title,
+                    row_number=row_number,
+                ),
+                "is_published": parse_feishu_schedule_flag(
+                    row.get("是否上线", ""),
+                    field_name="是否上线",
+                    sheet_title=sheet_title,
+                    row_number=row_number,
+                ),
+                "is_task_written": parse_feishu_schedule_flag(
+                    row.get(task_field, ""),
+                    field_name=task_field,
+                    sheet_title=sheet_title,
+                    row_number=row_number,
+                ),
+            })
+    return prepared, corrected_count
+
+
 class FeishuClient:
     def __init__(self, app_id: str, app_secret: str) -> None:
         if not app_id or not app_secret:
@@ -222,6 +420,16 @@ class FeishuClient:
             raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
         return str(matches[0])
 
+    def workbook_sheets(self, wiki_token: str) -> tuple[str, str, list[dict[str, object]]]:
+        token, spreadsheet_token = self._spreadsheet_access(wiki_token)
+        result = self._request(
+            "GET",
+            f"/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query?page_size=100",
+            token=token,
+        )
+        sheets = list((result.get("data") or {}).get("sheets") or [])
+        return token, spreadsheet_token, sheets
+
     def _rows_from_sheet(
         self,
         token: str,
@@ -249,6 +457,15 @@ class FeishuClient:
 
     def rows(self, wiki_token: str, sheet_id: str, last_column: str) -> list[dict[str, str]]:
         token, spreadsheet_token = self._spreadsheet_access(wiki_token)
+        return self._rows_from_sheet(token, spreadsheet_token, sheet_id, last_column)
+
+    def rows_from_workbook(
+        self,
+        token: str,
+        spreadsheet_token: str,
+        sheet_id: str,
+        last_column: str,
+    ) -> list[dict[str, str]]:
         return self._rows_from_sheet(token, spreadsheet_token, sheet_id, last_column)
 
     def rows_by_title(
