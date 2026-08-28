@@ -10,9 +10,12 @@ NodeStatus = Literal["not_started", "in_progress", "completed", "failed"]
 class DramaProductionStateWrite(BaseModel):
     cloud_download_status: NodeStatus = "not_started"
     parameter_normalization_status: NodeStatus = "not_started"
+    youtube_upload_status: NodeStatus = "not_started"
+    copyright_verification_status: NodeStatus = "not_started"
     subtitle_extraction_status: NodeStatus = "not_started"
     guishou_upload_status: NodeStatus = "not_started"
     role_extraction_status: NodeStatus = "not_started"
+    tts_status: NodeStatus = "not_started"
     production_completion_status: NodeStatus = "not_started"
     episode_count: int | None = Field(default=None, ge=0)
     total_duration_seconds: int | None = Field(default=None, ge=0)
@@ -30,6 +33,11 @@ class DramaProductionStateRead(DramaProductionStateWrite):
     overall_status: str
     current_node: str | None
     updated_at: datetime | None
+    is_production_excluded: bool
+
+
+class DramaProductionExclusionWrite(BaseModel):
+    excluded: bool
 
 
 class DramaProgressRow(DramaProductionStateRead):

@@ -4,6 +4,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -123,9 +124,12 @@ class DramaProductionState(IdMixin, TimestampMixin, Base):
         CheckConstraint(
             "cloud_download_status IN ('not_started','in_progress','completed','failed') AND "
             "parameter_normalization_status IN ('not_started','in_progress','completed','failed') AND "
+            "youtube_upload_status IN ('not_started','in_progress','completed','failed') AND "
+            "copyright_verification_status IN ('not_started','in_progress','completed','failed') AND "
             "subtitle_extraction_status IN ('not_started','in_progress','completed','failed') AND "
             "guishou_upload_status IN ('not_started','in_progress','completed','failed') AND "
             "role_extraction_status IN ('not_started','in_progress','completed','failed') AND "
+            "tts_status IN ('not_started','in_progress','completed','failed') AND "
             "production_completion_status IN ('not_started','in_progress','completed','failed')",
             name="valid_node_statuses",
         ),
@@ -140,10 +144,14 @@ class DramaProductionState(IdMixin, TimestampMixin, Base):
     drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), nullable=False, comment="剧目内部ID")
     cloud_download_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="网盘下载状态")
     parameter_normalization_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="统一参数状态")
+    youtube_upload_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="上传YouTube状态")
+    copyright_verification_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="版权验证状态")
     subtitle_extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="字幕提取状态")
     guishou_upload_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="鬼手上传状态")
     role_extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="角色提取状态")
+    tts_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="TTS状态")
     production_completion_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="制作完成状态")
+    is_production_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否不进行制作")
     episode_count: Mapped[int | None] = mapped_column(Integer, comment="剧集数")
     total_duration_seconds: Mapped[int | None] = mapped_column(Integer, comment="剧集合集时长秒数")
     source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="进度来源")
