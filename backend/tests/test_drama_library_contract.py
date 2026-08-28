@@ -1,12 +1,16 @@
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint
+from sqlalchemy.orm import Session
 
+from zhiju.database import database_router
 from zhiju.app import app
-from zhiju.models import Drama, FeishuSyncRun
+from zhiju.models import Drama, DramaProductionState, FeishuSyncRun
 from zhiju.services import feishu_sync
+from zhiju.services.drama_library import list_drama_library
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +81,83 @@ def test_drama_feishu_sync_route_is_registered() -> None:
     assert "post" in paths["/api/v3/feishu-sync/dramas"]
 
 
+def test_operation_metadata_sync_parses_episode_count_and_duration(monkeypatch) -> None:
+    sync_metadata = getattr(feishu_sync, "sync_drama_operation_metadata", None)
+    suffix = uuid4().hex[:12]
+    title = f"操作表元数据测试剧-{suffix}"
+
+    class FakeClient:
+        def matrix_by_title(self, wiki_token: str, sheet_title: str, last_column: str):
+            assert sheet_title == "操作表"
+            return "operation-sheet", [
+                ["剧名", "批次", "到期时间", "时长", "集数"],
+                [title, "第1批", "2027/01/01", "02:35:25", "87"],
+            ]
+
+    assert callable(sync_metadata)
+    monkeypatch.setattr(feishu_sync, "_client", lambda: FakeClient())
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = Drama(
+            drama_number=-10,
+            drama_code=f"TEST-{suffix}",
+            chinese_title=title,
+            normalized_title=feishu_sync.normalize_drama_title(title),
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.commit()
+
+        result = sync_metadata(session, now=datetime(2026, 8, 28, 12, 0, 0))
+        state = session.query(DramaProductionState).filter_by(drama_id=drama.id).one()
+
+        assert result["rows_read"] == 1
+        assert result["rows_inserted"] == 1
+        assert state.episode_count == 87
+        assert state.total_duration_seconds == 2 * 3600 + 35 * 60 + 25
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_drama_library_rows_include_episode_count_and_duration() -> None:
+    suffix = uuid4().hex[:12]
+    title = f"剧库元数据展示测试剧-{suffix}"
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = Drama(
+            drama_number=-11,
+            drama_code=f"TEST-{suffix}",
+            chinese_title=title,
+            normalized_title=feishu_sync.normalize_drama_title(title),
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.flush()
+        session.add(DramaProductionState(
+            drama_id=drama.id,
+            episode_count=24,
+            total_duration_seconds=5400,
+        ))
+        session.commit()
+
+        page = list_drama_library(session, page=1, page_size=10, search=title)
+
+        assert page["items"][0]["episode_count"] == 24
+        assert page["items"][0]["total_duration_seconds"] == 5400
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
 def test_drama_feishu_value_mapping_uses_beijing_day_end() -> None:
     parse_expiry = getattr(feishu_sync, "parse_drama_expiry", None)
     map_status = getattr(feishu_sync, "map_drama_status", None)
@@ -137,6 +218,7 @@ def test_drama_library_frontend_uses_paginated_workspace() -> None:
     assert 'data-action="drama-library-page"' in source
     assert 'data-drama-tab="languages"' in source
     assert 'data-drama-tab="channels"' in source
+    assert '"剧集数", "合集总时长"' in source
 
 
 def test_drama_bulk_csv_route_and_parser_support_quoted_content() -> None:

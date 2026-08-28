@@ -103,9 +103,12 @@ def list_drama_library(
             Drama,
             func.coalesce(language_counts.c.language_count, 0),
             func.coalesce(channel_counts.c.published_channel_count, 0),
+            DramaProductionState.episode_count,
+            DramaProductionState.total_duration_seconds,
         )
         .outerjoin(language_counts, language_counts.c.drama_id == Drama.id)
         .outerjoin(channel_counts, channel_counts.c.drama_id == Drama.id)
+        .outerjoin(DramaProductionState, DramaProductionState.drama_id == Drama.id)
         .where(*filters)
         .order_by(Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc())
         .offset((page - 1) * page_size)
@@ -116,8 +119,11 @@ def list_drama_library(
             **drama.__dict__,
             "language_count": int(language_count),
             "published_channel_count": int(channel_count),
+            "episode_count": episode_count,
+            "total_duration_seconds": total_duration_seconds,
         }
-        for drama, language_count, channel_count in session.execute(statement)
+        for drama, language_count, channel_count, episode_count, total_duration_seconds
+        in session.execute(statement)
     ]
     return {
         "items": items,
