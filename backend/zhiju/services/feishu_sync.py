@@ -45,6 +45,16 @@ from zhiju.services.operations import normalize_drama_title
 
 NODE_SEQUENCE = ("search", "title", "cover", "description", "community", "merge")
 OPERATION_PACKAGE_LAST_COLUMN = "S"
+CHANNEL_SCHEDULE_HEADERS = (
+    "剧名",
+    "videoId",
+    "链接",
+    "档期",
+    "档期时间",
+    "是否上传",
+    "是否上线",
+    "是否写入任务",
+)
 LANGUAGE_HINTS = {
     "英语": "en", "阿拉伯": "ar", "孟加拉": "bn", "印尼": "id", "西班牙": "es",
     "巴葡": "pt-BR", "葡萄牙": "pt-BR", "印地": "hi", "俄语": "ru", "菲律宾": "fil", "土耳其": "tr",
@@ -186,7 +196,12 @@ def parse_feishu_schedule_datetime(
     if normalized == "2026-08-010 12:00":
         normalized = "2026-08-10 12:00"
         corrected = True
-    for pattern in ("%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):
+    for pattern in (
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+    ):
         try:
             return datetime.strptime(normalized, pattern), corrected
         except ValueError:
@@ -243,7 +258,9 @@ def prepare_channel_schedule_rows(
     *,
     directory_rows: list[dict[str, str]],
     sheet_rows: list[tuple[str, str, list[dict[str, str]]]],
+    as_of_date: date | None = None,
 ) -> tuple[list[dict[str, object]], int]:
+    as_of_date = as_of_date or date.today()
     channels = list(session.scalars(select(Channel).where(Channel.deleted_at.is_(None))))
     directory_by_sheet: dict[str, Channel] = {}
     for row in directory_rows:
@@ -273,12 +290,13 @@ def prepare_channel_schedule_rows(
         session.scalars(
             select(ChannelPublishSlot).where(
                 ChannelPublishSlot.channel_id.in_(channel_ids),
-                ChannelPublishSlot.status == "active",
             )
         )
     ) if channel_ids else []
 
     prepared: list[dict[str, object]] = []
+    used_schedule_keys: dict[tuple[str, date, str], tuple[str, int]] = {}
+    used_schedule_times: dict[tuple[str, date, str, time], tuple[str, int]] = {}
     corrected_count = 0
     beijing_zone = ZoneInfo("Asia/Shanghai")
     for sheet_id, sheet_title, rows in sheet_rows:
@@ -313,18 +331,64 @@ def prepare_channel_schedule_rows(
                 raise FeishuSyncError(
                     f"飞书频道排期表 {sheet_title} 第 {row_number} 行档期必须为主档或辅档：{slot_label}"
                 )
-            matching_slots = [
+            matching_slots = sorted([
                 slot
                 for slot in slots
                 if slot.channel_id == channel.id
                 and slot.slot_type == slot_type
                 and slot.local_time == local_aware.time().replace(tzinfo=None)
-            ]
-            if len(matching_slots) != 1:
+            ], key=lambda slot: (slot.status != "active", slot.slot_number))
+            schedule_time_key = (
+                channel.id,
+                local_aware.date(),
+                slot_type,
+                local_aware.time().replace(tzinfo=None),
+            )
+            first_time_source = used_schedule_times.get(schedule_time_key)
+            if first_time_source is not None and local_aware.date() >= as_of_date:
+                first_sheet, first_row = first_time_source
                 raise FeishuSyncError(
-                    f"飞书频道排期表 {sheet_title} 第 {row_number} 行未匹配唯一频道档位："
-                    f"{slot_label} {local_aware:%H:%M}"
+                    f"飞书频道排期重复：{sheet_title} 第 {row_number} 行与"
+                    f"{first_sheet} 第 {first_row} 行使用同一频道、日期和档位"
                 )
+            selected_slot = next(
+                (
+                    slot for slot in matching_slots
+                    if (channel.id, local_aware.date(), slot.id) not in used_schedule_keys
+                ),
+                None,
+            )
+            if selected_slot is None:
+                slot_number = 1 + max(
+                    (
+                        slot.slot_number
+                        for slot in slots
+                        if slot.channel_id == channel.id and slot.slot_type == slot_type
+                    ),
+                    default=0,
+                )
+                historical_slot = ChannelPublishSlot(
+                    channel_id=channel.id,
+                    slot_type=slot_type,
+                    slot_number=slot_number,
+                    local_time=local_aware.time().replace(tzinfo=None),
+                    timezone=channel.timezone,
+                    status="archived",
+                )
+                session.add(historical_slot)
+                session.flush()
+                slots.append(historical_slot)
+                selected_slot = historical_slot
+            schedule_key = (channel.id, local_aware.date(), selected_slot.id)
+            first_source = used_schedule_keys.get(schedule_key)
+            if first_source is not None:
+                first_sheet, first_row = first_source
+                raise FeishuSyncError(
+                    f"飞书频道排期重复：{sheet_title} 第 {row_number} 行与"
+                    f"{first_sheet} 第 {first_row} 行使用同一频道、日期和档位"
+                )
+            used_schedule_keys[schedule_key] = (sheet_title, row_number)
+            used_schedule_times.setdefault(schedule_time_key, (sheet_title, row_number))
             video_url = row.get("链接", "").strip()
             explicit_video_id = row.get("videoId", "").strip()
             video_id = (
@@ -332,15 +396,10 @@ def prepare_channel_schedule_rows(
                 or video_id_from_url(explicit_video_id)
                 or normalized_video_id(video_url, explicit_video_id)
             )
-            task_field = (
-                "是否写入任务"
-                if "是否写入任务" in row
-                else "是否上传工单表"
-            )
             prepared.append({
                 "channel_id": channel.id,
                 "drama_id": drama.id,
-                "publish_slot_id": matching_slots[0].id,
+                "publish_slot_id": selected_slot.id,
                 "publish_date": local_aware.date(),
                 "planned_local_time": local_aware.replace(tzinfo=None),
                 "planned_beijing_time": beijing_aware.replace(tzinfo=None),
@@ -364,8 +423,8 @@ def prepare_channel_schedule_rows(
                     row_number=row_number,
                 ),
                 "is_task_written": parse_feishu_schedule_flag(
-                    row.get(task_field, ""),
-                    field_name=task_field,
+                    row.get("是否写入任务", ""),
+                    field_name="是否写入任务",
                     sheet_title=sheet_title,
                     row_number=row_number,
                 ),
@@ -1226,15 +1285,23 @@ def _sync_rows(session: Session, sync_type: str, rows: list[dict[str, str]], she
         raise FeishuSyncError(f"同步写入失败：{exc}") from exc
 
 
+def feishu_fallback_config_paths(app_root: Path = APP_ROOT) -> tuple[Path, ...]:
+    paths = [app_root.parent / "tools" / "feishu_sync" / "feishu_sync_config.json"]
+    if app_root.parent.name == ".worktrees":
+        paths.append(app_root.parents[2] / "tools" / "feishu_sync" / "feishu_sync_config.json")
+    return tuple(paths)
+
+
 def _client() -> FeishuClient:
     settings = get_settings()
     app_id, app_secret = settings.feishu_app_id, settings.feishu_app_secret
     if settings.env == "development" and (not app_id or not app_secret):
-        config_path = APP_ROOT.parent / "tools" / "feishu_sync" / "feishu_sync_config.json"
-        if config_path.is_file():
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-            app_id = str(config.get("app_id") or "")
-            app_secret = str(config.get("app_secret") or "")
+        for config_path in feishu_fallback_config_paths():
+            if config_path.is_file():
+                config = json.loads(config_path.read_text(encoding="utf-8"))
+                app_id = str(config.get("app_id") or "")
+                app_secret = str(config.get("app_secret") or "")
+                break
     return FeishuClient(app_id, app_secret)
 
 

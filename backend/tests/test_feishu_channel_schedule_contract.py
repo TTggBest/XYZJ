@@ -1,5 +1,5 @@
 from pathlib import Path
-from datetime import datetime, time
+from datetime import date, datetime, time
 from uuid import uuid4
 
 import pytest
@@ -17,6 +17,23 @@ from zhiju.services.feishu_sync import FeishuSyncError
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_channel_schedule_sync_only_recognizes_approved_business_headers() -> None:
+    assert feishu_sync.CHANNEL_SCHEDULE_HEADERS == (
+        "剧名",
+        "videoId",
+        "链接",
+        "档期",
+        "档期时间",
+        "是否上传",
+        "是否上线",
+        "是否写入任务",
+    )
+    source = (ROOT / "backend" / "zhiju" / "services" / "feishu_sync.py").read_text(
+        encoding="utf-8"
+    )
+    assert "是否上传工单表" not in source
 
 
 def test_channel_schedule_workbook_has_dedicated_read_configuration() -> None:
@@ -119,6 +136,21 @@ def test_confirmed_malformed_schedule_date_is_corrected_narrowly() -> None:
 
 
 @pytest.mark.parametrize(
+    "raw",
+    ["2026/08/11 06:00:00", "2026-08-11 06:00:00"],
+)
+def test_schedule_datetime_accepts_workbook_values_with_seconds(raw: str) -> None:
+    parsed, corrected = feishu_sync.parse_feishu_schedule_datetime(
+        raw,
+        sheet_title="测试频道",
+        row_number=11,
+    )
+
+    assert parsed == datetime(2026, 8, 11, 6, 0)
+    assert corrected is False
+
+
+@pytest.mark.parametrize(
     ("raw", "expected"),
     [("", False), ("0", False), ("1", True)],
 )
@@ -164,6 +196,17 @@ def test_feishu_client_lists_workbook_sheets_with_one_access_session(monkeypatch
         ("2FrKIE", "频道目录"),
         ("sheet-a", "频道昵称"),
     ]
+
+
+def test_feishu_fallback_config_resolves_from_project_worktree() -> None:
+    worktree_root = Path("/project/管理系统/.worktrees/feature-name")
+
+    paths = feishu_sync.feishu_fallback_config_paths(worktree_root)
+
+    assert paths == (
+        Path("/project/管理系统/.worktrees/tools/feishu_sync/feishu_sync_config.json"),
+        Path("/project/tools/feishu_sync/feishu_sync_config.json"),
+    )
 
 
 def test_prepare_channel_schedule_rows_resolves_directory_channel_alias_drama_and_slot() -> None:
@@ -268,6 +311,120 @@ def test_prepare_channel_schedule_rows_does_not_create_unknown_business_entities
                     "__source_row_number": "2",
                 }],
                 sheet_rows=[("missing", "不存在的频道昵称", [])],
+            )
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_prepare_channel_schedule_rows_archives_historical_slot_without_changing_active_cadence() -> None:
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        channel = models.Channel(
+            youtube_channel_id=f"UC-HISTORY-{suffix}",
+            original_name=f"历史档位频道-{suffix}",
+            timezone="America/New_York",
+            daily_publish_count=1,
+            status="active",
+        )
+        drama = models.Drama(
+            drama_number=-int(f"6{suffix[:7]}", 16),
+            drama_code=f"HIS-{suffix}",
+            chinese_title=f"历史档位剧目-{suffix}",
+            normalized_title=f"历史档位剧目-{suffix}".casefold(),
+            source_type="manual",
+            status="active",
+        )
+        session.add_all([channel, drama])
+        session.flush()
+        active_slot = models.ChannelPublishSlot(
+            channel_id=channel.id,
+            slot_type="main",
+            slot_number=1,
+            local_time=time(6, 0),
+            timezone=channel.timezone,
+            status="active",
+        )
+        session.add(active_slot)
+        session.commit()
+
+        prepared, _ = feishu_sync.prepare_channel_schedule_rows(
+            session,
+            directory_rows=[{
+                "频道名": channel.original_name,
+                "频道昵称": channel.original_name,
+                "链接": "https://example.feishu.cn/wiki/token?sheet=history-sheet",
+                "__source_row_number": "2",
+            }],
+            sheet_rows=[("history-sheet", channel.original_name, [
+                {
+                    "剧名": drama.chinese_title,
+                    "档期": "辅档",
+                    "档期时间": "2026-08-08 22:00",
+                    "是否上传": "",
+                    "是否上线": "",
+                    "是否写入任务": "",
+                    "__source_row_number": str(row_number),
+                }
+                for row_number in (2, 3)
+            ])],
+            as_of_date=date(2026, 8, 29),
+        )
+        session.flush()
+
+        historical_slot = session.get(
+            models.ChannelPublishSlot,
+            prepared[0]["publish_slot_id"],
+        )
+        assert historical_slot.slot_type == "aux"
+        assert historical_slot.local_time == time(10, 0)
+        assert historical_slot.status == "archived"
+        assert len(prepared) == 2
+        assert prepared[0]["publish_slot_id"] != prepared[1]["publish_slot_id"]
+        second_historical_slot = session.get(
+            models.ChannelPublishSlot,
+            prepared[1]["publish_slot_id"],
+        )
+        assert second_historical_slot.local_time == time(10, 0)
+        assert second_historical_slot.status == "archived"
+        assert active_slot.status == "active"
+        assert channel.daily_publish_count == 1
+
+        session.add(models.ChannelPublishSlot(
+            channel_id=channel.id,
+            slot_type="aux",
+            slot_number=99,
+            local_time=time(10, 0),
+            timezone=channel.timezone,
+            status="active",
+        ))
+        session.flush()
+        duplicate_row = {
+            "剧名": drama.chinese_title,
+            "档期": "辅档",
+            "档期时间": "2026-08-29 22:00",
+            "是否上传": "",
+            "是否上线": "",
+            "是否写入任务": "",
+        }
+        with pytest.raises(FeishuSyncError, match="同一频道、日期和档位"):
+            feishu_sync.prepare_channel_schedule_rows(
+                session,
+                directory_rows=[{
+                    "频道名": channel.original_name,
+                    "频道昵称": channel.original_name,
+                    "链接": "https://example.feishu.cn/wiki/token?sheet=history-sheet",
+                    "__source_row_number": "2",
+                }],
+                sheet_rows=[("history-sheet", channel.original_name, [
+                    {**duplicate_row, "__source_row_number": "2"},
+                    {**duplicate_row, "__source_row_number": "3"},
+                ])],
+                as_of_date=date(2026, 8, 29),
             )
     finally:
         session.close()

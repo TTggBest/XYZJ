@@ -131,6 +131,11 @@ def test_channel_schedule_page_route_restricts_page_sizes() -> None:
     schema = client.get("/openapi.json").json()
 
     assert "get" in schema["paths"]["/api/v3/schedules/channel-view"]
+    valid = client.get(
+        "/api/v3/schedules/channel-view",
+        params={"channel_id": "missing", "page_size": 50},
+    )
+    assert valid.status_code == 200
     response = client.get(
         "/api/v3/schedules/channel-view",
         params={"channel_id": "missing", "page_size": 60},

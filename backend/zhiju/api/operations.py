@@ -378,9 +378,14 @@ def get_channel_schedule_page(
     query: str | None = None,
     sort_order: Literal["asc", "desc"] = "asc",
     page: int = Query(default=1, ge=1),
-    page_size: Literal[50, 100, 150] = 50,
+    page_size: int = Query(default=50),
     session: Session = Depends(get_db),
 ) -> ChannelSchedulePage:
+    if page_size not in {50, 100, 150}:
+        raise HTTPException(
+            status_code=422,
+            detail="每页条数仅支持 50、100、150",
+        )
     return list_channel_schedule_page(
         session,
         channel_id=channel_id,
