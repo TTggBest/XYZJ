@@ -28,12 +28,14 @@ class Language(IdMixin, TimestampMixin, Base):
     __tablename__ = "languages"
     __table_args__ = (
         CheckConstraint("status IN ('active','inactive')", name="valid_status"),
+        CheckConstraint("priority_tier IS NULL OR priority_tier IN ('S','A','B','C')", name="valid_priority_tier"),
         {"comment": "系统支持的语言定义"},
     )
 
     code: Mapped[str] = mapped_column(String(20), nullable=False, unique=True, comment="BCP 47语言代码")
     name_zh: Mapped[str] = mapped_column(String(120), nullable=False, comment="中文语言名称")
     native_name: Mapped[str | None] = mapped_column(String(120), comment="语言本地名称")
+    priority_tier: Mapped[str | None] = mapped_column(String(1), comment="语言制作优先级")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="语言状态")
 
 
@@ -41,6 +43,7 @@ class Drama(IdMixin, TimestampMixin, Base):
     __tablename__ = "dramas"
     __table_args__ = (
         CheckConstraint("status IN ('active','expired','blocked','archived')", name="valid_status"),
+        CheckConstraint("source_type IN ('manual','feishu')", name="valid_source_type"),
         Index("ix_dramas_status_expiry", "status", "expires_at"),
         {"comment": "本地剧库中的剧目主档"},
     )
@@ -55,6 +58,11 @@ class Drama(IdMixin, TimestampMixin, Base):
     plot_pattern: Mapped[str | None] = mapped_column(Text, comment="剧情套路")
     core_personas: Mapped[str | None] = mapped_column(Text, comment="核心人设")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="剧目资源到期时间")
+    batch_name: Mapped[str | None] = mapped_column(String(120), comment="来源批次")
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="剧目来源")
+    source_sheet_id: Mapped[str | None] = mapped_column(String(40), comment="来源飞书工作表ID")
+    source_row_number: Mapped[int | None] = mapped_column(Integer, comment="来源飞书原始行号")
+    source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="剧目状态")
 
 
@@ -93,6 +101,7 @@ class DramaTranslation(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("translation_status IN ('missing','pending','in_progress','ready','failed')", name="valid_translation_status"),
         CheckConstraint("asset_status IN ('missing','partial','ready','expired')", name="valid_asset_status"),
+        CheckConstraint("source_type IN ('manual','feishu')", name="valid_source_type"),
         UniqueConstraint("drama_id", "language_id", name="uq_drama_translations_language"),
         Index("ix_drama_translations_language_status", "language_id", "translation_status", "asset_status"),
         {"comment": "剧目各语言翻译与素材可用状态"},
@@ -104,6 +113,44 @@ class DramaTranslation(IdMixin, TimestampMixin, Base):
     translation_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="missing", comment="翻译状态")
     asset_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="missing", comment="该语言素材状态")
     resource_uri: Mapped[str | None] = mapped_column(String(1000), comment="外部资源定位地址")
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="语言覆盖来源")
+    source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
+
+
+class DramaProductionState(IdMixin, TimestampMixin, Base):
+    __tablename__ = "drama_production_states"
+    __table_args__ = (
+        CheckConstraint(
+            "cloud_download_status IN ('not_started','in_progress','completed','failed') AND "
+            "parameter_normalization_status IN ('not_started','in_progress','completed','failed') AND "
+            "subtitle_extraction_status IN ('not_started','in_progress','completed','failed') AND "
+            "guishou_upload_status IN ('not_started','in_progress','completed','failed') AND "
+            "role_extraction_status IN ('not_started','in_progress','completed','failed') AND "
+            "production_completion_status IN ('not_started','in_progress','completed','failed')",
+            name="valid_node_statuses",
+        ),
+        CheckConstraint("source_type IN ('manual','zhihe')", name="valid_source_type"),
+        CheckConstraint("episode_count IS NULL OR episode_count >= 0", name="episode_count_nonnegative"),
+        CheckConstraint("total_duration_seconds IS NULL OR total_duration_seconds >= 0", name="duration_nonnegative"),
+        UniqueConstraint("drama_id", name="uq_drama_production_states_drama"),
+        Index("ix_drama_production_states_source", "source_type", "source_updated_at"),
+        {"comment": "每部剧唯一一套制剧进度"},
+    )
+
+    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), nullable=False, comment="剧目内部ID")
+    cloud_download_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="网盘下载状态")
+    parameter_normalization_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="统一参数状态")
+    subtitle_extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="字幕提取状态")
+    guishou_upload_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="鬼手上传状态")
+    role_extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="角色提取状态")
+    production_completion_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="制作完成状态")
+    episode_count: Mapped[int | None] = mapped_column(Integer, comment="剧集数")
+    total_duration_seconds: Mapped[int | None] = mapped_column(Integer, comment="剧集合集时长秒数")
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="进度来源")
+    source_external_id: Mapped[str | None] = mapped_column(String(120), comment="智核剧目ID")
+    source_updated_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="智核数据更新时间")
+    source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最近同步时间")
+    last_error: Mapped[str | None] = mapped_column(Text, comment="最近失败原因")
 
 
 class ChannelPlaylist(IdMixin, TimestampMixin, Base):

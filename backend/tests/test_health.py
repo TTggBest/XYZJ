@@ -23,7 +23,7 @@ def test_root_serves_management_ui() -> None:
     assert "text/html" in response.headers["content-type"]
     assert response.headers["cache-control"] == "no-cache"
     assert "筱宇智矩" in response.text
-    assert "app.js?v=3.11.0" in response.text
+    assert "app.js?v=3.12.0" in response.text
     app_js = client.get("/assets/app.js")
     assert app_js.status_code == 200
     assert app_js.headers["cache-control"] == "no-cache"
