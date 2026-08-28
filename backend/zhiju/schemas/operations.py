@@ -324,6 +324,15 @@ class ScheduleRead(BaseModel):
     priority: int
     idempotency_key: str
     replaced_by_schedule_id: str | None
+    source_type: str
+    source_sheet_id: str | None
+    source_row_number: int | None
+    source_synced_at: datetime | None
+    source_video_id: str | None
+    source_video_url: str | None
+    is_uploaded: bool
+    is_published: bool
+    is_task_written: bool
     created_at: datetime
     updated_at: datetime
 

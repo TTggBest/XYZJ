@@ -260,10 +260,12 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_schedule_entries"
     __table_args__ = (
         CheckConstraint("status IN ('planned','reserved','confirmed','replaced','cancelled','published')", name="valid_status"),
+        CheckConstraint("source_type IN ('manual','feishu','system')", name="valid_source_type"),
         CheckConstraint("community_count >= 0", name="community_count_nonnegative"),
         UniqueConstraint("channel_id", "publish_date", "publish_slot_id", name="uq_schedule_entries_channel_slot_date"),
         Index("ix_schedule_entries_channel_date_status", "channel_id", "publish_date", "status"),
         Index("ix_schedule_entries_drama_status", "drama_id", "status"),
+        Index("ix_schedule_entries_source_row", "source_sheet_id", "source_row_number"),
         {"comment": "频道某日某档位的剧目排期实例"},
     )
 
@@ -280,6 +282,15 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100", comment="排期优先级，数值越小越优先")
     idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True, comment="创建排期的幂等键")
     replaced_by_schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="SET NULL"), comment="替换后的排期ID")
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="排期来源")
+    source_sheet_id: Mapped[str | None] = mapped_column(String(40), comment="来源飞书工作表ID")
+    source_row_number: Mapped[int | None] = mapped_column(Integer, comment="来源飞书原始行号")
+    source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
+    source_video_id: Mapped[str | None] = mapped_column(String(32), comment="来源视频ID")
+    source_video_url: Mapped[str | None] = mapped_column(String(1000), comment="来源视频地址")
+    is_uploaded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已上传")
+    is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已上线")
+    is_task_written: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已写入任务")
 
 
 class ScheduleChangeHistory(IdMixin, Base):
