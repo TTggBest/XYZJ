@@ -104,7 +104,7 @@ def remove_drama_language(
 ) -> None:
     try:
         delete_drama_language(session, drama_id, language_id)
-    except NotFoundError as exc:
+    except (NotFoundError, ConflictError) as exc:
         raise _raise(exc) from exc
 
 

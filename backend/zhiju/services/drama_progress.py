@@ -163,4 +163,3 @@ def list_drama_progress(
         "total": total,
         "pages": ceil(total / page_size) if total else 0,
     }
-

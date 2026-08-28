@@ -1,12 +1,16 @@
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint, UniqueConstraint
+from sqlalchemy.orm import Session
 
 from zhiju import models
 from zhiju.app import app
+from zhiju.database import database_router
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -124,6 +128,51 @@ def test_manual_drama_language_routes_are_registered() -> None:
     assert {"put", "delete"}.issubset(
         paths["/api/v3/dramas/{drama_id}/languages/{language_id}"]
     )
+
+
+def test_feishu_language_coverage_cannot_be_deleted_manually() -> None:
+    from zhiju.api.drama_library import remove_drama_language
+
+    suffix = uuid4().hex[:12]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = models.Drama(
+            drama_code=f"TEST-{suffix}",
+            chinese_title=f"测试剧-{suffix}",
+            normalized_title=f"测试剧{suffix}",
+            source_type="manual",
+            status="active",
+        )
+        language = models.Language(
+            code=f"x-{suffix}",
+            name_zh=f"测试语言-{suffix}",
+            priority_tier="C",
+            status="active",
+        )
+        session.add_all([drama, language])
+        session.flush()
+        coverage = models.DramaTranslation(
+            drama_id=drama.id,
+            language_id=language.id,
+            translation_status="ready",
+            asset_status="ready",
+            source_type="feishu",
+        )
+        session.add(coverage)
+        session.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            remove_drama_language(drama.id, language.id, session)
+
+        assert exc_info.value.status_code == 409
+        assert "飞书" in str(exc_info.value.detail)
+        assert session.get(models.DramaTranslation, coverage.id) is not None
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
 
 
 def test_frontend_exposes_progress_workspace_and_language_groups() -> None:
