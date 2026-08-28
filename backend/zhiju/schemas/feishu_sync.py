@@ -16,3 +16,5 @@ class FeishuSyncResult(BaseModel):
     metadata_rows_inserted: int | None = None
     metadata_rows_updated: int | None = None
     metadata_rows_skipped: int | None = None
+    sheets_read: int | None = None
+    corrections: int | None = None

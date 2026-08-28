@@ -36,6 +36,8 @@ from zhiju.models import (
     PackageTitle,
     ProductionBatch,
     ProductionNodeRun,
+    ScheduleCandidate,
+    ScheduleChangeHistory,
     WorkOrder,
 )
 from zhiju.services.operations import normalize_drama_title
@@ -369,6 +371,148 @@ def prepare_channel_schedule_rows(
                 ),
             })
     return prepared, corrected_count
+
+
+def upsert_channel_schedule_rows(
+    session: Session,
+    rows: list[dict[str, object]],
+    *,
+    now: datetime,
+) -> dict[str, int]:
+    row_keys: set[tuple[str, date, str]] = set()
+    for row in rows:
+        key = (str(row["channel_id"]), row["publish_date"], str(row["publish_slot_id"]))
+        if key in row_keys:
+            raise FeishuSyncError(
+                f"飞书频道排期存在重复频道日期档位：{row['source_sheet_title']} "
+                f"第 {row['source_row_number']} 行"
+            )
+        row_keys.add(key)
+
+    channel_ids = {str(row["channel_id"]) for row in rows}
+    publish_dates = {row["publish_date"] for row in rows}
+    existing_rows = list(session.scalars(select(ChannelScheduleEntry).where(
+        ChannelScheduleEntry.channel_id.in_(channel_ids),
+        ChannelScheduleEntry.publish_date.in_(publish_dates),
+    ))) if rows else []
+    existing_by_key = {
+        (schedule.channel_id, schedule.publish_date, schedule.publish_slot_id): schedule
+        for schedule in existing_rows
+    }
+    inserted = updated = skipped = 0
+    synced_fields = (
+        "drama_id",
+        "planned_local_time",
+        "planned_beijing_time",
+        "planned_utc_time",
+        "source_type",
+        "source_sheet_id",
+        "source_row_number",
+        "source_video_id",
+        "source_video_url",
+        "is_uploaded",
+        "is_published",
+        "is_task_written",
+    )
+    for row in rows:
+        key = (str(row["channel_id"]), row["publish_date"], str(row["publish_slot_id"]))
+        status = "published" if row["is_published"] else (
+            "confirmed" if row["is_uploaded"] else "planned"
+        )
+        schedule = existing_by_key.get(key)
+        if schedule is None:
+            schedule = ChannelScheduleEntry(
+                channel_id=key[0],
+                drama_id=str(row["drama_id"]),
+                publish_slot_id=key[2],
+                publish_date=key[1],
+                planned_local_time=row["planned_local_time"],
+                planned_beijing_time=row["planned_beijing_time"],
+                planned_utc_time=row["planned_utc_time"],
+                community_count=0,
+                status=status,
+                priority=100,
+                idempotency_key=f"feishu-schedule:{key[0]}:{key[1].isoformat()}:{key[2]}",
+                source_type="feishu",
+                source_sheet_id=str(row["source_sheet_id"]),
+                source_row_number=int(row["source_row_number"]),
+                source_synced_at=now,
+                source_video_id=row["source_video_id"],
+                source_video_url=row["source_video_url"],
+                is_uploaded=bool(row["is_uploaded"]),
+                is_published=bool(row["is_published"]),
+                is_task_written=bool(row["is_task_written"]),
+            )
+            session.add(schedule)
+            session.flush()
+            session.add_all([
+                ScheduleCandidate(
+                    schedule_id=schedule.id,
+                    drama_id=schedule.drama_id,
+                    candidate_type="primary",
+                    rank_number=1,
+                    reason="飞书频道排期同步",
+                    status="selected",
+                ),
+                ScheduleChangeHistory(
+                    schedule_id=schedule.id,
+                    new_drama_id=schedule.drama_id,
+                    new_planned_utc_time=schedule.planned_utc_time,
+                    new_status=status,
+                    reason="飞书频道排期同步",
+                    actor_type="system",
+                    changed_at=now,
+                ),
+            ])
+            existing_by_key[key] = schedule
+            inserted += 1
+            continue
+
+        values = {field: row[field] for field in synced_fields}
+        changed = schedule.status != status or any(
+            getattr(schedule, field) != value for field, value in values.items()
+        )
+        if not changed:
+            schedule.source_synced_at = now
+            skipped += 1
+            continue
+        old_drama_id = schedule.drama_id
+        old_utc_time = schedule.planned_utc_time
+        old_status = schedule.status
+        for field, value in values.items():
+            setattr(schedule, field, value)
+        schedule.status = status
+        schedule.source_synced_at = now
+        selected = session.scalar(select(ScheduleCandidate).where(
+            ScheduleCandidate.schedule_id == schedule.id,
+            ScheduleCandidate.status == "selected",
+        ))
+        if selected is None:
+            session.add(ScheduleCandidate(
+                schedule_id=schedule.id,
+                drama_id=schedule.drama_id,
+                candidate_type="primary",
+                rank_number=1,
+                reason="飞书频道排期同步",
+                status="selected",
+            ))
+        elif selected.drama_id != schedule.drama_id:
+            selected.drama_id = schedule.drama_id
+        session.add(ScheduleChangeHistory(
+            schedule_id=schedule.id,
+            old_drama_id=old_drama_id,
+            new_drama_id=schedule.drama_id,
+            old_planned_utc_time=old_utc_time,
+            new_planned_utc_time=schedule.planned_utc_time,
+            old_status=old_status,
+            new_status=status,
+            reason="飞书频道排期同步更新",
+            actor_type="system",
+            changed_at=now,
+        ))
+        updated += 1
+    session.flush()
+    return {"inserted": inserted, "updated": updated, "skipped": skipped}
 
 
 class FeishuClient:
@@ -1092,6 +1236,95 @@ def _client() -> FeishuClient:
             app_id = str(config.get("app_id") or "")
             app_secret = str(config.get("app_secret") or "")
     return FeishuClient(app_id, app_secret)
+
+
+def sync_channel_schedules(session: Session) -> dict[str, object]:
+    settings = get_settings()
+    client = _client()
+    token, spreadsheet_token, sheets = client.workbook_sheets(
+        settings.feishu_channel_schedule_wiki_token
+    )
+    directory_sheet_id = settings.feishu_channel_schedule_directory_sheet_id
+    if not any(str(sheet.get("sheet_id") or "") == directory_sheet_id for sheet in sheets):
+        raise FeishuSyncError("飞书频道排期工作簿缺少频道目录")
+    directory_rows = client.rows_from_workbook(
+        token,
+        spreadsheet_token,
+        directory_sheet_id,
+        "D",
+    )
+    schedule_sheets = [
+        (str(sheet.get("sheet_id") or ""), str(sheet.get("title") or "").strip())
+        for sheet in sheets
+        if str(sheet.get("sheet_id") or "") != directory_sheet_id
+    ]
+    if any(not sheet_id or not title for sheet_id, title in schedule_sheets):
+        raise FeishuSyncError("飞书频道排期工作簿存在无标识或无标题的工作表")
+    sheet_rows = [
+        (
+            sheet_id,
+            title,
+            client.rows_from_workbook(token, spreadsheet_token, sheet_id, "Z"),
+        )
+        for sheet_id, title in schedule_sheets
+    ]
+    rows_read = sum(len(rows) for _, _, rows in sheet_rows)
+    started_at = datetime.now(timezone.utc)
+    run = FeishuSyncRun(
+        sync_type="channel_schedules",
+        sheet_id=directory_sheet_id,
+        environment=settings.env,
+        device_key=settings.device_key or None,
+        status="running",
+        started_at=started_at,
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    counts = {"inserted": 0, "updated": 0, "skipped": 0}
+    try:
+        prepared, corrections = prepare_channel_schedule_rows(
+            session,
+            directory_rows=directory_rows,
+            sheet_rows=sheet_rows,
+        )
+        synced_at = datetime.now(timezone.utc)
+        counts = upsert_channel_schedule_rows(session, prepared, now=synced_at)
+        completed_run = session.get(FeishuSyncRun, run.id)
+        completed_run.status = "completed"
+        completed_run.rows_read = rows_read
+        completed_run.rows_inserted = counts["inserted"]
+        completed_run.rows_updated = counts["updated"]
+        completed_run.rows_skipped = counts["skipped"]
+        completed_run.completed_at = synced_at
+        session.commit()
+        return {
+            "sync_type": "channel_schedules",
+            "environment": settings.env,
+            "rows_read": rows_read,
+            "rows_inserted": counts["inserted"],
+            "rows_updated": counts["updated"],
+            "rows_skipped": counts["skipped"],
+            "sheets_read": len(schedule_sheets),
+            "corrections": corrections,
+            "latest_date": max((row["publish_date"] for row in prepared), default=None),
+            "completed_at": synced_at,
+        }
+    except Exception as exc:
+        session.rollback()
+        failed_run = session.get(FeishuSyncRun, run.id)
+        if failed_run:
+            failed_run.status = "failed"
+            failed_run.rows_read = rows_read
+            failed_run.rows_inserted = counts["inserted"]
+            failed_run.rows_updated = counts["updated"]
+            failed_run.rows_skipped = counts["skipped"]
+            failed_run.error_message = str(exc)[:2000]
+            failed_run.completed_at = datetime.now(timezone.utc)
+            session.commit()
+        if isinstance(exc, FeishuSyncError):
+            raise
+        raise FeishuSyncError(f"频道排期同步写入失败：{exc}") from exc
 
 
 def _client_rows(sheet_id: str, last_column: str) -> list[dict[str, str]]:

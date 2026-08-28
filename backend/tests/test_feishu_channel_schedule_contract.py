@@ -3,10 +3,12 @@ from datetime import datetime, time
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import CheckConstraint
+from fastapi.testclient import TestClient
+from sqlalchemy import CheckConstraint, func, select
 from sqlalchemy.orm import Session
 
 from zhiju import models
+from zhiju.app import app
 from zhiju.database import database_router
 from zhiju.config import Settings
 from zhiju.schemas.operations import ScheduleRead
@@ -23,6 +25,10 @@ def test_channel_schedule_workbook_has_dedicated_read_configuration() -> None:
     assert field is not None
     assert field.default == "ErwWwX8TVionsikFwQMcEpCenih"
     assert Settings.model_fields["feishu_channel_schedule_directory_sheet_id"].default == "2FrKIE"
+
+
+def test_channel_schedule_sync_type_is_supported_by_sync_run_model() -> None:
+    assert "'channel_schedules'" in _check_sql(models.FeishuSyncRun)
 
 
 def _check_sql(model: type) -> str:
@@ -267,3 +273,101 @@ def test_prepare_channel_schedule_rows_does_not_create_unknown_business_entities
         session.close()
         transaction.rollback()
         connection.close()
+
+
+def test_channel_schedule_upsert_is_idempotent_and_does_not_create_tasks() -> None:
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        channel = models.Channel(
+            youtube_channel_id=f"UC-UPSERT-{suffix}",
+            original_name=f"同步频道-{suffix}",
+            timezone="Asia/Shanghai",
+            daily_publish_count=1,
+            status="active",
+        )
+        drama = models.Drama(
+            drama_number=-int(f"3{suffix[:7]}", 16),
+            drama_code=f"UPS-{suffix}",
+            chinese_title=f"同步剧目-{suffix}",
+            normalized_title=f"同步剧目-{suffix}".casefold(),
+            source_type="manual",
+            status="active",
+        )
+        session.add_all([channel, drama])
+        session.flush()
+        slot = models.ChannelPublishSlot(
+            channel_id=channel.id,
+            slot_type="main",
+            slot_number=1,
+            local_time=time(20, 0),
+            timezone="Asia/Shanghai",
+            status="active",
+        )
+        session.add(slot)
+        session.commit()
+        prepared = [{
+            "channel_id": channel.id,
+            "drama_id": drama.id,
+            "publish_slot_id": slot.id,
+            "publish_date": datetime(2026, 8, 29).date(),
+            "planned_local_time": datetime(2026, 8, 29, 20, 0),
+            "planned_beijing_time": datetime(2026, 8, 29, 20, 0),
+            "planned_utc_time": datetime(2026, 8, 29, 12, 0),
+            "source_type": "feishu",
+            "source_sheet_id": "sheet-upsert",
+            "source_sheet_title": channel.original_name,
+            "source_row_number": 2,
+            "source_video_id": "IQ7Cw_wpiqE",
+            "source_video_url": "https://youtu.be/IQ7Cw_wpiqE",
+            "is_uploaded": False,
+            "is_published": False,
+            "is_task_written": False,
+        }]
+        now = datetime(2026, 8, 29, 12, 0)
+
+        first = feishu_sync.upsert_channel_schedule_rows(session, prepared, now=now)
+        session.commit()
+        second = feishu_sync.upsert_channel_schedule_rows(session, prepared, now=now)
+        session.commit()
+
+        assert first == {"inserted": 1, "updated": 0, "skipped": 0}
+        assert second == {"inserted": 0, "updated": 0, "skipped": 1}
+        assert session.scalar(select(func.count(models.ChannelScheduleEntry.id)).where(
+            models.ChannelScheduleEntry.channel_id == channel.id
+        )) == 1
+        schedule = session.scalar(select(models.ChannelScheduleEntry).where(
+            models.ChannelScheduleEntry.channel_id == channel.id
+        ))
+        assert schedule.source_type == "feishu"
+        assert schedule.status == "planned"
+        assert session.scalar(select(func.count(models.OperationTask.id)).where(
+            models.OperationTask.channel_id == channel.id
+        )) == 0
+
+        prepared[0]["is_uploaded"] = True
+        third = feishu_sync.upsert_channel_schedule_rows(
+            session,
+            prepared,
+            now=datetime(2026, 8, 29, 12, 1),
+        )
+        session.commit()
+
+        assert third == {"inserted": 0, "updated": 1, "skipped": 0}
+        session.refresh(schedule)
+        assert schedule.status == "confirmed"
+        assert schedule.is_uploaded is True
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_channel_schedule_sync_api_contract_is_registered() -> None:
+    schema = TestClient(app).get("/openapi.json").json()
+
+    assert "post" in schema["paths"]["/api/v3/feishu-sync/channel-schedules"]
+    result_properties = schema["components"]["schemas"]["FeishuSyncResult"]["properties"]
+    assert {"sheets_read", "corrections"}.issubset(result_properties)
