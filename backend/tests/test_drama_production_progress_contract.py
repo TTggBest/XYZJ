@@ -32,10 +32,14 @@ def test_drama_production_state_is_unique_per_drama_and_has_fixed_nodes() -> Non
     assert {
         "cloud_download_status",
         "parameter_normalization_status",
+        "youtube_upload_status",
+        "copyright_verification_status",
         "subtitle_extraction_status",
         "guishou_upload_status",
         "role_extraction_status",
+        "tts_status",
         "production_completion_status",
+        "is_production_excluded",
         "episode_count",
         "total_duration_seconds",
         "source_type",
@@ -82,26 +86,89 @@ def _state(*values: str) -> SimpleNamespace:
     fields = (
         "cloud_download_status",
         "parameter_normalization_status",
+        "youtube_upload_status",
+        "copyright_verification_status",
         "subtitle_extraction_status",
         "guishou_upload_status",
         "role_extraction_status",
+        "tts_status",
         "production_completion_status",
     )
-    return SimpleNamespace(**dict(zip(fields, values, strict=True)))
+    return SimpleNamespace(
+        **dict(zip(fields, values, strict=True)),
+        is_production_excluded=False,
+    )
 
 
-def test_progress_calculation_uses_fixed_six_node_order() -> None:
+def test_progress_calculation_uses_fixed_nine_node_order() -> None:
     from zhiju.services.drama_progress import calculate_progress
 
-    assert calculate_progress(_state(*(["not_started"] * 6))) == (
+    assert calculate_progress(_state(*(["not_started"] * 9))) == (
         0,
         "not_started",
         "cloud_download",
     )
     assert calculate_progress(
-        _state("completed", "completed", "in_progress", "not_started", "not_started", "not_started")
-    ) == (33, "in_progress", "subtitle_extraction")
-    assert calculate_progress(_state(*(["completed"] * 6))) == (100, "completed", None)
+        _state(
+            "completed",
+            "completed",
+            "in_progress",
+            "not_started",
+            "not_started",
+            "not_started",
+            "not_started",
+            "not_started",
+            "not_started",
+        )
+    ) == (22, "in_progress", "youtube_upload")
+    assert calculate_progress(_state(*(["completed"] * 9))) == (100, "completed", None)
+
+
+def test_excluded_drama_has_not_producing_overall_status() -> None:
+    from zhiju.services.drama_progress import calculate_progress
+
+    state = _state(*(["completed"] * 9))
+    state.is_production_excluded = True
+
+    assert calculate_progress(state) == (100, "not_producing", None)
+
+
+def test_completing_a_node_backfills_predecessors_and_starts_the_next_node() -> None:
+    from zhiju.services.drama_progress import apply_progress_rules
+
+    state = _state(
+        "not_started",
+        "not_started",
+        "not_started",
+        "not_started",
+        "not_started",
+        "completed",
+        "not_started",
+        "not_started",
+        "not_started",
+    )
+
+    result = apply_progress_rules(state)
+
+    assert [
+        result["cloud_download_status"],
+        result["parameter_normalization_status"],
+        result["youtube_upload_status"],
+        result["copyright_verification_status"],
+        result["subtitle_extraction_status"],
+        result["guishou_upload_status"],
+        result["role_extraction_status"],
+    ] == ["completed"] * 6 + ["in_progress"]
+
+
+def test_production_completion_backfills_all_previous_nodes() -> None:
+    from zhiju.services.drama_progress import apply_progress_rules
+
+    result = apply_progress_rules(
+        _state(*(["not_started"] * 8), "completed")
+    )
+
+    assert list(result.values()) == ["completed"] * 9
 
 
 def test_progress_validation_rejects_completed_node_after_unfinished_predecessor() -> None:
@@ -109,7 +176,17 @@ def test_progress_validation_rejects_completed_node_after_unfinished_predecessor
 
     with pytest.raises(ValueError, match="统一参数"):
         validate_progress_order(
-            _state("not_started", "completed", "not_started", "not_started", "not_started", "not_started")
+            _state(
+                "not_started",
+                "in_progress",
+                "not_started",
+                "not_started",
+                "not_started",
+                "not_started",
+                "not_started",
+                "not_started",
+                "not_started",
+            )
         )
 
 
@@ -120,6 +197,78 @@ def test_drama_progress_routes_are_registered() -> None:
     assert {"get", "put"}.issubset(
         paths["/api/v3/dramas/{drama_id}/production-state"]
     )
+    assert "post" in paths[
+        "/api/v3/dramas/{drama_id}/production-state/cloud-download/complete"
+    ]
+    assert "put" in paths[
+        "/api/v3/dramas/{drama_id}/production-state/exclusion"
+    ]
+
+
+def test_manual_cloud_download_completion_starts_parameter_normalization() -> None:
+    from zhiju.services.drama_progress import complete_cloud_download
+
+    suffix = uuid4().hex[:12]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = models.Drama(
+            drama_number=-2,
+            drama_code=f"TEST-{suffix}",
+            chinese_title=f"测试剧-{suffix}",
+            normalized_title=f"测试剧{suffix}",
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.commit()
+
+        result = complete_cloud_download(session, drama.id)
+
+        assert result["cloud_download_status"] == "completed"
+        assert result["parameter_normalization_status"] == "in_progress"
+        assert result["overall_status"] == "in_progress"
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_excluding_production_preserves_node_progress_and_can_be_restored() -> None:
+    from zhiju.services.drama_progress import (
+        complete_cloud_download,
+        set_production_exclusion,
+    )
+
+    suffix = uuid4().hex[:12]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = models.Drama(
+            drama_number=-3,
+            drama_code=f"TEST-{suffix}",
+            chinese_title=f"测试剧-{suffix}",
+            normalized_title=f"测试剧{suffix}",
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.commit()
+        complete_cloud_download(session, drama.id)
+
+        excluded = set_production_exclusion(session, drama.id, excluded=True)
+        restored = set_production_exclusion(session, drama.id, excluded=False)
+
+        assert excluded["overall_status"] == "not_producing"
+        assert restored["overall_status"] == "in_progress"
+        assert restored["cloud_download_status"] == "completed"
+        assert restored["parameter_normalization_status"] == "in_progress"
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
 
 
 def test_manual_drama_language_routes_are_registered() -> None:
@@ -184,6 +333,22 @@ def test_frontend_exposes_progress_workspace_and_language_groups() -> None:
     assert 'data-action="edit-drama-progress"' in source
     assert 'data-action="sync-feishu-drama-languages"' in source
     assert 'data-action="toggle-drama-language"' in source
-    for label in ("网盘下载", "统一参数", "字幕提取", "鬼手上传", "角色提取", "制作完成"):
+    for label in (
+        "网盘下载",
+        "统一参数",
+        "上传 YouTube",
+        "版权验证",
+        "字幕提取",
+        "鬼手上传",
+        "角色提取",
+        "TTS",
+        "制作完成",
+        "剧集数",
+        "合集总时长",
+        "不制作",
+    ):
         assert label in source
+    assert 'data-action="complete-cloud-download"' in source
+    assert 'data-action="exclude-drama-production"' in source
+    assert 'window.confirm(' in source
     assert '["S", "A", "B", "C"]' in source

@@ -4,7 +4,7 @@
 
 ## 目标
 
-智矩通过正式 HTTP API 获取智核的制剧进度，不直接读写智核数据库。制剧进度按剧目记录，与目标语言无关。
+智矩通过正式 HTTP API 获取智核的制剧进度，不直接读写智核数据库。制剧进度按剧目记录，与目标语言无关。网盘下载由智矩人工确认，智核不得提供或覆盖该节点。
 
 ## 剧目标识
 
@@ -18,14 +18,18 @@
 
 ## 进度字段
 
-每部剧返回以下六个固定节点：
+智核为每部剧返回以下八个固定节点：
 
-1. `cloud_download`：网盘下载。
-2. `parameter_normalization`：统一参数。
-3. `subtitle_extraction`：字幕提取。
-4. `guishou_upload`：鬼手上传。
-5. `role_extraction`：角色提取。
-6. `production_completion`：制作完成。
+1. `parameter_normalization`：统一参数。
+2. `youtube_upload`：上传 YouTube。
+3. `copyright_verification`：版权验证。
+4. `subtitle_extraction`：字幕提取。
+5. `guishou_upload`：鬼手上传。
+6. `role_extraction`：角色提取。
+7. `tts`：TTS。
+8. `production_completion`：制作完成。
+
+智矩把本地维护的 `cloud_download` 与上述八个智核节点组合成九节点制剧流程。同步时只更新智核负责的八个节点，必须保留智矩当前的 `cloud_download` 状态和“不制作”标记。
 
 每个节点包含：
 
@@ -61,7 +65,7 @@
 
 `GET /api/v1/dramas/{drama_id}/production-progress`
 
-返回该剧完整的六节点、剧集数、总时长和资源地址。剧目不存在返回 404。
+返回该剧完整的八个智核节点、剧集数、总时长和资源地址。剧目不存在返回 404。
 
 ## 事件通知
 
@@ -94,7 +98,7 @@
 ## 智核需要回复的事项
 
 1. 稳定 `drama_id` 的现有字段和生成规则。
-2. 六个节点在智核现有状态中的精确映射。
+2. 八个智核节点在现有状态中的精确映射，并确认不会回传 `cloud_download`。
 3. 剧集数、总时长和四类产物地址的现有字段。
 4. 可用的认证方式、服务地址和网络边界。
 5. 是否能提供增量游标和状态变化通知。

@@ -215,6 +215,14 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .drama-progress-table { max-height: calc(100vh - 245px); overflow: auto; }
 .drama-progress-table .data-table thead { position: sticky; top: 0; z-index: 4; }
 .drama-progress-table .data-table th { box-shadow: 0 1px 0 var(--line); }
+.drama-progress-row.is-in-progress > td { background: #fff8dc; }
+.drama-progress-row.is-completed > td { background: #edf8f2; }
+.drama-progress-row.is-not-producing > td { background: #fff0ef; }
+.drama-progress-row.is-in-progress:hover > td { background: #fff3c7; }
+.drama-progress-row.is-completed:hover > td { background: #e3f3eb; }
+.drama-progress-row.is-not-producing:hover > td { background: #ffe4e1; }
+.status-action { padding: 0; background: transparent; border: 0; border-radius: 4px; }
+.status-action:hover .tag { box-shadow: 0 0 0 2px rgba(8,123,84,.16); }
 .cell-summary { display: -webkit-box; max-width: 360px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; }
 .pagination { min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 9px 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .detail-tabs { display: flex; gap: 3px; padding: 0 0 12px; border-bottom: 1px solid var(--line); }

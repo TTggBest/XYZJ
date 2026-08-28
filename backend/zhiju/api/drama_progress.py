@@ -5,14 +5,17 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
 from zhiju.schemas.drama_progress import (
+    DramaProductionExclusionWrite,
     DramaProductionStateRead,
     DramaProductionStateWrite,
     DramaProgressPage,
 )
 from zhiju.services.channel import NotFoundError
 from zhiju.services.drama_progress import (
+    complete_cloud_download,
     get_drama_progress,
     list_drama_progress,
+    set_production_exclusion,
     update_drama_progress,
 )
 
@@ -72,3 +75,34 @@ def put_progress_item(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/dramas/{drama_id}/production-state/cloud-download/complete",
+    response_model=DramaProductionStateRead,
+)
+def post_cloud_download_complete(
+    drama_id: str,
+    session: Session = Depends(get_db),
+) -> DramaProductionStateRead:
+    try:
+        return complete_cloud_download(session, drama_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.put(
+    "/dramas/{drama_id}/production-state/exclusion",
+    response_model=DramaProductionStateRead,
+)
+def put_production_exclusion(
+    drama_id: str,
+    payload: DramaProductionExclusionWrite,
+    session: Session = Depends(get_db),
+) -> DramaProductionStateRead:
+    try:
+        return set_production_exclusion(session, drama_id, excluded=payload.excluded)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
