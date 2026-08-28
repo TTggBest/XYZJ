@@ -352,3 +352,19 @@ def test_frontend_exposes_progress_workspace_and_language_groups() -> None:
     assert 'data-action="exclude-drama-production"' in source
     assert 'window.confirm(' in source
     assert '["S", "A", "B", "C"]' in source
+
+
+def test_frontend_compacts_drama_progress_table_for_desktop_width() -> None:
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+    style_source = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert "function compactDramaBatch(value)" in app_source
+    assert "function dramaProgressUpdatedAt(value)" in app_source
+    assert 'class="drama-progress-title-cell"' in app_source
+    assert 'class="drama-progress-spec-cell"' in app_source
+    assert 'class="drama-progress-updated-cell"' in app_source
+    assert '"规格", "整体进度", "最后更新"' in app_source
+    assert 'rows, 1320, "drama-progress-table"' in app_source
+    assert ".drama-progress-table .data-table th," in style_source
+    assert ".drama-progress-title-cell" in style_source
+    assert ".drama-progress-updated-cell" in style_source
