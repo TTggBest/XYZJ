@@ -33,6 +33,7 @@ class DramaProductionStateRead(DramaProductionStateWrite):
 
 
 class DramaProgressRow(DramaProductionStateRead):
+    sequence_number: int
     drama_number: int
     drama_code: str
     chinese_title: str

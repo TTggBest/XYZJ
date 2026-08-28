@@ -84,6 +84,7 @@ class DramaLibrarySummary(BaseModel):
 
 class DramaLibraryRow(BaseModel):
     id: str
+    sequence_number: int
     drama_number: int
     drama_code: str
     chinese_title: str

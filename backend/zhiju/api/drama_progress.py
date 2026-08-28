@@ -24,7 +24,7 @@ router = APIRouter(prefix="/v3", tags=["drama-progress"])
 def get_progress_page(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=10, le=150),
-    sort_order: Literal["asc", "desc"] = "desc",
+    sort_order: Literal["asc", "desc"] = "asc",
     search: str | None = None,
     batch_name: str | None = None,
     overall_status: str | None = None,
