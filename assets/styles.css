@@ -84,8 +84,8 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .mobile-menu { display: none; }
 .view-root { padding: 20px 24px 36px; }
 
-.page-stack { display: grid; gap: 14px; max-width: 1800px; margin: 0 auto; }
-.section { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.page-stack { min-width: 0; display: grid; gap: 14px; max-width: 1800px; margin: 0 auto; }
+.section { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
 .section-head { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 15px; border-bottom: 1px solid var(--line); }
 .section-title { min-width: 0; }
 .section-title h2 { margin: 0; font-size: 15px; }
