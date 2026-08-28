@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from zhiju.models import Drama, DramaProductionState
 from zhiju.schemas.drama_progress import DramaProductionStateWrite
 from zhiju.services.channel import NotFoundError
-from zhiju.services.drama_sequence import drama_sequence_subquery
 from zhiju.services.identity import _audit
 from zhiju.services.operations import normalize_drama_title
 
@@ -129,16 +128,10 @@ def list_drama_progress(
     overall_status: str | None = None,
     current_node: str | None = None,
 ) -> dict[str, object]:
-    sequence_numbers = drama_sequence_subquery()
     statement = (
-        select(Drama, DramaProductionState, sequence_numbers.c.sequence_number)
-        .join(sequence_numbers, sequence_numbers.c.drama_id == Drama.id)
+        select(Drama, DramaProductionState)
         .outerjoin(DramaProductionState, DramaProductionState.drama_id == Drama.id)
-        .order_by(
-            sequence_numbers.c.sequence_number.asc()
-            if sort_order == "asc"
-            else sequence_numbers.c.sequence_number.desc()
-        )
+        .order_by(Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc())
     )
     if search:
         normalized = normalize_drama_title(search)
@@ -149,10 +142,9 @@ def list_drama_progress(
     if batch_name:
         statement = statement.where(Drama.batch_name == batch_name)
     rows = []
-    for drama, state, sequence_number in session.execute(statement):
+    for drama, state in session.execute(statement):
         item = {
             **production_state_payload(state, drama.id),
-            "sequence_number": int(sequence_number),
             "drama_number": drama.drama_number,
             "drama_code": drama.drama_code,
             "chinese_title": drama.chinese_title,

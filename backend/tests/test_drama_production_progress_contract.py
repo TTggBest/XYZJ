@@ -139,6 +139,7 @@ def test_feishu_language_coverage_cannot_be_deleted_manually() -> None:
     session = Session(bind=connection, join_transaction_mode="create_savepoint")
     try:
         drama = models.Drama(
+            drama_number=-1,
             drama_code=f"TEST-{suffix}",
             chinese_title=f"测试剧-{suffix}",
             normalized_title=f"测试剧{suffix}",
