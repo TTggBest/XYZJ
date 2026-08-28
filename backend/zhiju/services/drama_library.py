@@ -248,6 +248,8 @@ def delete_drama_language(session: Session, drama_id: str, language_id: str) -> 
         DramaTranslation.language_id == language_id,
     ))
     if translation is not None:
+        if translation.source_type != "manual":
+            raise ConflictError("飞书同步的语言覆盖不能人工删除，请在飞书语言表修改")
         session.delete(translation)
         _audit(session, "drama.language_deleted", "drama", drama_id, f"language={language.code}")
         session.commit()

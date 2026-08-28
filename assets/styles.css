@@ -231,6 +231,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .language-toggle small { color: var(--muted-2); text-align: right; }
 .language-toggle.is-covered { background: var(--green-soft); border-color: #b8ddcd; }
 .language-toggle.is-covered strong { color: var(--green-dark); }
+.language-toggle:disabled { cursor: default; opacity: 1; }
 .detail-actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .detail-block p { margin: 0; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .field-help { margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }

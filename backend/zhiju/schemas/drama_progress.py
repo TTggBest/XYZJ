@@ -45,4 +45,3 @@ class DramaProgressPage(BaseModel):
     page_size: int
     total: int
     pages: int
-
