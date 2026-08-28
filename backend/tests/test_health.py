@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from zhiju.app import app
+from zhiju.config import get_settings
 
 
 def test_health_reaches_mysql() -> None:
@@ -8,6 +9,13 @@ def test_health_reaches_mysql() -> None:
     assert response.status_code == 200
     assert response.json()["ok"] is True
     assert response.json()["database"]["ok"] is True
+
+
+def test_health_reports_runtime_web_port() -> None:
+    response = TestClient(app).get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json()["web_port"] == get_settings().port
 
 
 def test_identity_lists_start_from_database() -> None:

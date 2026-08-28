@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from sqlalchemy import text
 
 from zhiju import __version__
+from zhiju.config import get_settings
 from zhiju.database import database_router
 
 
@@ -22,6 +23,7 @@ def health() -> dict[str, object]:
         "ok": database_ok,
         "system": "筱宇智矩",
         "version": __version__,
+        "web_port": get_settings().port,
         "environment": database_router.active_environment,
         "database": {"ok": database_ok, "error": database_error},
     }

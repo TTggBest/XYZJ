@@ -144,6 +144,7 @@
       el("dbState").innerHTML = `<span class="status-dot ${ok ? "is-ok" : "is-error"}"></span><span>${ok ? "MySQL 已连接" : "MySQL 异常"}</span>`;
       el("sideStatusDot").className = `status-dot ${ok ? "is-ok" : "is-error"}`;
       el("sideStatusText").textContent = ok ? "数据库已连接" : "数据库异常";
+      el("sideRuntimePort").textContent = `Web · ${health.web_port}`;
     } catch {
       el("dbState").innerHTML = `<span class="status-dot is-error"></span><span>服务不可用</span>`;
       el("sideStatusDot").className = "status-dot is-error";
