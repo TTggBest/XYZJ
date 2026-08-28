@@ -39,7 +39,7 @@ def _raise(exc: Exception) -> HTTPException:
 def get_library(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=10, le=150),
-    sort_order: Literal["asc", "desc"] = "desc",
+    sort_order: Literal["asc", "desc"] = "asc",
     search: str | None = None,
     drama_status: str | None = Query(default=None, alias="status"),
     batch_name: str | None = None,
