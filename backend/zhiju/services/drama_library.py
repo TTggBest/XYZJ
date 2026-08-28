@@ -25,7 +25,6 @@ from zhiju.schemas.drama_library import (
     DramaLibraryWrite,
 )
 from zhiju.services.channel import NotFoundError
-from zhiju.services.drama_sequence import drama_sequence_subquery
 from zhiju.services.drama_progress import production_state_payload
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.operations import normalize_drama_title
@@ -85,7 +84,6 @@ def list_drama_library(
         .group_by(YoutubeVideo.drama_id)
         .subquery()
     )
-    sequence_numbers = drama_sequence_subquery()
     filters = []
     if search:
         normalized = normalize_drama_title(search)
@@ -103,30 +101,23 @@ def list_drama_library(
     statement = (
         select(
             Drama,
-            sequence_numbers.c.sequence_number,
             func.coalesce(language_counts.c.language_count, 0),
             func.coalesce(channel_counts.c.published_channel_count, 0),
         )
-        .join(sequence_numbers, sequence_numbers.c.drama_id == Drama.id)
         .outerjoin(language_counts, language_counts.c.drama_id == Drama.id)
         .outerjoin(channel_counts, channel_counts.c.drama_id == Drama.id)
         .where(*filters)
-        .order_by(
-            sequence_numbers.c.sequence_number.asc()
-            if sort_order == "asc"
-            else sequence_numbers.c.sequence_number.desc()
-        )
+        .order_by(Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
     items = [
         {
             **drama.__dict__,
-            "sequence_number": int(sequence_number),
             "language_count": int(language_count),
             "published_channel_count": int(channel_count),
         }
-        for drama, sequence_number, language_count, channel_count in session.execute(statement)
+        for drama, language_count, channel_count in session.execute(statement)
     ]
     return {
         "items": items,

@@ -90,6 +90,18 @@ def test_drama_feishu_value_mapping_uses_beijing_day_end() -> None:
     assert map_status("已删") == "archived"
 
 
+def test_new_feishu_dramas_are_created_from_bottom_to_top() -> None:
+    order_rows = getattr(feishu_sync, "new_drama_rows_in_insert_order", None)
+    prepared = [
+        (2, "newest", {"chinese_title": "最新剧"}),
+        (3, "middle", {"chinese_title": "中间剧"}),
+        (4, "oldest", {"chinese_title": "最早剧"}),
+    ]
+
+    assert callable(order_rows)
+    assert [row[1] for row in order_rows(prepared)] == ["oldest", "middle", "newest"]
+
+
 def test_feishu_client_resolves_sheet_by_exact_title(monkeypatch) -> None:
     resolver = getattr(feishu_sync.FeishuClient, "sheet_id_by_title", None)
     assert callable(resolver)

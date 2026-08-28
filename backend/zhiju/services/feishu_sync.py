@@ -893,6 +893,12 @@ def sync_operation_packages(session: Session) -> dict[str, object]:
     return _sync_rows(session, "operation_packages", rows, settings.feishu_operation_package_sheet_id)
 
 
+def new_drama_rows_in_insert_order(
+    rows: list[tuple[int, str, dict[str, object]]],
+) -> list[tuple[int, str, dict[str, object]]]:
+    return list(reversed(rows))
+
+
 def sync_dramas(session: Session) -> dict[str, object]:
     settings = get_settings()
     sheet_id, rows = _client().rows_by_title(
@@ -947,19 +953,13 @@ def sync_dramas(session: Session) -> dict[str, object]:
             for drama in session.scalars(select(Drama).where(Drama.normalized_title.in_(normalized_seen)))
         }
         aliases = set(session.scalars(select(DramaAlias.normalized_alias).where(DramaAlias.normalized_alias.in_(normalized_seen))))
+        new_rows = []
         for row_number, normalized_title, values in prepared:
             drama = existing.get(normalized_title)
             if drama is None:
                 if normalized_title in aliases:
                     raise FeishuSyncError(f"飞书剧库第 {row_number} 行作品名称与现有别名冲突：{values['chinese_title']}")
-                drama = Drama(
-                    drama_code=f"DRM-{now:%Y%m%d}-{uuid.uuid4().hex[:8].upper()}",
-                    source_synced_at=now,
-                    **values,
-                )
-                session.add(drama)
-                existing[normalized_title] = drama
-                inserted += 1
+                new_rows.append((row_number, normalized_title, values))
                 continue
             changed = False
             for field, value in values.items():
@@ -971,6 +971,16 @@ def sync_dramas(session: Session) -> dict[str, object]:
                 updated += 1
             else:
                 skipped += 1
+
+        for _, normalized_title, values in new_drama_rows_in_insert_order(new_rows):
+            drama = Drama(
+                drama_code=f"DRM-{now:%Y%m%d}-{uuid.uuid4().hex[:8].upper()}",
+                source_synced_at=now,
+                **values,
+            )
+            session.add(drama)
+            existing[normalized_title] = drama
+            inserted += 1
 
         run = session.get(FeishuSyncRun, run.id)
         run.status = "completed"
