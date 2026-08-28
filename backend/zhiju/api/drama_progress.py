@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -21,7 +23,8 @@ router = APIRouter(prefix="/v3", tags=["drama-progress"])
 @router.get("/drama-production", response_model=DramaProgressPage)
 def get_progress_page(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=30, ge=10, le=100),
+    page_size: int = Query(default=50, ge=10, le=150),
+    sort_order: Literal["asc", "desc"] = "desc",
     search: str | None = None,
     batch_name: str | None = None,
     overall_status: str | None = None,
@@ -32,6 +35,7 @@ def get_progress_page(
         session,
         page=page,
         page_size=page_size,
+        sort_order=sort_order,
         search=search,
         batch_name=batch_name,
         overall_status=overall_status,

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -37,7 +38,8 @@ def _raise(exc: Exception) -> HTTPException:
 @router.get("/dramas/library", response_model=DramaLibraryPage)
 def get_library(
     page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=30, ge=10, le=100),
+    page_size: int = Query(default=50, ge=10, le=150),
+    sort_order: Literal["asc", "desc"] = "desc",
     search: str | None = None,
     drama_status: str | None = Query(default=None, alias="status"),
     batch_name: str | None = None,
@@ -49,6 +51,7 @@ def get_library(
         session,
         page=page,
         page_size=page_size,
+        sort_order=sort_order,
         search=search,
         status=drama_status,
         batch_name=batch_name,
