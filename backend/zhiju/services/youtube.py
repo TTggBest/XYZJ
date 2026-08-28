@@ -444,6 +444,22 @@ def list_videos(session: Session, *, channel_id=None, publish_status=None, priva
     return list(session.scalars(statement.order_by(YoutubeVideo.published_at.desc(), YoutubeVideo.created_at.desc())))
 
 
+def bind_video_to_drama(session: Session, video_id: str, drama_id: str) -> YoutubeVideo:
+    video = _video(session, video_id)
+    drama = session.get(Drama, drama_id)
+    if drama is None:
+        raise NotFoundError("剧目不存在")
+    if video.operation_package_id:
+        package = session.get(OperationPackage, video.operation_package_id)
+        if package is not None and package.drama_id != drama_id:
+            raise ConflictError("视频已绑定其他剧目的运营包，不能改绑")
+    video.drama_id = drama_id
+    _audit(session, "youtube_video.drama_bound", "youtube_video", video.id)
+    session.commit()
+    session.refresh(video)
+    return video
+
+
 def _playlist(session: Session, playlist_id: str) -> ChannelPlaylist:
     playlist = session.get(ChannelPlaylist, playlist_id)
     if playlist is None or playlist.status == "deleted":

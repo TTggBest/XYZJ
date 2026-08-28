@@ -264,6 +264,22 @@ def exchange_authorization_code(
     )
 
 
+def refresh_oauth_access_token(
+    config: OAuthClientConfig,
+    refresh_token: str,
+) -> dict[str, object]:
+    return _request_json(
+        config.token_uri,
+        method="POST",
+        form={
+            "client_id": config.client_id,
+            "client_secret": config.client_secret_value,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        },
+    )
+
+
 def fetch_google_identity(access_token: str) -> dict[str, object]:
     return _request_json(
         "https://openidconnect.googleapis.com/v1/userinfo",

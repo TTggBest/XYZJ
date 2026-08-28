@@ -19,6 +19,7 @@ from zhiju.services.youtube_oauth import (
     import_oauth_client_file,
     oauth_client_status,
     parse_oauth_client_document,
+    refresh_oauth_access_token,
     save_oauth_token,
     youtube_channel_identity,
 )
@@ -165,6 +166,34 @@ def test_oauth_token_is_saved_in_keychain_and_returns_reference() -> None:
     assert credential_ref.endswith("/grant-id")
     assert writes[0][1] == "grant-id"
     assert writes[0][2]["refresh_token"] == "refresh"
+
+
+def test_refresh_token_exchange_uses_google_refresh_grant(monkeypatch) -> None:
+    calls = []
+    config = parse_oauth_client_document(client_document())
+
+    def fake_request(url, *, method="GET", form=None, headers=None):
+        calls.append((url, method, form, headers))
+        return {"access_token": "new-access", "expires_in": 3600}
+
+    monkeypatch.setattr("zhiju.services.youtube_oauth._request_json", fake_request)
+
+    result = refresh_oauth_access_token(config, "refresh-value")
+
+    assert result["access_token"] == "new-access"
+    assert calls == [
+        (
+            config.token_uri,
+            "POST",
+            {
+                "client_id": config.client_id,
+                "client_secret": config.client_secret_value,
+                "refresh_token": "refresh-value",
+                "grant_type": "refresh_token",
+            },
+            None,
+        )
+    ]
 
 
 def test_completed_authorization_binds_exact_channel_without_storing_tokens(tmp_path) -> None:

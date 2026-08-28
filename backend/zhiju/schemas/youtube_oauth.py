@@ -16,3 +16,10 @@ class YouTubeAuthorizationStart(BaseModel):
     authorization_url: str
     expires_in_seconds: int
 
+
+class YouTubeVideoSyncResult(BaseModel):
+    fetched: int
+    inserted: int
+    updated: int
+    bound: int
+    unmatched: int
