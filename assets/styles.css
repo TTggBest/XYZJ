@@ -72,6 +72,9 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .app-shell.is-collapsed .sidebar-foot { justify-content: center; }
 
 .main-area { min-width: 0; }
+.app-shell.is-workspace-scroll-locked { height: 100vh; min-height: 0; overflow: hidden; }
+.app-shell.is-workspace-scroll-locked .main-area { height: 100vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.app-shell.is-workspace-scroll-locked .topbar { flex: 0 0 auto; }
 .topbar { min-height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 24px; background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 30; backdrop-filter: blur(10px); }
 .topbar-title { display: flex; align-items: center; gap: 10px; }
 .topbar-title h1 { margin: 3px 0 0; font-size: 25px; line-height: 1.1; letter-spacing: 0; }
@@ -83,6 +86,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .db-state { min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 11px; color: var(--muted); border: 1px solid var(--line); background: var(--surface-soft); border-radius: var(--radius); font-size: 12px; }
 .mobile-menu { display: none; }
 .view-root { padding: 20px 24px 36px; }
+.view-root.is-workspace-scroll-locked { min-height: 0; flex: 1 1 auto; overflow: hidden; padding-bottom: 20px; }
 
 .page-stack { min-width: 0; display: grid; gap: 14px; max-width: 1800px; margin: 0 auto; }
 .section { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -213,6 +217,9 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .drama-library-table .data-table thead { position: sticky; top: 0; z-index: 4; }
 .drama-library-table .data-table th { box-shadow: 0 1px 0 var(--line); }
 .drama-progress-table { max-height: calc(100vh - 245px); overflow: auto; }
+.drama-progress-page { height: 100%; grid-template-rows: minmax(0, 1fr); }
+.drama-progress-page > .section { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.drama-progress-page .drama-progress-table { min-height: 0; max-height: none; flex: 1 1 auto; overscroll-behavior: contain; }
 .drama-progress-table .data-table thead { position: sticky; top: 0; z-index: 4; }
 .drama-progress-table .data-table th { box-shadow: 0 1px 0 var(--line); }
 .drama-progress-table .data-table { table-layout: fixed; }
@@ -445,6 +452,8 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
+  .app-shell.is-workspace-scroll-locked { height: auto; overflow: visible; }
+  .app-shell.is-workspace-scroll-locked .main-area { height: auto; display: block; overflow: visible; }
   .sidebar, .app-shell.is-collapsed .sidebar { position: fixed; left: -240px; width: 224px; transition: left .18s ease; box-shadow: 16px 0 50px rgba(0,0,0,.24); }
   .app-shell.mobile-nav-open .sidebar { left: 0; }
   .app-shell.is-collapsed .brand-copy, .app-shell.is-collapsed .nav-item span, .app-shell.is-collapsed .nav-label, .app-shell.is-collapsed .sidebar-foot div { display: flex; }
@@ -456,6 +465,10 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
   .topbar-title h1 { font-size: 20px; }
   .breadcrumb, .db-state { display: none; }
   .view-root { padding: 13px 12px 28px; }
+  .view-root.is-workspace-scroll-locked { height: auto; overflow: visible; padding-bottom: 28px; }
+  .drama-progress-page { height: auto; display: grid; }
+  .drama-progress-page > .section { display: block; overflow: visible; }
+  .drama-progress-page .drama-progress-table { max-height: none; flex: none; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .kpi { min-height: 94px; padding: 12px; }
   .kpi-value { font-size: 25px; }

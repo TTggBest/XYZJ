@@ -368,3 +368,17 @@ def test_frontend_compacts_drama_progress_table_for_desktop_width() -> None:
     assert ".drama-progress-table .data-table th," in style_source
     assert ".drama-progress-title-cell" in style_source
     assert ".drama-progress-updated-cell" in style_source
+
+
+def test_frontend_uses_single_vertical_scroll_for_drama_progress() -> None:
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+    style_source = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'root.classList.toggle("is-workspace-scroll-locked", view === "dramaProgress")' in app_source
+    assert 'el("appShell").classList.toggle("is-workspace-scroll-locked", view === "dramaProgress")' in app_source
+    assert 'class="page-stack drama-progress-page"' in app_source
+    assert ".view-root.is-workspace-scroll-locked" in style_source
+    assert ".app-shell.is-workspace-scroll-locked .main-area" in style_source
+    assert ".drama-progress-page > .section" in style_source
+    assert "overscroll-behavior: contain" in style_source
+    assert "max-height: none" in style_source

@@ -280,7 +280,7 @@
     const filters = `<div class="drama-library-toolbar"><button class="button button-secondary" data-action="back-drama-library">${icon("arrow-left")} 返回剧库</button><div class="field search-field"><label>搜索</label><input class="input" id="dramaProgressSearch" value="${esc(state.dramaProgressSearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>批次</label><input class="input" id="dramaProgressBatch" value="${esc(state.dramaProgressBatch)}" placeholder="全部批次"></div><div class="field"><label>整体状态</label><select class="select" id="dramaProgressStatus">${productionStatusOptions(state.dramaProgressStatus)}</select></div><div class="field"><label>当前节点</label><select class="select" id="dramaProgressNode">${productionNodeOptions(state.dramaProgressNode)}</select></div><div class="field"><label>排序</label><select class="select" id="dramaProgressSortOrder">${dramaSortOrderOptions(state.dramaProgressSortOrder)}</select></div><div class="field"><label>每页</label><select class="select" id="dramaProgressPageSize">${dramaPageSizeOptions(state.dramaProgressPageSize)}</select></div><button class="button button-primary" data-action="apply-drama-progress-filters">${icon("search")} 查询</button></div>`;
     const pager = data.pages > 1 ? `<div class="pagination"><button class="button button-secondary button-small" data-action="drama-progress-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${data.page} / ${data.pages} 页 · ${data.total} 条</span><button class="button button-secondary button-small" data-action="drama-progress-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
     const content = `<div class="section-body drama-filter-body">${filters}</div>${rows.length ? table(["序号", "剧目", "批次", ...DRAMA_PRODUCTION_NODES.map(([, text]) => text), "规格", "整体进度", "最后更新", ""], rows, 1320, "drama-progress-table") : empty("没有符合条件的剧目", "调整筛选条件后重试。")}${pager}`;
-    root.innerHTML = `<div class="page-stack">${section("制剧进度", "每部剧唯一一套进度 · 与语言覆盖无关", content)}</div>`;
+    root.innerHTML = `<div class="page-stack drama-progress-page">${section("制剧进度", "每部剧唯一一套进度 · 与语言覆盖无关", content)}</div>`;
   }
   function dramaForm(drama = null) {
     const aliases = (drama?.aliases || []).map(item => item.alias).join("，");
@@ -638,6 +638,8 @@
     if (["schedules", "workorders", "packages"].includes(view) && state.demo.active && state.demo.batch && !state.dateManuallySet) state.date = state.demo.batch.start_date;
     const meta = VIEW_META[view] || VIEW_META.dashboard;
     el("breadcrumbText").textContent = meta[0]; el("pageTitle").textContent = meta[1];
+    el("appShell").classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
+    root.classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
     document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("is-active", item.dataset.view === view));
     el("appShell").classList.remove("mobile-nav-open");
     if (!preservePosition) { loading(); renderIcons(); }
