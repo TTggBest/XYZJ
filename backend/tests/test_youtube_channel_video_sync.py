@@ -25,7 +25,6 @@ from zhiju.services.youtube_channel_sync import (
     parse_youtube_duration,
     sync_authorized_channel_videos,
 )
-from zhiju.services import youtube as youtube_service
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,14 +44,13 @@ def _remote_video(video_id: str, title: str, duration: str = "PT1H2M3S") -> dict
     }
 
 
-def test_youtube_channel_video_sync_route_and_frontend_action_are_registered() -> None:
+def test_youtube_channel_video_sync_route_does_not_offer_direct_drama_binding() -> None:
     paths = TestClient(app).get("/openapi.json").json()["paths"]
     source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
 
     assert "post" in paths["/api/v3/channels/{channel_id}/youtube-videos/sync"]
-    assert "patch" in paths["/api/v3/youtube/videos/{video_id}/drama-binding"]
+    assert "/api/v3/youtube/videos/{video_id}/drama-binding" not in paths
     assert 'data-action="sync-youtube-videos"' in source
-    assert 'data-action="bind-youtube-video"' in source
 
 
 def test_youtube_duration_parser_handles_hours_minutes_and_seconds() -> None:
@@ -246,55 +244,6 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
         assert videos[known_video_id].duration_seconds == 3723
         assert videos[unknown_video_id].drama_id is None
         assert videos[unknown_video_id].duration_seconds == 2680
-    finally:
-        session.close()
-        transaction.rollback()
-        connection.close()
-
-
-def test_unmatched_youtube_video_can_be_manually_bound_to_a_drama() -> None:
-    bind_video = getattr(youtube_service, "bind_video_to_drama", None)
-    assert callable(bind_video)
-    suffix = uuid4().hex[:12]
-    connection = database_router.get_active_engine().connect()
-    transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
-    try:
-        channel = Channel(
-            youtube_channel_id=f"UC-bind-{suffix}",
-            original_name=f"Bind channel {suffix}",
-            timezone="Asia/Shanghai",
-            daily_publish_count=1,
-            status="authorized",
-        )
-        drama = Drama(
-            drama_number=-(int(suffix[:8], 16) + 5000000000),
-            drama_code=f"BIND-{suffix}",
-            chinese_title=f"手工绑定测试剧-{suffix}",
-            normalized_title=f"手工绑定测试剧-{suffix}",
-            source_type="manual",
-            status="active",
-        )
-        session.add_all([channel, drama])
-        session.flush()
-        video = YoutubeVideo(
-            youtube_video_id=f"B{suffix[:10]}",
-            channel_id=channel.id,
-            title="Unmatched video",
-            url=f"https://www.youtube.com/watch?v=B{suffix[:10]}",
-            privacy_status="public",
-            publish_status="published",
-            published_at=datetime.now(timezone.utc),
-            source="youtube_sync",
-        )
-        session.add(video)
-        session.commit()
-
-        bound = bind_video(session, video.id, drama.id)
-
-        assert bound.drama_id == drama.id
-        session.refresh(video)
-        assert video.drama_id == drama.id
     finally:
         session.close()
         transaction.rollback()
