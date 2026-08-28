@@ -42,6 +42,10 @@ class VideoRead(VideoUpsert):
     updated_at: datetime
 
 
+class VideoDramaBindingUpdate(BaseModel):
+    drama_id: str
+
+
 class PlaylistMembershipUpsert(BaseModel):
     video_id: str
     playlist_id: str

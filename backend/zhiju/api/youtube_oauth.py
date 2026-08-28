@@ -12,7 +12,11 @@ from zhiju.models.identity import Channel
 from zhiju.schemas.youtube_oauth import (
     YouTubeAuthorizationStart,
     YouTubeOAuthClientStatus,
+    YouTubeVideoSyncResult,
 )
+from zhiju.services.channel import NotFoundError
+from zhiju.services.identity import ConflictError
+from zhiju.services.youtube_channel_sync import sync_authorized_channel_videos
 from zhiju.services.youtube_oauth import (
     MacOSKeychainSecretStore,
     OAuthCallbackRelay,
@@ -103,6 +107,31 @@ def post_start_youtube_authorization(
         authorization_url=build_authorization_url(config, state),
         expires_in_seconds=oauth_states.ttl_seconds,
     )
+
+
+@router.post(
+    "/channels/{channel_id}/youtube-videos/sync",
+    response_model=YouTubeVideoSyncResult,
+)
+def post_sync_youtube_channel_videos(
+    channel_id: str,
+    session: Session = Depends(get_db),
+) -> YouTubeVideoSyncResult:
+    settings = get_settings()
+    if settings.device_role != "builder":
+        raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube视频同步")
+    try:
+        return YouTubeVideoSyncResult.model_validate(
+            sync_authorized_channel_videos(
+                session,
+                MacOSKeychainSecretStore(),
+                channel_id=channel_id,
+            )
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ConflictError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/youtube/oauth/callback", response_class=HTMLResponse)

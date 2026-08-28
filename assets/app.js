@@ -203,7 +203,7 @@
     const [channels, logoProfiles, oauthStatus] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles"), api("/settings/youtube-oauth")]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
-    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
+    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
     root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
   }
   function channelLogoForm(channel) {
@@ -495,10 +495,18 @@
     stack.insertAdjacentHTML("afterbegin", `<div class="demo-banner"><div class="demo-banner-copy"><strong>飞书前 20 条演示数据</strong><span>${fmt(batch.start_date)} 至 ${fmt(batch.end_date)} · ${batch.row_count} 条工单 · ${counts.channel || 0} 个频道 · ${counts.package || 0} 个运营包</span></div><div class="demo-banner-actions"><button class="button button-secondary button-small" data-action="view-demo-workorders">查看演示工单</button><button class="button button-danger button-small" data-action="delete-demo">一键删除演示数据</button></div></div>`);
   }
 
+  function youtubeVideoBindingForm(video, dramas) {
+    const options = dramas.map(drama => `<option value="${drama.id}">${esc(drama.chinese_title)} · ${esc(drama.drama_code)}</option>`).join("");
+    return `<form class="form-grid" id="youtubeVideoDramaBindingForm"><input type="hidden" name="video_id" value="${video.id}"><div class="field field-wide"><label>YouTube 视频</label><input class="input" value="${esc(video.title || video.youtube_video_id)}" disabled></div><div class="field field-wide"><label>绑定剧目</label><select class="select" name="drama_id" required><option value="">选择剧目</option>${options}</select></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">确认绑定</button></div></form>`;
+  }
+
   async function showYoutube() {
-    const [videos, comments, watermarks, quota] = await Promise.all([api("/youtube/videos"), api("/youtube/comments"), api("/youtube/sync-watermarks"), api("/youtube/quota-usage/summary")]);
-    const videoRows = videos.map(v => `<tr><td><span class="cell-main">${esc(v.title || v.youtube_video_id)}</span><span class="cell-sub mono">${esc(v.youtube_video_id)}</span></td><td>${shortId(v.channel_id)}</td><td>${tag(v.publish_status)}</td><td>${tag(v.privacy_status)}</td><td>${fmt(v.scheduled_publish_at || v.published_at)}</td></tr>`);
-    root.innerHTML = `<div class="page-stack"><div class="kpi-grid">${kpi("video", "视频", videos.length, "已落库 YouTube 视频")}${kpi("message-square", "评论", comments.length, "默认排除频道自身评论")}${kpi("refresh-cw", "同步水位", watermarks.length, "按频道和数据类型隔离")}${kpi("gauge", "配额记录", quota.length, "数据库聚合")}</div>${section("YouTube 视频", "数据读取自 MySQL，不读取 raw_json", videoRows.length ? table(["视频", "频道 ID", "发布状态", "隐私状态", "发布时间"], videoRows, 850) : empty("还没有 YouTube 视频数据", "频道授权并同步后，视频数据会按频道落库。"))}</div>`;
+    const [videos, comments, watermarks, quota, dramas] = await Promise.all([api("/youtube/videos"), api("/youtube/comments"), api("/youtube/sync-watermarks"), api("/youtube/quota-usage/summary"), api("/dramas")]);
+    Object.assign(state, { youtubeVideos: videos, dramas });
+    const dramaById = new Map(dramas.map(drama => [drama.id, drama]));
+    const videoRows = videos.map(v => { const drama = dramaById.get(v.drama_id); const binding = drama ? `<span class="cell-main">${esc(drama.chinese_title)}</span><span class="cell-sub mono">${esc(drama.drama_code)}</span>` : `<button class="button button-secondary button-small" data-action="bind-youtube-video" data-id="${v.id}">待绑定</button>`; return `<tr><td><span class="cell-main">${esc(v.title || v.youtube_video_id)}</span><span class="cell-sub mono">${esc(v.youtube_video_id)}</span></td><td>${shortId(v.channel_id)}</td><td>${binding}</td><td>${tag(v.publish_status)}</td><td>${tag(v.privacy_status)}</td><td>${fmt(v.scheduled_publish_at || v.published_at)}</td></tr>`; });
+    const unmatched = videos.filter(video => !video.drama_id).length;
+    root.innerHTML = `<div class="page-stack"><div class="kpi-grid">${kpi("video", "视频", videos.length, "已落库 YouTube 视频")}${kpi("link", "待绑定", unmatched, "需人工确认剧目")}${kpi("message-square", "评论", comments.length, "默认排除频道自身评论")}${kpi("refresh-cw", "同步水位", watermarks.length, "按频道和数据类型隔离")}${kpi("gauge", "配额记录", quota.length, "数据库聚合")}</div>${section("YouTube 视频", "数据读取自 MySQL；Video ID 无法精确匹配时由人工绑定剧目", videoRows.length ? table(["视频", "频道 ID", "剧目", "发布状态", "隐私状态", "发布时间"], videoRows, 980) : empty("还没有 YouTube 视频数据", "频道授权并同步后，视频数据会按频道落库。"))}</div>`;
   }
 
   async function showMedia() {
@@ -828,6 +836,7 @@
       }
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
       else if (action === "channel-detail") { const data = await api(`/channels/${id}`); openDrawer(data.channel?.operational_name || data.channel?.original_name || "频道详情", `<pre class="code-preview">${esc(JSON.stringify(data, null, 2))}</pre>`); }
+      else if (action === "bind-youtube-video") { const video = (state.youtubeVideos || []).find(item => item.id === id); if (video) openModal("绑定 YouTube 视频剧目", youtubeVideoBindingForm(video, state.dramas || [])); }
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
@@ -871,6 +880,12 @@
         const popup = window.open(authorization.authorization_url, "zhiju-youtube-oauth", "popup,width=680,height=780");
         if (!popup) throw new Error("浏览器阻止了授权窗口，请允许此站点打开弹窗");
         popup.focus();
+      }
+      else if (action === "sync-youtube-videos") {
+        button.disabled = true;
+        const result = await api(`/channels/${id}/youtube-videos/sync`, { method: "POST" });
+        notify(`视频同步完成：拉取 ${result.fetched} 条，新增 ${result.inserted} 条，更新 ${result.updated} 条，已绑定 ${result.bound} 条，待绑定 ${result.unmatched} 条`);
+        await loadView("channels", { preservePosition: true });
       }
       else if (action === "add-integration") openModal("新增第三方服务", integrationForm());
       else if (action === "add-integration-account") openModal("添加第三方账号", integrationAccountForm(id));
@@ -937,6 +952,7 @@
         if (!el("drawerBackdrop").hidden && state.dramaDetail?.id === dramaId) await showDramaDetail(dramaId, "production");
         if (state.view === "dramaProgress") await loadView("dramaProgress", { preservePosition: true });
       }
+      if (form.id === "youtubeVideoDramaBindingForm") { const videoId = data.video_id; delete data.video_id; await api(`/youtube/videos/${videoId}/drama-binding`, { method: "PATCH", body: JSON.stringify(data) }); notify("视频已绑定剧目"); closeModal(); await loadView("youtube", { preservePosition: true }); }
       if (form.id === "skillForm") { await api("/skills", { method: "POST", body: JSON.stringify(data) }); notify("Skill 已创建"); closeModal(); await loadView("skills"); }
       if (form.id === "scheduleForm") { const channelId = data.channel_id; delete data.channel_id; data.community_count = Number(data.community_count); data.priority = Number(data.priority); if (!data.playlist_id) data.playlist_id = null; data.idempotency_key = idempotency("schedule", channelId, data.drama_id, data.publish_date); await api(`/channels/${channelId}/schedules`, { method: "POST", body: JSON.stringify(data) }); notify("排期已保存"); closeModal(); state.date = data.publish_date; await loadView("schedules"); }
       if (form.id === "publishSlotForm") { const channelId = data.channel_id, slotId = data.publish_slot_id; delete data.channel_id; delete data.publish_slot_id; data.slot_number = Number(data.slot_number); const path = slotId ? `/channels/${channelId}/publish-slots/${slotId}` : `/channels/${channelId}/publish-slots`; await api(path, { method: slotId ? "PATCH" : "POST", body: JSON.stringify(data) }); notify("频道档期已保存"); closeModal(); await loadView("publishSlots"); }
