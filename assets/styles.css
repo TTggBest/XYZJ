@@ -215,6 +215,32 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .drama-progress-table { max-height: calc(100vh - 245px); overflow: auto; }
 .drama-progress-table .data-table thead { position: sticky; top: 0; z-index: 4; }
 .drama-progress-table .data-table th { box-shadow: 0 1px 0 var(--line); }
+.drama-progress-table .data-table { table-layout: fixed; }
+.drama-progress-table .data-table th,
+.drama-progress-table .data-table td { padding: 8px 5px; }
+.drama-progress-table .data-table th { text-align: center; }
+.drama-progress-table .data-table th:nth-child(1) { width: 34px; }
+.drama-progress-table .data-table th:nth-child(2) { width: 160px; text-align: left; }
+.drama-progress-table .data-table th:nth-child(3) { width: 34px; }
+.drama-progress-table .data-table th:nth-child(n+4):nth-child(-n+12) { width: 64px; white-space: normal; line-height: 1.2; }
+.drama-progress-table .data-table th:nth-child(13) { width: 80px; }
+.drama-progress-table .data-table th:nth-child(14) { width: 110px; }
+.drama-progress-table .data-table th:nth-child(15) { width: 78px; }
+.drama-progress-table .data-table th:nth-child(16) { width: 104px; }
+.drama-progress-title-cell { width: 160px; }
+.drama-progress-title-cell .cell-main { display: -webkit-box; max-width: 150px; white-space: normal; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.drama-progress-title-cell .cell-sub { max-width: 150px; }
+.drama-progress-batch-cell,
+.drama-progress-node-cell { text-align: center; white-space: nowrap; }
+.drama-progress-node-cell .tag { padding-right: 5px; padding-left: 5px; }
+.drama-progress-spec-cell,
+.drama-progress-updated-cell { display: table-cell; text-align: center; white-space: nowrap; }
+.drama-progress-spec-cell > span,
+.drama-progress-updated-cell > span { display: block; line-height: 1.45; }
+.drama-progress-spec-cell .mono { color: var(--muted); font-size: 11px; }
+.drama-progress-updated-cell { color: var(--muted); font-size: 11px; }
+.drama-progress-overall-cell .progress { min-width: 0; }
+.drama-progress-actions-cell .row-actions { gap: 4px; }
 .drama-progress-row.is-in-progress > td { background: #fff8dc; }
 .drama-progress-row.is-completed > td { background: #edf8f2; }
 .drama-progress-row.is-not-producing > td { background: #fff0ef; }
