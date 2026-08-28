@@ -122,6 +122,7 @@ def list_drama_progress(
     *,
     page: int,
     page_size: int,
+    sort_order: str = "desc",
     search: str | None = None,
     batch_name: str | None = None,
     overall_status: str | None = None,
@@ -130,7 +131,7 @@ def list_drama_progress(
     statement = (
         select(Drama, DramaProductionState)
         .outerjoin(DramaProductionState, DramaProductionState.drama_id == Drama.id)
-        .order_by(Drama.source_row_number.is_(None), Drama.source_row_number, Drama.drama_number)
+        .order_by(Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc())
     )
     if search:
         normalized = normalize_drama_title(search)

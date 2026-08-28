@@ -60,6 +60,7 @@ def list_drama_library(
     *,
     page: int,
     page_size: int,
+    sort_order: str = "desc",
     search: str | None = None,
     status: str | None = None,
     batch_name: str | None = None,
@@ -106,7 +107,7 @@ def list_drama_library(
         .outerjoin(language_counts, language_counts.c.drama_id == Drama.id)
         .outerjoin(channel_counts, channel_counts.c.drama_id == Drama.id)
         .where(*filters)
-        .order_by(Drama.source_row_number.is_(None), Drama.source_row_number, Drama.drama_number)
+        .order_by(Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
