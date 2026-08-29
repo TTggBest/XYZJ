@@ -13,11 +13,14 @@ from pathlib import Path
 
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
 from zhiju.database import can_switch_database_environment, database_router
-from zhiju.models import AppIconSetting, RuntimePackageBuild
+from zhiju.models import AppIconSetting, ChannelDramaType, RuntimePackageBuild
+from zhiju.schemas.settings import ChannelDramaTypeCreate, ChannelDramaTypeUpdate
+from zhiju.services.identity import ConflictError
 
 
 APP_VERSION = "3.0.0-dev.1"
@@ -53,6 +56,50 @@ PACKAGE_ROOT_FILES = {
 }
 PACKAGE_DIRECTORIES = {"assets", "backend", "scripts"}
 PACKAGE_EXCLUDED_FILES = {"scripts/mysql_dev.sh"}
+
+
+def list_channel_drama_types(
+    session: Session, *, include_disabled: bool = False
+) -> list[ChannelDramaType]:
+    statement = select(ChannelDramaType)
+    if not include_disabled:
+        statement = statement.where(ChannelDramaType.status == "active")
+    return list(
+        session.scalars(
+            statement.order_by(ChannelDramaType.sort_order, ChannelDramaType.name)
+        )
+    )
+
+
+def create_channel_drama_type(
+    session: Session, payload: ChannelDramaTypeCreate
+) -> ChannelDramaType:
+    row = ChannelDramaType(**payload.model_dump())
+    session.add(row)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("短剧类型编码或名称已存在") from exc
+    session.refresh(row)
+    return row
+
+
+def update_channel_drama_type(
+    session: Session, type_id: str, payload: ChannelDramaTypeUpdate
+) -> ChannelDramaType:
+    row = session.get(ChannelDramaType, type_id)
+    if row is None:
+        raise ValueError("短剧类型不存在")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, field, value)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("短剧类型名称已存在") from exc
+    session.refresh(row)
+    return row
 
 
 def runtime_overview(session: Session) -> dict[str, object]:

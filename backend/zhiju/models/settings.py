@@ -50,6 +50,22 @@ class ImageWorkspaceSetting(TimestampMixin, Base):
     output_dir_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default="用户产物", comment="可清理的用户产物目录名")
 
 
+class ChannelDramaType(IdMixin, TimestampMixin, Base):
+    __tablename__ = "channel_drama_types"
+    __table_args__ = (
+        CheckConstraint("status IN ('active','disabled')", name="valid_status"),
+        CheckConstraint("sort_order >= 0", name="sort_order_nonnegative"),
+        Index("ix_channel_drama_types_status_sort", "status", "sort_order"),
+        {"comment": "频道短剧类型可编辑配置"},
+    )
+
+    code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, comment="稳定编码")
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, comment="显示名称")
+    description: Mapped[str | None] = mapped_column(Text, comment="业务说明")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", comment="显示顺序")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="配置状态")
+
+
 class ChannelLogoProfile(IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_logo_profiles"
     __table_args__ = (

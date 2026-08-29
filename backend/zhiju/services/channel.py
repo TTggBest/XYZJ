@@ -12,10 +12,12 @@ from zhiju.models import (
     ChannelAnalysisTopicScore,
     ChannelAudienceProfile,
     ChannelBrandingAsset,
+    ChannelDramaType,
     ChannelDnaSignal,
     ChannelDnaVersion,
     ChannelKeyword,
     ChannelPinnedCommentTemplate,
+    ChannelPlaylist,
     ChannelProfile,
     ChannelScheduleEntry,
     ChannelStrategyRecommendation,
@@ -28,10 +30,13 @@ from zhiju.models import (
     YoutubeComment,
     YoutubeVideo,
     YoutubeVideoDailyMetric,
+    Skill,
+    SkillVersion,
 )
 from zhiju.schemas.channel import (
     ChannelAnalysisReportCreate,
     ChannelDnaVersionCreate,
+    ChannelHubUpdate,
     ChannelKeywordCreate,
     ChannelPinnedCommentTemplateCreate,
     ChannelProfileUpsert,
@@ -89,13 +94,124 @@ def get_channel_detail(session: Session, channel_id: str) -> dict[str, object]:
             .limit(10)
         )
     )
+    pinned_comments = list(
+        session.scalars(
+            select(ChannelPinnedCommentTemplate)
+            .where(ChannelPinnedCommentTemplate.channel_id == channel_id)
+            .order_by(
+                ChannelPinnedCommentTemplate.language,
+                ChannelPinnedCommentTemplate.version_number.desc(),
+            )
+        )
+    )
+    playlists = list(
+        session.scalars(
+            select(ChannelPlaylist)
+            .where(
+                ChannelPlaylist.channel_id == channel_id,
+                ChannelPlaylist.status != "deleted",
+            )
+            .order_by(ChannelPlaylist.sort_order, ChannelPlaylist.created_at)
+        )
+    )
+    branding_assets = list(
+        session.scalars(
+            select(ChannelBrandingAsset)
+            .where(ChannelBrandingAsset.channel_id == channel_id)
+            .order_by(ChannelBrandingAsset.created_at.desc())
+        )
+    )
+    drama_types = list(
+        session.scalars(
+            select(ChannelDramaType)
+            .where(ChannelDramaType.status == "active")
+            .order_by(ChannelDramaType.sort_order, ChannelDramaType.name)
+        )
+    )
+    skills = list(
+        session.scalars(
+            select(Skill)
+            .where(
+                Skill.status == "active",
+                (Skill.category.like("channel%")) | (Skill.code.like("channel-%")),
+            )
+            .order_by(Skill.category, Skill.name)
+        )
+    )
+    relevant_skills: list[dict[str, object]] = []
+    for skill in skills:
+        current = session.scalar(
+            select(SkillVersion).where(
+                SkillVersion.skill_id == skill.id,
+                SkillVersion.is_current.is_(True),
+            )
+        )
+        relevant_skills.append(
+            {
+                "skill_id": skill.id,
+                "code": skill.code,
+                "name": skill.name,
+                "category": skill.category,
+                "version_id": current.id if current else None,
+                "version_number": current.version_number if current else None,
+                "version_status": current.status if current else None,
+            }
+        )
     return {
         "channel": channel,
         "profile": profile,
         "keywords": keywords,
         "active_dna": dna_payload,
         "recent_reports": reports,
+        "pinned_comment_templates": pinned_comments,
+        "playlists": playlists,
+        "branding_assets": branding_assets,
+        "drama_types": drama_types,
+        "relevant_skills": relevant_skills,
     }
+
+
+def update_channel_hub(
+    session: Session, channel_id: str, payload: ChannelHubUpdate
+) -> dict[str, object]:
+    channel = _channel(session, channel_id, lock=True)
+    values = payload.model_dump(exclude_unset=True)
+    if "drama_type" in values and values["drama_type"]:
+        drama_type = session.scalar(
+            select(ChannelDramaType).where(
+                ChannelDramaType.code == values["drama_type"],
+                ChannelDramaType.status == "active",
+            )
+        )
+        if drama_type is None:
+            raise ValueError("请选择启用中的短剧类型")
+
+    for field in ("chinese_meaning", "default_genre", "drama_type"):
+        if field in values:
+            setattr(channel, field, values.pop(field))
+
+    profile = session.scalar(
+        select(ChannelProfile).where(ChannelProfile.channel_id == channel_id)
+    )
+    if profile is None:
+        profile = ChannelProfile(channel_id=channel_id, status="draft")
+        session.add(profile)
+    for field in (
+        "description",
+        "positioning",
+        "avatar_prompt",
+        "banner_prompt",
+        "popup_scheme",
+        "title_template",
+        "fixed_symbol",
+    ):
+        if field in values:
+            setattr(profile, field, values[field])
+
+    session.flush()
+    _audit(session, "channel_hub.updated", "channel", channel.id)
+    session.commit()
+    return get_channel_detail(session, channel_id)
 
 
 def upsert_profile(session: Session, channel_id: str, payload: ChannelProfileUpsert) -> ChannelProfile:

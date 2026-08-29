@@ -61,3 +61,26 @@ class AppIconSettingRead(BaseModel):
     desktop_app_path: str
     applied_at: datetime
     updated_at: datetime
+
+
+class ChannelDramaTypeCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    sort_order: int = Field(default=0, ge=0)
+    status: Literal["active", "disabled"] = "active"
+
+
+class ChannelDramaTypeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    sort_order: int | None = Field(default=None, ge=0)
+    status: Literal["active", "disabled"] | None = None
+
+
+class ChannelDramaTypeRead(ChannelDramaTypeCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
