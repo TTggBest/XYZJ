@@ -71,6 +71,8 @@ class ChannelProfile(IdMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, comment="频道说明")
     language: Mapped[str | None] = mapped_column(String(20), comment="频道展示语言")
     positioning: Mapped[str | None] = mapped_column(Text, comment="频道定位说明")
+    avatar_prompt: Mapped[str | None] = mapped_column(Text, comment="头像出图词")
+    banner_prompt: Mapped[str | None] = mapped_column(Text, comment="横幅出图词")
     popup_scheme: Mapped[str | None] = mapped_column(String(120), comment="标题弹框方案")
     title_template: Mapped[str | None] = mapped_column(Text, comment="频道标题模板")
     fixed_symbol: Mapped[str | None] = mapped_column(String(120), comment="标题固定符号")

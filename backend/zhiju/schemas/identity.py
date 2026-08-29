@@ -27,6 +27,7 @@ class ChannelCreate(BaseModel):
     youtube_channel_id: str = Field(min_length=3, max_length=64)
     original_name: str = Field(min_length=1, max_length=255)
     operational_name: str | None = Field(default=None, max_length=255)
+    chinese_meaning: str | None = Field(default=None, max_length=255)
     youtube_channel_url: str | None = Field(default=None, max_length=1000)
     country_code: str | None = Field(default=None, min_length=2, max_length=2)
     country_name_zh: str | None = Field(default=None, max_length=120)
@@ -47,6 +48,7 @@ class ChannelRead(BaseModel):
     youtube_channel_id: str
     original_name: str
     operational_name: str | None
+    chinese_meaning: str | None
     youtube_channel_url: str | None
     youtube_avatar_url: str | None
     country_code: str | None

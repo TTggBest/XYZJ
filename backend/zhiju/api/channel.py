@@ -8,6 +8,7 @@ from zhiju.schemas.channel import (
     ChannelDetailRead,
     ChannelDnaVersionCreate,
     ChannelDnaVersionRead,
+    ChannelHubUpdate,
     ChannelKeywordCreate,
     ChannelKeywordRead,
     ChannelPinnedCommentTemplateCreate,
@@ -38,6 +39,7 @@ from zhiju.services.channel import (
     change_media_asset_status,
     delete_media_asset,
     upsert_profile,
+    update_channel_hub,
 )
 from zhiju.services.identity import ConflictError
 
@@ -57,6 +59,18 @@ def get_channel(channel_id: str, session: Session = Depends(get_db)) -> ChannelD
         return get_channel_detail(session, channel_id)
     except NotFoundError as exc:
         raise _http_error(exc) from exc
+
+
+@router.put("/channels/{channel_id}/hub", response_model=ChannelDetailRead)
+def put_channel_hub(
+    channel_id: str, payload: ChannelHubUpdate, session: Session = Depends(get_db)
+) -> ChannelDetailRead:
+    try:
+        return update_channel_hub(session, channel_id, payload)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.put("/channels/{channel_id}/profile", response_model=ChannelProfileRead)

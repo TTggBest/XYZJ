@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zhiju.schemas.identity import ChannelRead
+from zhiju.schemas.operations import PlaylistRead
+from zhiju.schemas.settings import ChannelDramaTypeRead
 
 
 class ChannelProfileUpsert(BaseModel):
@@ -13,6 +15,8 @@ class ChannelProfileUpsert(BaseModel):
     description: str | None = None
     language: str | None = Field(default=None, max_length=20)
     positioning: str | None = None
+    avatar_prompt: str | None = None
+    banner_prompt: str | None = None
     popup_scheme: str | None = Field(default=None, max_length=120)
     title_template: str | None = None
     fixed_symbol: str | None = Field(default=None, max_length=120)
@@ -26,6 +30,40 @@ class ChannelProfileRead(ChannelProfileUpsert):
     channel_id: str
     created_at: datetime
     updated_at: datetime
+
+
+class ChannelHubUpdate(BaseModel):
+    chinese_meaning: str | None = Field(default=None, max_length=255)
+    default_genre: str | None = Field(default=None, max_length=120)
+    drama_type: str | None = Field(default=None, max_length=80)
+    description: str | None = None
+    positioning: str | None = None
+    avatar_prompt: str | None = None
+    banner_prompt: str | None = None
+
+
+class ChannelBrandingAssetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    channel_id: str
+    asset_id: str
+    role: str
+    status: str
+    effective_from: datetime | None
+    effective_to: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChannelRelevantSkillRead(BaseModel):
+    skill_id: str
+    code: str
+    name: str
+    category: str
+    version_id: str | None
+    version_number: int | None
+    version_status: str | None
 
 
 class ChannelKeywordCreate(BaseModel):
@@ -382,3 +420,8 @@ class ChannelDetailRead(BaseModel):
     keywords: list[ChannelKeywordRead]
     active_dna: ChannelDnaVersionRead | None
     recent_reports: list[ChannelAnalysisReportRead]
+    pinned_comment_templates: list[ChannelPinnedCommentTemplateRead]
+    playlists: list[PlaylistRead]
+    branding_assets: list[ChannelBrandingAssetRead]
+    drama_types: list[ChannelDramaTypeRead]
+    relevant_skills: list[ChannelRelevantSkillRead]
