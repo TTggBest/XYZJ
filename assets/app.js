@@ -609,10 +609,14 @@
     root.innerHTML = `<div class="page-stack">${section("Skills 管理", "业务规则正文与版本均存储在数据库；不直接读取外部工作流文件", rows.length ? table(["Skill", "分类", "用途", "状态", "更新时间", ""], rows, 900) : empty("还没有 Skills", "创建 Skill 后再维护中英文版本与发布状态。", "add-skill", "新建 Skill"), `<button class="button button-primary" data-action="add-skill">${icon("plus")} 新建 Skill</button>`)}</div>`;
   }
   function skillForm() { return `<form class="form-grid" id="skillForm"><div class="field"><label>代码</label><input class="input mono" name="code" pattern="[a-z0-9][a-z0-9_-]*" required placeholder="xy-title"></div><div class="field"><label>名称</label><input class="input" name="name" required></div><div class="field"><label>分类</label><input class="input" name="category" required placeholder="production"></div><div class="field"><label>状态</label><select class="select" name="status"><option value="active">启用</option><option value="disabled">停用</option></select></div><div class="field field-wide"><label>用途</label><textarea class="textarea" name="purpose" required></textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">创建 Skill</button></div></form>`; }
+  function skillVersionForm(skillId, version = {}) {
+    return `<form class="form-grid" id="skillVersionForm"><input type="hidden" name="skill_id" value="${esc(skillId)}"><input type="hidden" name="version_id" value="${esc(version.id || "")}"><div class="field field-wide"><label>中文正文</label><textarea class="textarea code-preview" name="body_zh_cn" required>${esc(version.body_zh_cn || "")}</textarea></div><div class="field field-wide"><label>正式执行原文</label><textarea class="textarea code-preview" name="body_original" required>${esc(version.body_original || "")}</textarea></div><div class="field field-wide"><label>变更说明</label><textarea class="textarea" name="change_summary">${esc(version.change_summary || "")}</textarea></div><div class="field field-wide"><label>创建人</label><input class="input" name="created_by" value="${esc(version.created_by || "")}" maxlength="120"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存草稿</button></div></form>`;
+  }
   async function skillDetail(id) {
     const skill = await api(`/skills/${id}`), versions = await api(`/skills/${id}/versions`);
     const current = skill.current_version;
-    openDrawer(skill.name, `<div class="detail-grid"><div class="detail-item"><span>代码</span><strong class="mono">${esc(skill.code)}</strong></div><div class="detail-item"><span>状态</span><strong>${tag(skill.status)}</strong></div><div class="detail-item"><span>分类</span><strong>${esc(skill.category)}</strong></div><div class="detail-item"><span>版本数量</span><strong>${versions.length}</strong></div></div><div class="detail-block"><h3>当前中文正文</h3><pre class="code-preview">${esc(current?.body_zh_cn || "尚未发布版本")}</pre></div><div class="detail-block"><h3>当前原文</h3><pre class="code-preview">${esc(current?.body_original || "尚未发布版本")}</pre></div>`);
+    const versionRows = versions.map(version => `<article class="hub-record"><header><div><strong>v${version.version_number}</strong><span class="cell-sub">${fmtUtc(version.created_at)}</span></div>${tag(version.status)}</header><p>${esc(version.change_summary || "未填写变更说明")}</p>${version.status === "draft" ? `<div class="row-actions"><button class="button button-secondary button-small" data-action="edit-skill-version" data-skill-id="${esc(id)}" data-id="${esc(version.id)}">编辑草稿</button><button class="button button-primary button-small" data-action="publish-skill-version" data-skill-id="${esc(id)}" data-id="${esc(version.id)}">发布版本</button></div>` : ""}</article>`).join("");
+    openDrawer(skill.name, `<div class="detail-grid"><div class="detail-item"><span>代码</span><strong class="mono">${esc(skill.code)}</strong></div><div class="detail-item"><span>状态</span><strong>${tag(skill.status)}</strong></div><div class="detail-item"><span>分类</span><strong>${esc(skill.category)}</strong></div><div class="detail-item"><span>版本数量</span><strong>${versions.length}</strong></div></div><div class="detail-block"><h3>当前中文正文</h3><pre class="code-preview">${esc(current?.body_zh_cn || "尚未发布版本")}</pre></div><div class="detail-block"><h3>当前原文</h3><pre class="code-preview">${esc(current?.body_original || "尚未发布版本")}</pre></div><div class="detail-block"><header class="settings-subhead"><h3>版本历史</h3><button class="button button-primary button-small" data-action="add-skill-version" data-skill-id="${esc(id)}">${icon("plus")} 新建版本</button></header>${versionRows || `<p class="settings-muted">尚未创建版本</p>`}</div>`);
   }
 
   async function showLogs() {
@@ -877,6 +881,18 @@
         await showDramaDetail(id, "languages");
       }
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
+      else if (action === "add-skill-version") openModal("新建 Skill 版本", skillVersionForm(button.dataset.skillId));
+      else if (action === "edit-skill-version") {
+        const skillId = button.dataset.skillId;
+        const version = await api(`/skills/${skillId}/versions/${id}`);
+        openModal(`编辑 Skill v${version.version_number}`, skillVersionForm(skillId, version));
+      }
+      else if (action === "publish-skill-version") {
+        const skillId = button.dataset.skillId, versionId = id;
+        if (!window.confirm("确认发布这个 Skill 版本？\n\n发布后正文不可覆盖，后续修改需要创建新版本。")) return;
+        await api(`/skills/${skillId}/versions/${versionId}/publish`, { method: "POST" });
+        notify("Skill 版本已发布"); await skillDetail(skillId);
+      }
       else if (action === "go-skills") await loadView("skills");
       else if (action === "add-channel-drama-type") openModal("新增短剧类型", channelDramaTypeForm());
       else if (action === "edit-channel-drama-type") {
@@ -1094,6 +1110,12 @@
         if (state.view === "dramaProgress") await loadView("dramaProgress", { preservePosition: true });
       }
       if (form.id === "skillForm") { await api("/skills", { method: "POST", body: JSON.stringify(data) }); notify("Skill 已创建"); closeModal(); await loadView("skills"); }
+      if (form.id === "skillVersionForm") {
+        const skillId = data.skill_id, versionId = data.version_id; delete data.skill_id; delete data.version_id;
+        data.change_summary = data.change_summary.trim() || null; data.created_by = data.created_by.trim() || null;
+        await api(versionId ? `/skills/${skillId}/versions/${versionId}` : `/skills/${skillId}/versions`, { method: versionId ? "PUT" : "POST", body: JSON.stringify(data) });
+        notify(versionId ? "Skill 草稿已更新" : "Skill 版本草稿已创建"); closeModal(); await skillDetail(skillId);
+      }
       if (form.id === "scheduleForm") { const channelId = data.channel_id; delete data.channel_id; data.community_count = Number(data.community_count); data.priority = Number(data.priority); if (!data.playlist_id) data.playlist_id = null; data.idempotency_key = idempotency("schedule", channelId, data.drama_id, data.publish_date); await api(`/channels/${channelId}/schedules`, { method: "POST", body: JSON.stringify(data) }); notify("排期已保存"); closeModal(); state.date = data.publish_date; state.scheduleChannelId = channelId; await loadView("schedules"); }
       if (form.id === "publishSlotForm") { const channelId = data.channel_id, slotId = data.publish_slot_id; delete data.channel_id; delete data.publish_slot_id; data.slot_number = Number(data.slot_number); const path = slotId ? `/channels/${channelId}/publish-slots/${slotId}` : `/channels/${channelId}/publish-slots`; await api(path, { method: slotId ? "PATCH" : "POST", body: JSON.stringify(data) }); notify("频道档期已保存"); closeModal(); await loadView("publishSlots"); }
       if (form.id === "integrationForm") { data.status = "active"; await api("/integrations", { method: "POST", body: JSON.stringify(data) }); notify("第三方服务已保存"); closeModal(); await loadView("settings"); }
