@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from zhiju.schemas.identity import ChannelRead
 from zhiju.schemas.operations import PlaylistRead
-from zhiju.schemas.settings import ChannelDramaTypeRead
+from zhiju.schemas.settings import ChannelDramaTypeRead, ChannelInitializationRuleRead
 
 
 class ChannelProfileUpsert(BaseModel):
@@ -67,6 +67,14 @@ class ChannelRelevantSkillRead(BaseModel):
     version_id: str | None
     version_number: int | None
     version_status: str | None
+
+
+class ChannelInitializationReadinessRead(BaseModel):
+    channel_id: str
+    can_initialize: bool
+    missing_inputs: list[str]
+    missing_rule_modules: list[str]
+    rules: list[ChannelInitializationRuleRead]
 
 
 class ChannelKeywordCreate(BaseModel):

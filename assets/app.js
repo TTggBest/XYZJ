@@ -218,6 +218,12 @@
     const identity = `<div class="channel-hub-identity">${settingValue("频道名", channel.original_name)}${settingValue("YouTube Channel ID", channel.youtube_channel_id, true)}${settingValue("频道地址", channel.youtube_channel_url || "—", true)}</div>`;
     return `${identity}<form class="form-grid channel-hub-form" id="channelHubForm"><input type="hidden" name="channel_id" value="${esc(channel.id)}"><div class="field"><label>频道中文意思</label><input class="input" name="chinese_meaning" value="${esc(channel.chinese_meaning || "")}" maxlength="255"></div><div class="field"><label>初始题材</label><input class="input" name="default_genre" value="${esc(channel.default_genre || "")}" maxlength="120"></div><div class="field"><label>短剧类型</label><select class="select" name="drama_type"><option value="">暂未选择</option>${typeOptions}</select></div><div class="field field-wide"><label>频道说明</label><textarea class="textarea" name="description">${esc(profile.description || "")}</textarea></div><div class="field field-wide"><label>频道定位</label><textarea class="textarea" name="positioning">${esc(profile.positioning || "")}</textarea></div><div class="field field-wide"><label>头像出图词</label><textarea class="textarea" name="avatar_prompt">${esc(profile.avatar_prompt || "")}</textarea></div><div class="field field-wide"><label>横幅出图词</label><textarea class="textarea" name="banner_prompt">${esc(profile.banner_prompt || "")}</textarea></div><div class="field"><label>弹框方案</label><input class="input" name="popup_scheme" value="${esc(profile.popup_scheme || "")}" maxlength="120"></div><div class="field"><label>固定符号</label><input class="input" name="fixed_symbol" value="${esc(profile.fixed_symbol || "")}" maxlength="120"></div><div class="field field-wide"><label>标题模板</label><textarea class="textarea" name="title_template">${esc(profile.title_template || "")}</textarea></div><div class="form-actions"><button class="button button-primary" type="submit">${icon("save")} 保存频道资料</button></div></form>`;
   }
+  function channelInitializationReadiness(readiness) {
+    if (!readiness) return "";
+    const inputMessage = readiness.missing_inputs.length ? `缺少基础资料：${readiness.missing_inputs.join("、")}` : "基础资料已齐全";
+    const ruleMessage = readiness.missing_rule_modules.length ? `缺少已发布规则：${readiness.missing_rule_modules.join("、")}` : "初始化规则已齐全";
+    return `<div class="detail-block"><h3>初始化准备 ${readiness.can_initialize ? tag("ready") : tag("pending")}</h3><p>${readiness.can_initialize ? "当前可以初始化" : "当前不可初始化"}</p><p class="settings-muted">${esc(inputMessage)}</p><p class="settings-muted">${esc(ruleMessage)}</p></div>`;
+  }
   function channelDetailTabs(detail, tab) {
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
   }
@@ -266,13 +272,15 @@
     } else {
       const keywords = detail.keywords.filter(item => item.keyword_type === "keyword").map(item => item.keyword).join("、");
       const tags = detail.keywords.filter(item => item.keyword_type === "tag").map(item => item.keyword).join("、");
-      body = `${channelHubForm(detail)}<div class="hub-columns"><section><h3>关键词</h3><p>${esc(keywords || "待完善")}</p></section><section><h3>标签</h3><p>${esc(tags || "待完善")}</p></section></div>`;
+      body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><h3>关键词</h3><p>${esc(keywords || "待完善")}</p></section><section><h3>标签</h3><p>${esc(tags || "待完善")}</p></section></div>`;
     }
     return `<div class="channel-hub">${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
   }
   async function showChannelDetail(id, tab = "basic") {
     const detail = state.channelDetailId === id && state.channelDetail ? state.channelDetail : await api(`/channels/${id}`);
-    if (tab === "analysis") {
+    if (tab === "basic") {
+      detail.initialization_readiness = await api(`/channels/${id}/initialization-readiness`);
+    } else if (tab === "analysis") {
       const analysis = await loadChannelAnalysisCenter(id);
       detail.analysis_reports = analysis.reports;
       detail.channel_metrics = analysis.metrics;

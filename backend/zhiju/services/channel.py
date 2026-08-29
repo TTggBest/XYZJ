@@ -45,6 +45,7 @@ from zhiju.schemas.channel import (
     MediaAssetStatusChange,
 )
 from zhiju.services.identity import ConflictError, _audit
+from zhiju.services.settings import list_channel_initialization_rules
 
 
 class NotFoundError(Exception):
@@ -168,6 +169,31 @@ def get_channel_detail(session: Session, channel_id: str) -> dict[str, object]:
         "branding_assets": branding_assets,
         "drama_types": drama_types,
         "relevant_skills": relevant_skills,
+    }
+
+
+def get_channel_initialization_readiness(
+    session: Session, channel_id: str
+) -> dict[str, object]:
+    channel = _channel(session, channel_id)
+    required_inputs = (
+        ("频道名", channel.original_name),
+        ("YouTube Channel ID", channel.youtube_channel_id),
+        ("频道中文意思", channel.chinese_meaning),
+        ("初始题材", channel.default_genre),
+        ("短剧类型", channel.drama_type),
+    )
+    missing_inputs = [label for label, value in required_inputs if not value]
+    rules = list_channel_initialization_rules(session)
+    missing_rule_modules = [
+        rule["module_name"] for rule in rules if rule["readiness"] != "ready"
+    ]
+    return {
+        "channel_id": channel.id,
+        "can_initialize": not missing_inputs and not missing_rule_modules,
+        "missing_inputs": missing_inputs,
+        "missing_rule_modules": missing_rule_modules,
+        "rules": rules,
     }
 
 

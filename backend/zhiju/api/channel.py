@@ -9,6 +9,7 @@ from zhiju.schemas.channel import (
     ChannelDnaVersionCreate,
     ChannelDnaVersionRead,
     ChannelHubUpdate,
+    ChannelInitializationReadinessRead,
     ChannelKeywordCreate,
     ChannelKeywordRead,
     ChannelPinnedCommentTemplateCreate,
@@ -28,6 +29,7 @@ from zhiju.services.channel import (
     create_dna_version,
     create_report,
     get_channel_detail,
+    get_channel_initialization_readiness,
     get_report_detail,
     get_media_asset,
     list_dna_versions,
@@ -57,6 +59,19 @@ def _http_error(exc: Exception) -> HTTPException:
 def get_channel(channel_id: str, session: Session = Depends(get_db)) -> ChannelDetailRead:
     try:
         return get_channel_detail(session, channel_id)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get(
+    "/channels/{channel_id}/initialization-readiness",
+    response_model=ChannelInitializationReadinessRead,
+)
+def get_channel_initialization_status(
+    channel_id: str, session: Session = Depends(get_db)
+) -> ChannelInitializationReadinessRead:
+    try:
+        return get_channel_initialization_readiness(session, channel_id)
     except NotFoundError as exc:
         raise _http_error(exc) from exc
 
