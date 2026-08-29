@@ -45,6 +45,7 @@ from zhiju.services.channel import (
     update_media_asset_metadata,
     change_media_asset_status,
     delete_media_asset,
+    deactivate_keyword,
     upsert_profile,
     update_channel_hub,
     upsert_channel_initialization_draft,
@@ -156,6 +157,19 @@ def post_channel_keyword(
     try:
         return add_keyword(session, channel_id, payload)
     except (NotFoundError, ConflictError) as exc:
+        raise _http_error(exc) from exc
+
+
+@router.delete(
+    "/channels/{channel_id}/keywords/{keyword_id}",
+    response_model=ChannelKeywordRead,
+)
+def delete_channel_keyword(
+    channel_id: str, keyword_id: str, session: Session = Depends(get_db)
+) -> ChannelKeywordRead:
+    try:
+        return deactivate_keyword(session, channel_id, keyword_id)
+    except NotFoundError as exc:
         raise _http_error(exc) from exc
 
 

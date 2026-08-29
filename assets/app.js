@@ -232,6 +232,16 @@
     const value = (key, fallback = "") => output[key] ?? fallback ?? "";
     return `<form class="form-grid" id="channelInitializationDraftForm"><input type="hidden" name="channel_id" value="${esc(channelId)}"><div class="field field-wide"><label>频道说明</label><textarea class="textarea" name="description">${esc(value("description", profile.description))}</textarea></div><div class="field field-wide"><label>关键词（逗号或换行分隔）</label><textarea class="textarea" name="keywords">${esc(keywords.join("、"))}</textarea></div><div class="field field-wide"><label>标签（逗号或换行分隔）</label><textarea class="textarea" name="tags">${esc(tags.join("、"))}</textarea></div><div class="field field-wide"><label>头像出图词</label><textarea class="textarea" name="avatar_prompt">${esc(value("avatar_prompt", profile.avatar_prompt))}</textarea></div><div class="field field-wide"><label>横幅出图词</label><textarea class="textarea" name="banner_prompt">${esc(value("banner_prompt", profile.banner_prompt))}</textarea></div><div class="field field-wide"><label>置顶评论</label><textarea class="textarea" name="pinned_comment">${esc(value("pinned_comment"))}</textarea></div><div class="field field-wide"><label>标题模板</label><textarea class="textarea" name="title_template">${esc(value("title_template", profile.title_template))}</textarea></div><div class="field"><label>弹框方案</label><input class="input" name="popup_scheme" value="${esc(value("popup_scheme", profile.popup_scheme))}"></div><div class="field field-wide"><label>三条播放列表草稿（每行一条）</label><textarea class="textarea" name="playlists">${esc((output.playlists || []).join("\n"))}</textarea></div><div class="field field-wide"><label>初始用户画像</label><textarea class="textarea" name="initial_audience">${esc(value("initial_audience"))}</textarea></div><div class="field field-wide"><label>初始分析报告</label><textarea class="textarea" name="initial_analysis">${esc(value("initial_analysis"))}</textarea></div><div class="field field-wide"><label>频道运营参考</label><textarea class="textarea" name="operating_reference">${esc(value("operating_reference"))}</textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("save")} 保存初始化草稿</button></div></form>`;
   }
+  function channelKeywordForm(channel) {
+    return `<form class="form-grid" id="channelKeywordForm"><input type="hidden" name="channel_id" value="${esc(channel.id)}"><div class="field"><label>类型</label><select class="select" name="keyword_type"><option value="keyword">关键词</option><option value="tag">标签</option></select></div><div class="field"><label>语言</label><input class="input" name="language" value="${esc(channel.default_language || "zh-CN")}" required></div><div class="field field-wide"><label>内容</label><input class="input" name="keyword" required maxlength="255"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存词条</button></div></form>`;
+  }
+  function channelPinnedCommentForm(channel) {
+    return `<form class="form-grid" id="channelPinnedCommentForm"><input type="hidden" name="channel_id" value="${esc(channel.id)}"><div class="field"><label>语言</label><input class="input" name="language" value="${esc(channel.default_language || "zh-CN")}" required></div><div class="field"><label>保存后启用</label><select class="select" name="activate"><option value="false">仅保存草稿</option><option value="true">立即启用</option></select></div><div class="field field-wide"><label>置顶评论</label><textarea class="textarea" name="body" required></textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存置顶评论</button></div></form>`;
+  }
+  function channelPlaylistForm(channelId, playlist = null) {
+    const item = playlist || {};
+    return `<form class="form-grid" id="channelPlaylistForm"><input type="hidden" name="channel_id" value="${esc(channelId)}"><input type="hidden" name="playlist_id" value="${esc(item.id || "")}"><div class="field"><label>播放列表名称</label><input class="input" name="local_name" value="${esc(item.local_name || "")}" required maxlength="255"></div><div class="field"><label>中文名称</label><input class="input" name="chinese_name" value="${esc(item.chinese_name || "")}" maxlength="255"></div><div class="field field-wide"><label>YouTube 链接</label><input class="input mono" name="url" value="${esc(item.url || "")}" maxlength="1000"></div><div class="field field-wide"><label>目标语言说明</label><textarea class="textarea" name="local_description">${esc(item.local_description || "")}</textarea></div><div class="field field-wide"><label>中文说明</label><textarea class="textarea" name="chinese_description">${esc(item.chinese_description || "")}</textarea></div><div class="field"><label>排序</label><input class="input" type="number" name="sort_order" min="0" value="${Number(item.sort_order || 0)}"></div><div class="field"><label>状态</label><select class="select" name="status">${[["draft", "草稿"], ["active", "启用"], ["paused", "暂停"], ["archived", "归档"]].map(([value, text]) => `<option value="${value}" ${item.status === value ? "selected" : ""}>${text}</option>`).join("")}</select></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存播放列表</button></div></form>`;
+  }
   function channelDetailTabs(detail, tab) {
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
   }
@@ -266,9 +276,9 @@
   function channelDetailBody(detail, tab = "basic") {
     let body = "";
     if (tab === "operations") {
-      const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong>${tag(item.status)}</header><p>${esc(item.body)}</p></article>`).join("");
-      const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong>${tag(item.status)}</header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
-      body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><h3>置顶评论</h3>${comments || `<p class="settings-muted">待完善</p>`}</section><section><h3>播放列表</h3>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
+      const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong><div class="row-actions">${tag(item.status)}${item.status !== "active" ? `<button class="button button-quiet button-small" data-action="activate-pinned-comment" data-id="${item.id}" data-channel-id="${detail.channel.id}">启用</button>` : ""}</div></header><p>${esc(item.body)}</p></article>`).join("");
+      const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
+      body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><header class="settings-content-head"><h3>置顶评论</h3><button class="button button-secondary button-small" data-action="add-pinned-comment" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${comments || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>播放列表</h3><button class="button button-secondary button-small" data-action="add-channel-playlist" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
       body = channelAnalysisPanel(detail);
     } else if (tab === "reference") {
@@ -278,9 +288,8 @@
       const assets = detail.branding_assets.map(item => `<article class="hub-record"><header><strong>${item.role === "avatar" ? "频道头像" : item.role === "banner" ? "频道横幅" : esc(item.role)}</strong>${tag(item.status)}</header><p class="mono">素材 ${esc(item.asset_id)}</p></article>`).join("");
       body = `<div class="hub-columns"><section><h3>模块规则版本</h3>${skills || `<p class="settings-muted">尚未配置频道相关 Skill</p>`}</section><section><h3>装修资源版本</h3>${assets || `<p class="settings-muted">尚无装修资源历史</p>`}</section></div>`;
     } else {
-      const keywords = detail.keywords.filter(item => item.keyword_type === "keyword").map(item => item.keyword).join("、");
-      const tags = detail.keywords.filter(item => item.keyword_type === "tag").map(item => item.keyword).join("、");
-      body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><h3>关键词</h3><p>${esc(keywords || "待完善")}</p></section><section><h3>标签</h3><p>${esc(tags || "待完善")}</p></section></div>`;
+      const keywordCards = type => detail.keywords.filter(item => item.keyword_type === type).map(item => `<article class="hub-record"><header><strong>${esc(item.keyword)}</strong><button class="button button-quiet button-small" data-action="delete-channel-keyword" data-id="${item.id}" data-channel-id="${detail.channel.id}">移除</button></header><span class="cell-sub">${esc(item.language)} · ${esc(item.source)}</span></article>`).join("");
+      body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><header class="settings-content-head"><h3>关键词</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("keyword") || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>标签</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("tag") || `<p class="settings-muted">待完善</p>`}</section></div>`;
     }
     return `<div class="channel-hub">${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
   }
@@ -1007,6 +1016,22 @@
         state.channelDetail = null;
         await showChannelDetail(id, "basic");
       }
+      else if (action === "add-channel-keyword") openModal("新增关键词或标签", channelKeywordForm(state.channelDetail.channel));
+      else if (action === "delete-channel-keyword") {
+        if (!window.confirm("确认从当前频道移除此关键词或标签？")) return;
+        await api(`/channels/${button.dataset.channelId}/keywords/${id}`, { method: "DELETE" });
+        state.channelDetail = null; await showChannelDetail(button.dataset.channelId, "basic");
+      }
+      else if (action === "add-pinned-comment") openModal("新增置顶评论", channelPinnedCommentForm(state.channelDetail.channel));
+      else if (action === "activate-pinned-comment") {
+        await api(`/channels/${button.dataset.channelId}/pinned-comment-templates/${id}/activate`, { method: "POST" });
+        state.channelDetail = null; await showChannelDetail(button.dataset.channelId, "operations");
+      }
+      else if (action === "add-channel-playlist") openModal("新增播放列表", channelPlaylistForm(id));
+      else if (action === "edit-channel-playlist") {
+        const playlist = state.channelDetail.playlists.find(item => item.id === id);
+        if (playlist) openModal("编辑播放列表", channelPlaylistForm(button.dataset.channelId, playlist));
+      }
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
@@ -1090,6 +1115,23 @@
         for (const key of ["description", "avatar_prompt", "banner_prompt", "pinned_comment", "title_template", "popup_scheme", "initial_audience", "initial_analysis", "operating_reference"]) data[key] = data[key].trim() || null;
         await api(`/channels/${channelId}/initialization-draft`, { method: "PUT", body: JSON.stringify(data) });
         notify("频道初始化草稿已保存"); closeModal();
+      }
+      if (form.id === "channelKeywordForm") {
+        const channelId = data.channel_id; delete data.channel_id;
+        await api(`/channels/${channelId}/keywords`, { method: "POST", body: JSON.stringify({ ...data, weight: 0.5, source: "manual" }) });
+        notify("频道词条已保存"); closeModal(); state.channelDetail = null; await showChannelDetail(channelId, "basic");
+      }
+      if (form.id === "channelPinnedCommentForm") {
+        const channelId = data.channel_id; delete data.channel_id; data.activate = data.activate === "true";
+        await api(`/channels/${channelId}/pinned-comment-templates`, { method: "POST", body: JSON.stringify(data) });
+        notify("置顶评论已保存"); closeModal(); state.channelDetail = null; await showChannelDetail(channelId, "operations");
+      }
+      if (form.id === "channelPlaylistForm") {
+        const channelId = data.channel_id, playlistId = data.playlist_id; delete data.channel_id; delete data.playlist_id;
+        data.sort_order = Number(data.sort_order);
+        for (const key of ["chinese_name", "url", "local_description", "chinese_description"]) data[key] = data[key].trim() || null;
+        await api(playlistId ? `/channels/${channelId}/playlists/${playlistId}` : `/channels/${channelId}/playlists`, { method: playlistId ? "PATCH" : "POST", body: JSON.stringify(data) });
+        notify("播放列表已保存"); closeModal(); state.channelDetail = null; await showChannelDetail(channelId, "operations");
       }
       if (form.id === "channelLogoForm") {
         const payload = new FormData();

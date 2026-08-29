@@ -490,6 +490,29 @@ def add_keyword(session: Session, channel_id: str, payload: ChannelKeywordCreate
     return keyword
 
 
+def deactivate_keyword(
+    session: Session, channel_id: str, keyword_id: str
+) -> ChannelKeyword:
+    _channel(session, channel_id, lock=True)
+    keyword = session.scalar(
+        select(ChannelKeyword)
+        .where(
+            ChannelKeyword.id == keyword_id,
+            ChannelKeyword.channel_id == channel_id,
+        )
+        .with_for_update()
+    )
+    if keyword is None:
+        raise NotFoundError("频道关键词或标签不存在")
+    if keyword.status == "active":
+        keyword.status = "inactive"
+        keyword.effective_to = datetime.now(timezone.utc)
+        _audit(session, "channel_keyword.deactivated", "channel_keyword", keyword.id)
+        session.commit()
+        session.refresh(keyword)
+    return keyword
+
+
 def _activate_pinned_comment_template(
     session: Session,
     template: ChannelPinnedCommentTemplate,

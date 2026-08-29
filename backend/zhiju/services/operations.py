@@ -34,6 +34,7 @@ from zhiju.schemas.operations import (
     DramaTranslationUpsert,
     LanguageCreate,
     PlaylistCreate,
+    PlaylistUpdate,
     PublishSlotCreate,
     ScheduleCandidateCreate,
     ScheduleCreate,
@@ -412,6 +413,42 @@ def list_playlists(session: Session, channel_id: str) -> list[ChannelPlaylist]:
             .order_by(ChannelPlaylist.sort_order, ChannelPlaylist.created_at)
         )
     )
+
+
+def update_playlist(
+    session: Session,
+    channel_id: str,
+    playlist_id: str,
+    payload: PlaylistUpdate,
+) -> ChannelPlaylist:
+    _active_channel(session, channel_id, lock=True)
+    playlist = session.scalar(
+        select(ChannelPlaylist)
+        .where(
+            ChannelPlaylist.id == playlist_id,
+            ChannelPlaylist.channel_id == channel_id,
+            ChannelPlaylist.status != "deleted",
+        )
+        .with_for_update()
+    )
+    if playlist is None:
+        raise NotFoundError("播放列表不存在")
+    values = payload.model_dump(exclude_unset=True)
+    if values.get("url") and "youtube_playlist_id" not in values:
+        match = re.search(r"[?&]list=([^&]+)", values["url"])
+        if match:
+            values["youtube_playlist_id"] = match.group(1)
+    for field, value in values.items():
+        setattr(playlist, field, value)
+    try:
+        session.flush()
+        _audit(session, "playlist.updated", "channel_playlist", playlist.id)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("频道内播放列表名称或YouTube播放列表ID重复") from exc
+    session.refresh(playlist)
+    return playlist
 
 
 def create_publish_slot(session: Session, channel_id: str, payload: PublishSlotCreate) -> ChannelPublishSlot:
