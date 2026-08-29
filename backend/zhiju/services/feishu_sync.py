@@ -1945,6 +1945,7 @@ def sync_channels(session: Session) -> dict[str, object]:
             channel.youtube_channel_url = channel_url
             channel.original_name = name
             channel.operational_name = info.get("本地昵称") or name
+            channel.chinese_meaning = master.get("中文含义") or None
             channel.country_code = country_code
             channel.country_name_zh = country_name
             channel.default_language = language

@@ -1,8 +1,13 @@
 from datetime import date, datetime, time
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from zhiju.app import app
+from zhiju.database import database_router
+from zhiju.models import Channel
 from zhiju.services import feishu_sync
 from zhiju.services.feishu_sync import (
     business_drama_identifier,
@@ -20,6 +25,43 @@ def test_feishu_sync_routes_are_registered() -> None:
     assert "/api/v3/feishu-sync/work-orders" in paths
     assert "/api/v3/feishu-sync/operation-packages" in paths
     assert "/api/v3/feishu-sync/channels" in paths
+
+
+def test_channel_sync_imports_chinese_meaning(monkeypatch) -> None:
+    suffix = uuid4().hex[:10]
+    channel_name = f"Bangkit Setelah Terluka-{suffix}"
+    channel_id = f"UC{suffix.upper()}CHANNELTEST"
+    rows = iter([
+        [{
+            "序号": "999",
+            "频道名": channel_name,
+            "中文含义": "受伤后重新崛起",
+            "语言": "印尼语",
+            "频道类型": "复仇逆袭",
+            "短剧类型": "女频",
+            "申请成功日期": "2026/08/29",
+        }],
+        [{
+            "频道名": channel_name,
+            "频道地址": f"https://www.youtube.com/channel/{channel_id}",
+        }],
+        [{"频道名": channel_name}],
+    ])
+    monkeypatch.setattr(feishu_sync, "_client_rows", lambda *_args: next(rows))
+
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        feishu_sync.sync_channels(session)
+        channel = session.scalar(select(Channel).where(Channel.youtube_channel_id == channel_id))
+
+        assert channel is not None
+        assert channel.chinese_meaning == "受伤后重新崛起"
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
 
 
 def test_feishu_rich_link_is_normalized_before_video_id_extraction() -> None:
