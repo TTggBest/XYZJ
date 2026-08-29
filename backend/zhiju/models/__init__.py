@@ -28,6 +28,7 @@ from zhiju.models.identity import (
 from zhiju.models.integration import Integration, IntegrationAccount, IntegrationCredential
 from zhiju.models.settings import (
     AppIconSetting,
+    ChannelDramaType,
     ChannelLogoProfile,
     ImageProcessingItem,
     ImageProcessingRun,
@@ -100,6 +101,7 @@ __all__ = [
     "ChannelBrandingAsset",
     "ChannelDnaSignal",
     "ChannelDnaVersion",
+    "ChannelDramaType",
     "ChannelKeyword",
     "ChannelPinnedCommentTemplate",
     "ChannelProfile",

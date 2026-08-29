@@ -30,7 +30,7 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -555,7 +555,7 @@
     return items.length ? table(type === "status" ? ["时间", "实体", "实体 ID", "新状态", "原因", "执行者"] : ["时间", "动作", "实体", "实体 ID", "变更摘要", "执行者"], rows, 900) : empty("暂无日志", "数据库中尚无对应记录。");
   }
 
-  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
     return `<div class="settings-layout"><aside class="settings-tabs">${tabs}</aside><div class="settings-content">${body}</div></div>`;
@@ -572,12 +572,21 @@
     const slots = [...template.slots].sort((a, b) => a.slot_number - b.slot_number);
     return `<form class="cadence-template-form" data-cadence-count="${count}"><header><div><h3>每日 ${count} 更</h3><span>当地视频发布时间</span></div><button class="button button-primary button-small" type="submit">${icon("save")} 保存</button></header><div class="cadence-template-slots">${slots.map(slot => `<div class="cadence-template-slot"><strong>档位 ${slot.slot_number}</strong><div class="field"><label>视频时间</label><input class="input" type="time" name="slot_${slot.slot_number}_time" value="${String(slot.local_video_time).slice(0, 5)}" required></div><div class="field"><label>档位类型</label><select class="select" name="slot_${slot.slot_number}_type"><option value="aux" ${slot.slot_type === "aux" ? "selected" : ""}>辅档</option><option value="main" ${slot.slot_type === "main" ? "selected" : ""}>主档</option></select></div><div class="field"><label>社群发布延迟</label><div class="input-suffix"><input class="input" type="number" name="slot_${slot.slot_number}_offset" value="${slot.engagement_offset_minutes}" min="0" max="1440" required><span>分钟</span></div></div></div>`).join("")}</div></form>`;
   }
+  function channelDramaTypeForm(item = {}) {
+    const editing = Boolean(item.id);
+    return `<form class="form-grid" id="channelDramaTypeForm"><input type="hidden" name="type_id" value="${esc(item.id || "")}"><div class="field"><label>稳定编码</label><input class="input mono" name="code" value="${esc(item.code || "")}" required maxlength="80" ${editing ? "disabled" : ""}></div><div class="field"><label>显示名称</label><input class="input" name="name" value="${esc(item.name || "")}" required maxlength="120"></div><div class="field field-wide"><label>业务说明</label><textarea class="textarea" name="description">${esc(item.description || "")}</textarea></div><div class="field"><label>排序</label><input class="input" type="number" name="sort_order" value="${Number(item.sort_order || 0)}" min="0" required></div><div class="field"><label>状态</label><select class="select" name="status"><option value="active" ${item.status !== "disabled" ? "selected" : ""}>启用</option><option value="disabled" ${item.status === "disabled" ? "selected" : ""}>停用</option></select></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存类型</button></div></form>`;
+  }
   async function showSettings() {
     let body;
     if (state.settingsTab === "cadence") {
       const templates = await api("/cadence-templates");
       state.cadenceTemplates = templates;
       body = `<header class="settings-content-head"><div><h2>档期配置</h2><p>统一维护1更至5更的当地视频时间、主辅档及社群发布间隔；单更仅使用主档。</p></div></header><div class="cadence-template-list">${templates.map(cadenceTemplateForm).join("")}</div>`;
+    } else if (state.settingsTab === "dramaTypes") {
+      const items = await api("/settings/channel-drama-types?include_disabled=true");
+      state.channelDramaTypes = items;
+      const rows = items.map(item => `<tr><td><span class="cell-main">${esc(item.name)}</span><span class="cell-sub mono">${esc(item.code)}</span></td><td>${esc(item.description || "—")}</td><td>${item.sort_order}</td><td>${tag(item.status)}</td><td><button class="button button-secondary button-small" data-action="edit-channel-drama-type" data-id="${item.id}">编辑</button></td></tr>`);
+      body = `<header class="settings-content-head"><div><h2>频道短剧类型</h2><p>维护频道可选择的男频、女频、AI 等运营类型；停用不会删除频道已有数据。</p></div><button class="button button-primary" data-action="add-channel-drama-type">${icon("plus")} 新增类型</button></header>${items.length ? table(["类型", "说明", "排序", "状态", ""], rows, 760) : empty("还没有短剧类型", "新增后可在频道详情中选择。", "add-channel-drama-type", "新增类型")}`;
     } else if (state.settingsTab === "images") {
       const workspace = await api("/settings/image-workspace");
       body = `<header class="settings-content-head"><div><h2>图片目录</h2><p>相对路径以当前设备 ZHJ_SHARED_ROOT 为根；绝对路径只用于本机独立目录。</p></div></header><form id="imageWorkspaceForm" class="workspace-settings-form"><div class="field"><label>根目录</label><input class="input mono" name="root_path" value="${esc(workspace?.root_path || "images")}" required maxlength="1000"></div><button class="button button-primary" type="submit">${icon("save")} 保存目录</button></form>${workspace ? `<div class="setting-grid">${settingValue("当前设备解析路径", workspace.resolved_root, true)}${settingValue("系统素材（不随产物清理）", workspace.persistent_root, true)}${settingValue("用户产物（可重新生成）", workspace.output_root, true)}</div>` : ""}`;
@@ -793,6 +802,11 @@
         await showDramaDetail(id, "languages");
       }
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
+      else if (action === "add-channel-drama-type") openModal("新增短剧类型", channelDramaTypeForm());
+      else if (action === "edit-channel-drama-type") {
+        const item = state.channelDramaTypes.find(candidate => candidate.id === id);
+        if (item) openModal("编辑短剧类型", channelDramaTypeForm(item));
+      }
       else if (action === "add-schedule") await openScheduleForm();
       else if (action === "schedule-view-mode") {
         state.scheduleViewMode = button.dataset.mode === "full" ? "full" : "day";
@@ -950,6 +964,13 @@
         notify("Logo 素材已上传并自动校准"); closeModal(); await loadView("channels");
       }
       if (form.id === "imageWorkspaceForm") { await api("/settings/image-workspace", { method: "PUT", body: JSON.stringify({ root_path: data.root_path }) }); notify("图片目录已保存"); await loadView("settings"); }
+      if (form.id === "channelDramaTypeForm") {
+        const typeId = data.type_id; delete data.type_id;
+        data.sort_order = Number(data.sort_order); data.description = data.description.trim() || null;
+        if (typeId) delete data.code;
+        await api(typeId ? `/settings/channel-drama-types/${typeId}` : "/settings/channel-drama-types", { method: typeId ? "PUT" : "POST", body: JSON.stringify(data) });
+        notify(typeId ? "短剧类型已更新" : "短剧类型已新增"); closeModal(); await loadView("settings");
+      }
       if (form.id === "imageImportForm") {
         const files = [...form.elements.folder_files.files, ...form.elements.image_files.files];
         if (!files.length) throw new Error("请选择文件夹或图片");

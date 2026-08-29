@@ -8,12 +8,50 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import can_switch_database_environment, database_router, get_db
 from zhiju.schemas.identity import DeviceRead, DeviceRegister
-from zhiju.schemas.settings import AppIconSettingRead, AppIconUpload, RuntimeEnvironmentUpdate, RuntimeOverview, RuntimePackageBuildRead
+from zhiju.schemas.settings import AppIconSettingRead, AppIconUpload, ChannelDramaTypeCreate, ChannelDramaTypeRead, ChannelDramaTypeUpdate, RuntimeEnvironmentUpdate, RuntimeOverview, RuntimePackageBuildRead
+from zhiju.services.identity import ConflictError
 from zhiju.services.identity import list_devices, register_device
-from zhiju.services.settings import build_runtime_package, get_app_icon_setting, get_current_runtime_package, list_runtime_packages, restore_default_app_icon, runtime_overview, stream_runtime_package, upload_app_icon
+from zhiju.services.settings import build_runtime_package, create_channel_drama_type, get_app_icon_setting, get_current_runtime_package, list_channel_drama_types, list_runtime_packages, restore_default_app_icon, runtime_overview, stream_runtime_package, update_channel_drama_type, upload_app_icon
 
 
 router = APIRouter(prefix="/v3", tags=["settings"])
+
+
+@router.get("/settings/channel-drama-types", response_model=list[ChannelDramaTypeRead])
+def get_channel_drama_types(
+    include_disabled: bool = False, session: Session = Depends(get_db)
+) -> list[ChannelDramaTypeRead]:
+    return list_channel_drama_types(session, include_disabled=include_disabled)
+
+
+@router.post(
+    "/settings/channel-drama-types",
+    response_model=ChannelDramaTypeRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_channel_drama_type(
+    payload: ChannelDramaTypeCreate, session: Session = Depends(get_db)
+) -> ChannelDramaTypeRead:
+    try:
+        return create_channel_drama_type(session, payload)
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.put(
+    "/settings/channel-drama-types/{type_id}", response_model=ChannelDramaTypeRead
+)
+def put_channel_drama_type(
+    type_id: str,
+    payload: ChannelDramaTypeUpdate,
+    session: Session = Depends(get_db),
+) -> ChannelDramaTypeRead:
+    try:
+        return update_channel_drama_type(session, type_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/settings/runtime", response_model=RuntimeOverview)
