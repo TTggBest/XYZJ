@@ -625,7 +625,7 @@
     return items.length ? table(type === "status" ? ["时间", "实体", "实体 ID", "新状态", "原因", "执行者"] : ["时间", "动作", "实体", "实体 ID", "变更摘要", "执行者"], rows, 900) : empty("暂无日志", "数据库中尚无对应记录。");
   }
 
-  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["channelInitialization", "初始化规则", "wand-sparkles"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
     return `<div class="settings-layout"><aside class="settings-tabs">${tabs}</aside><div class="settings-content">${body}</div></div>`;
@@ -657,6 +657,11 @@
       state.channelDramaTypes = items;
       const rows = items.map(item => `<tr><td><span class="cell-main">${esc(item.name)}</span><span class="cell-sub mono">${esc(item.code)}</span></td><td>${esc(item.description || "—")}</td><td>${item.sort_order}</td><td>${tag(item.status)}</td><td><button class="button button-secondary button-small" data-action="edit-channel-drama-type" data-id="${item.id}">编辑</button></td></tr>`);
       body = `<header class="settings-content-head"><div><h2>频道短剧类型</h2><p>维护频道可选择的男频、女频、AI 等运营类型；停用不会删除频道已有数据。</p></div><button class="button button-primary" data-action="add-channel-drama-type">${icon("plus")} 新增类型</button></header>${items.length ? table(["类型", "说明", "排序", "状态", ""], rows, 760) : empty("还没有短剧类型", "新增后可在频道详情中选择。", "add-channel-drama-type", "新增类型")}`;
+    } else if (state.settingsTab === "channelInitialization") {
+      const rules = await api("/settings/channel-initialization-rules");
+      const rows = rules.map(item => `<tr><td><span class="cell-main">${esc(item.module_name)}</span><span class="cell-sub mono">${esc(item.module_key)}</span></td><td>${esc(item.output_description)}</td><td class="mono">${esc(item.skill_code)}</td><td>${item.current_version_number ? `v${item.current_version_number}` : "—"}</td><td>${item.readiness === "ready" ? tag("ready") : item.readiness === "missing_skill" ? tag("missing") : tag("draft")}</td></tr>`);
+      const ready = rules.filter(item => item.readiness === "ready").length;
+      body = `<header class="settings-content-head"><div><h2>频道初始化规则</h2><p>初始化生成只使用当前已发布版本；模板正文与版本在 Skills 中维护。</p></div><button class="button button-primary" data-action="go-skills">${icon("arrow-right")} 进入 Skills</button></header><div class="setting-grid">${settingValue("模块总数", rules.length)}${settingValue("已就绪", ready)}${settingValue("待配置", rules.length - ready)}</div>${table(["初始化模块", "输出内容", "Skill 代码", "当前版本", "状态"], rows, 900)}`;
     } else if (state.settingsTab === "images") {
       const workspace = await api("/settings/image-workspace");
       body = `<header class="settings-content-head"><div><h2>图片目录</h2><p>相对路径以当前设备 ZHJ_SHARED_ROOT 为根；绝对路径只用于本机独立目录。</p></div></header><form id="imageWorkspaceForm" class="workspace-settings-form"><div class="field"><label>根目录</label><input class="input mono" name="root_path" value="${esc(workspace?.root_path || "images")}" required maxlength="1000"></div><button class="button button-primary" type="submit">${icon("save")} 保存目录</button></form>${workspace ? `<div class="setting-grid">${settingValue("当前设备解析路径", workspace.resolved_root, true)}${settingValue("系统素材（不随产物清理）", workspace.persistent_root, true)}${settingValue("用户产物（可重新生成）", workspace.output_root, true)}</div>` : ""}`;
@@ -872,6 +877,7 @@
         await showDramaDetail(id, "languages");
       }
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
+      else if (action === "go-skills") await loadView("skills");
       else if (action === "add-channel-drama-type") openModal("新增短剧类型", channelDramaTypeForm());
       else if (action === "edit-channel-drama-type") {
         const item = state.channelDramaTypes.find(candidate => candidate.id === id);

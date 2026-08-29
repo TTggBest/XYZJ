@@ -84,3 +84,15 @@ class ChannelDramaTypeRead(ChannelDramaTypeCreate):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class ChannelInitializationRuleRead(BaseModel):
+    module_key: str
+    module_name: str
+    output_description: str
+    skill_code: str
+    skill_id: str | None
+    current_version_id: str | None
+    current_version_number: int | None
+    current_version_status: str | None
+    readiness: Literal["missing_skill", "missing_published_version", "ready"]

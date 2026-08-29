@@ -18,7 +18,13 @@ from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
 from zhiju.database import can_switch_database_environment, database_router
-from zhiju.models import AppIconSetting, ChannelDramaType, RuntimePackageBuild
+from zhiju.models import (
+    AppIconSetting,
+    ChannelDramaType,
+    RuntimePackageBuild,
+    Skill,
+    SkillVersion,
+)
 from zhiju.schemas.settings import ChannelDramaTypeCreate, ChannelDramaTypeUpdate
 from zhiju.services.identity import ConflictError
 
@@ -56,6 +62,66 @@ PACKAGE_ROOT_FILES = {
 }
 PACKAGE_DIRECTORIES = {"assets", "backend", "scripts"}
 PACKAGE_EXCLUDED_FILES = {"scripts/mysql_dev.sh"}
+
+CHANNEL_INITIALIZATION_MODULES = (
+    ("description", "频道说明", "channel-description", "频道定位与说明正文"),
+    ("keywords_tags", "关键词与标签", "channel-keywords-tags", "频道关键词和标签"),
+    ("avatar_prompt", "头像出图词", "channel-avatar-prompt", "频道头像生成提示词"),
+    ("banner_prompt", "横幅出图词", "channel-banner-prompt", "频道横幅生成提示词"),
+    ("pinned_comment", "置顶评论", "channel-pinned-comment", "频道置顶评论正文"),
+    ("title_template", "标题模板", "channel-title-template", "频道标题结构模板"),
+    ("popup_scheme", "弹框方案", "channel-popup-scheme", "频道弹框运营方案"),
+    ("playlists", "播放列表", "channel-playlists", "三条播放列表名称与说明"),
+    ("initial_audience", "初始用户画像", "channel-initial-audience", "频道初始受众假设"),
+    ("initial_analysis", "初始分析报告", "channel-initial-analysis", "频道初始化分析报告"),
+    ("operating_reference", "运营参考", "channel-operating-reference", "频道排期与运营包参考"),
+)
+
+
+def list_channel_initialization_rules(session: Session) -> list[dict[str, object]]:
+    codes = [item[2] for item in CHANNEL_INITIALIZATION_MODULES]
+    skills = {
+        row.code: row
+        for row in session.scalars(select(Skill).where(Skill.code.in_(codes)))
+    }
+    current_versions = (
+        {
+            row.skill_id: row
+            for row in session.scalars(
+                select(SkillVersion).where(
+                    SkillVersion.skill_id.in_([row.id for row in skills.values()]),
+                    SkillVersion.is_current.is_(True),
+                )
+            )
+        }
+        if skills
+        else {}
+    )
+    result = []
+    for module_key, module_name, skill_code, output_description in CHANNEL_INITIALIZATION_MODULES:
+        skill = skills.get(skill_code)
+        version = current_versions.get(skill.id) if skill else None
+        readiness = (
+            "ready"
+            if version
+            else "missing_published_version"
+            if skill
+            else "missing_skill"
+        )
+        result.append(
+            {
+                "module_key": module_key,
+                "module_name": module_name,
+                "output_description": output_description,
+                "skill_code": skill_code,
+                "skill_id": skill.id if skill else None,
+                "current_version_id": version.id if version else None,
+                "current_version_number": version.version_number if version else None,
+                "current_version_status": version.status if version else None,
+                "readiness": readiness,
+            }
+        )
+    return result
 
 
 def list_channel_drama_types(
