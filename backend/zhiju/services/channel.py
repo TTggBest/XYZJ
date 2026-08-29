@@ -201,6 +201,9 @@ def update_channel_hub(
         "positioning",
         "avatar_prompt",
         "banner_prompt",
+        "popup_scheme",
+        "title_template",
+        "fixed_symbol",
     ):
         if field in values:
             setattr(profile, field, values[field])

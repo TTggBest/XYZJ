@@ -40,6 +40,9 @@ class ChannelHubUpdate(BaseModel):
     positioning: str | None = None
     avatar_prompt: str | None = None
     banner_prompt: str | None = None
+    popup_scheme: str | None = Field(default=None, max_length=120)
+    title_template: str | None = None
+    fixed_symbol: str | None = Field(default=None, max_length=120)
 
 
 class ChannelBrandingAssetRead(BaseModel):

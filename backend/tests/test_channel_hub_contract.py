@@ -15,6 +15,9 @@ def test_channel_hub_update_excludes_read_only_identity_fields() -> None:
         "positioning",
         "avatar_prompt",
         "banner_prompt",
+        "popup_scheme",
+        "title_template",
+        "fixed_symbol",
     }.issubset(fields)
     assert "original_name" not in fields
     assert "youtube_channel_id" not in fields
