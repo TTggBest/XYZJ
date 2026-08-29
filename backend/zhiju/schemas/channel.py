@@ -99,6 +99,9 @@ class ChannelInitializationDraftRead(BaseModel):
     channel_id: str
     input_snapshot: dict[str, object]
     output_draft: dict[str, object]
+    applied_report_id: str | None
+    applied_dna_version_id: str | None
+    applied_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -110,6 +113,8 @@ class ChannelInitializationApplyRead(BaseModel):
     created_keywords: int
     created_pinned_comments: int
     created_playlists: int
+    analysis_report_id: str | None
+    dna_version_id: str | None
 
 
 class ChannelKeywordCreate(BaseModel):
@@ -336,6 +341,7 @@ class ChannelDnaVersionCreate(BaseModel):
     primary_genre: str = Field(min_length=1, max_length=120)
     secondary_genre: str | None = Field(default=None, max_length=255)
     audience_summary: str | None = None
+    reference_summary: str | None = None
     age_tendency: str | None = Field(default=None, max_length=120)
     gender_tendency: str | None = Field(default=None, max_length=120)
     emotion_preference: str | None = None
@@ -361,6 +367,7 @@ class ChannelDnaVersionRead(BaseModel):
     primary_genre: str
     secondary_genre: str | None
     audience_summary: str | None
+    reference_summary: str | None
     age_tendency: str | None
     gender_tendency: str | None
     emotion_preference: str | None

@@ -240,7 +240,12 @@ def upsert_channel_initialization_draft(
         session.add(draft)
     else:
         draft.input_snapshot = snapshot
-        draft.output_draft = payload.model_dump()
+        output_draft = payload.model_dump()
+        if draft.output_draft != output_draft:
+            draft.applied_report_id = None
+            draft.applied_dna_version_id = None
+            draft.applied_at = None
+        draft.output_draft = output_draft
     session.flush()
     _audit(session, "channel_initialization_draft.saved", "channel", channel_id)
     session.commit()
@@ -261,15 +266,7 @@ def apply_channel_initialization_draft(
         raise ConflictError("请先保存频道初始化草稿")
     output = draft.output_draft or {}
     applied_modules: list[str] = []
-    retained_modules = [
-        label
-        for key, label in (
-            ("initial_audience", "初始用户画像"),
-            ("initial_analysis", "初始分析报告"),
-            ("operating_reference", "频道运营参考"),
-        )
-        if output.get(key)
-    ]
+    retained_modules: list[str] = []
 
     profile_fields = (
         "description",
@@ -382,6 +379,89 @@ def apply_channel_initialization_draft(
     if output.get("playlists"):
         applied_modules.append("播放列表")
 
+    analysis_report = (
+        session.get(ChannelAnalysisReport, draft.applied_report_id)
+        if draft.applied_report_id
+        else None
+    )
+    if analysis_report is None and (output.get("initial_audience") or output.get("initial_analysis")):
+        next_report_version = (
+            session.scalar(
+                select(func.coalesce(func.max(ChannelAnalysisReport.version_number), 0)).where(
+                    ChannelAnalysisReport.channel_id == channel_id
+                )
+            )
+            + 1
+        )
+        analysis_report = ChannelAnalysisReport(
+            channel_id=channel_id,
+            version_number=next_report_version,
+            report_type="initial",
+            summary=output.get("initial_analysis"),
+            status="completed",
+            generated_by="channel_initialization",
+        )
+        session.add(analysis_report)
+        session.flush()
+        if output.get("initial_audience"):
+            session.add(
+                ChannelAudienceProfile(
+                    report_id=analysis_report.id,
+                    profile_type="behavior",
+                    segment_value="初始用户画像",
+                    rank_number=1,
+                    summary=output["initial_audience"],
+                )
+            )
+        draft.applied_report_id = analysis_report.id
+    if output.get("initial_audience"):
+        applied_modules.append("初始用户画像")
+    if output.get("initial_analysis"):
+        applied_modules.append("初始分析报告")
+
+    dna_version = (
+        session.get(ChannelDnaVersion, draft.applied_dna_version_id)
+        if draft.applied_dna_version_id
+        else None
+    )
+    if dna_version is None and output.get("operating_reference"):
+        now = datetime.now(timezone.utc)
+        for active_version in session.scalars(
+            select(ChannelDnaVersion).where(
+                ChannelDnaVersion.channel_id == channel_id,
+                ChannelDnaVersion.status == "active",
+            )
+        ):
+            active_version.status = "superseded"
+            active_version.effective_to = now
+        next_dna_version = (
+            session.scalar(
+                select(func.coalesce(func.max(ChannelDnaVersion.version_number), 0)).where(
+                    ChannelDnaVersion.channel_id == channel_id
+                )
+            )
+            + 1
+        )
+        dna_version = ChannelDnaVersion(
+            channel_id=channel_id,
+            analysis_report_id=analysis_report.id if analysis_report else None,
+            version_number=next_dna_version,
+            status="active",
+            language=channel.default_language or "und",
+            primary_genre=channel.default_genre or "待完善",
+            audience_summary=output.get("initial_audience"),
+            reference_summary=output["operating_reference"],
+            effective_from=now,
+        )
+        session.add(dna_version)
+        session.flush()
+        draft.applied_dna_version_id = dna_version.id
+    if output.get("operating_reference"):
+        applied_modules.append("频道运营参考")
+
+    if analysis_report is not None or dna_version is not None:
+        draft.applied_at = datetime.now(timezone.utc)
+
     try:
         session.flush()
         _audit(session, "channel_initialization_draft.applied", "channel", channel_id)
@@ -396,6 +476,8 @@ def apply_channel_initialization_draft(
         "created_keywords": created_keywords,
         "created_pinned_comments": created_pinned_comments,
         "created_playlists": created_playlists,
+        "analysis_report_id": analysis_report.id if analysis_report else None,
+        "dna_version_id": dna_version.id if dna_version else None,
     }
 
 
