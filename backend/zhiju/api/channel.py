@@ -11,6 +11,7 @@ from zhiju.schemas.channel import (
     ChannelHubUpdate,
     ChannelInitializationDraftRead,
     ChannelInitializationDraftUpsert,
+    ChannelInitializationApplyRead,
     ChannelInitializationReadinessRead,
     ChannelKeywordCreate,
     ChannelKeywordRead,
@@ -26,6 +27,7 @@ from zhiju.schemas.channel import (
 from zhiju.services.channel import (
     NotFoundError,
     add_keyword,
+    apply_channel_initialization_draft,
     activate_pinned_comment_template,
     create_pinned_comment_template,
     create_dna_version,
@@ -105,6 +107,19 @@ def put_channel_initialization_workspace(
     try:
         return upsert_channel_initialization_draft(session, channel_id, payload)
     except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/channels/{channel_id}/initialization-draft/apply",
+    response_model=ChannelInitializationApplyRead,
+)
+def post_apply_channel_initialization_workspace(
+    channel_id: str, session: Session = Depends(get_db)
+) -> ChannelInitializationApplyRead:
+    try:
+        return apply_channel_initialization_draft(session, channel_id)
+    except (NotFoundError, ConflictError) as exc:
         raise _http_error(exc) from exc
 
 

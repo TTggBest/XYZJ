@@ -103,6 +103,15 @@ class ChannelInitializationDraftRead(BaseModel):
     updated_at: datetime
 
 
+class ChannelInitializationApplyRead(BaseModel):
+    channel_id: str
+    applied_modules: list[str]
+    retained_draft_modules: list[str]
+    created_keywords: int
+    created_pinned_comments: int
+    created_playlists: int
+
+
 class ChannelKeywordCreate(BaseModel):
     keyword: str = Field(min_length=1, max_length=255)
     keyword_type: Literal["keyword", "tag"]

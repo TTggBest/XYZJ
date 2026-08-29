@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -245,6 +246,157 @@ def upsert_channel_initialization_draft(
     session.commit()
     session.refresh(draft)
     return draft
+
+
+def apply_channel_initialization_draft(
+    session: Session, channel_id: str
+) -> dict[str, object]:
+    channel = _channel(session, channel_id, lock=True)
+    draft = session.scalar(
+        select(ChannelInitializationDraft)
+        .where(ChannelInitializationDraft.channel_id == channel_id)
+        .with_for_update()
+    )
+    if draft is None:
+        raise ConflictError("请先保存频道初始化草稿")
+    output = draft.output_draft or {}
+    applied_modules: list[str] = []
+    retained_modules = [
+        label
+        for key, label in (
+            ("initial_audience", "初始用户画像"),
+            ("initial_analysis", "初始分析报告"),
+            ("operating_reference", "频道运营参考"),
+        )
+        if output.get(key)
+    ]
+
+    profile_fields = (
+        "description",
+        "avatar_prompt",
+        "banner_prompt",
+        "title_template",
+        "popup_scheme",
+    )
+    if any(output.get(field) for field in profile_fields):
+        profile = session.scalar(
+            select(ChannelProfile).where(ChannelProfile.channel_id == channel_id)
+        )
+        if profile is None:
+            profile = ChannelProfile(channel_id=channel_id, status="draft")
+            session.add(profile)
+        for field in profile_fields:
+            if output.get(field) is not None:
+                setattr(profile, field, output[field])
+        applied_modules.append("频道说明与装修")
+
+    created_keywords = 0
+    language = channel.default_language or "und"
+    for keyword_type, values in (
+        ("keyword", output.get("keywords") or []),
+        ("tag", output.get("tags") or []),
+    ):
+        for value in values:
+            existing = session.scalar(
+                select(ChannelKeyword).where(
+                    ChannelKeyword.channel_id == channel_id,
+                    ChannelKeyword.keyword == value,
+                    ChannelKeyword.keyword_type == keyword_type,
+                    ChannelKeyword.language == language,
+                )
+            )
+            if existing is None:
+                session.add(
+                    ChannelKeyword(
+                        channel_id=channel_id,
+                        keyword=value,
+                        keyword_type=keyword_type,
+                        language=language,
+                        weight=Decimal("0.5000"),
+                        source="channel_initialization",
+                        effective_from=datetime.now(timezone.utc),
+                        status="active",
+                    )
+                )
+                created_keywords += 1
+    if output.get("keywords") or output.get("tags"):
+        applied_modules.append("关键词与标签")
+
+    created_pinned_comments = 0
+    pinned_body = output.get("pinned_comment")
+    if pinned_body:
+        pinned = session.scalar(
+            select(ChannelPinnedCommentTemplate).where(
+                ChannelPinnedCommentTemplate.channel_id == channel_id,
+                ChannelPinnedCommentTemplate.language == language,
+                ChannelPinnedCommentTemplate.body == pinned_body,
+            )
+        )
+        if pinned is None:
+            next_version = (
+                session.scalar(
+                    select(
+                        func.coalesce(
+                            func.max(ChannelPinnedCommentTemplate.version_number), 0
+                        )
+                    ).where(
+                        ChannelPinnedCommentTemplate.channel_id == channel_id,
+                        ChannelPinnedCommentTemplate.language == language,
+                    )
+                )
+                + 1
+            )
+            pinned = ChannelPinnedCommentTemplate(
+                channel_id=channel_id,
+                language=language,
+                version_number=next_version,
+                body=pinned_body,
+                status="draft",
+            )
+            session.add(pinned)
+            session.flush()
+            created_pinned_comments = 1
+        if pinned.status != "active":
+            _activate_pinned_comment_template(session, pinned, datetime.now(timezone.utc))
+        applied_modules.append("置顶评论")
+
+    created_playlists = 0
+    for index, name in enumerate(output.get("playlists") or [], start=1):
+        existing = session.scalar(
+            select(ChannelPlaylist).where(
+                ChannelPlaylist.channel_id == channel_id,
+                ChannelPlaylist.local_name == name,
+                ChannelPlaylist.status != "deleted",
+            )
+        )
+        if existing is None:
+            session.add(
+                ChannelPlaylist(
+                    channel_id=channel_id,
+                    local_name=name,
+                    sort_order=index,
+                    status="draft",
+                )
+            )
+            created_playlists += 1
+    if output.get("playlists"):
+        applied_modules.append("播放列表")
+
+    try:
+        session.flush()
+        _audit(session, "channel_initialization_draft.applied", "channel", channel_id)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("频道初始化草稿应用失败") from exc
+    return {
+        "channel_id": channel_id,
+        "applied_modules": applied_modules,
+        "retained_draft_modules": retained_modules,
+        "created_keywords": created_keywords,
+        "created_pinned_comments": created_pinned_comments,
+        "created_playlists": created_playlists,
+    }
 
 
 def update_channel_hub(

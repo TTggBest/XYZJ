@@ -222,7 +222,7 @@
     if (!readiness) return "";
     const inputMessage = readiness.missing_inputs.length ? `缺少基础资料：${readiness.missing_inputs.join("、")}` : "基础资料已齐全";
     const ruleMessage = readiness.missing_rule_modules.length ? `缺少已发布规则：${readiness.missing_rule_modules.join("、")}` : "初始化规则已齐全";
-    return `<div class="detail-block"><h3>初始化准备 ${readiness.can_initialize ? tag("ready") : tag("pending")}</h3><p>${readiness.can_initialize ? "当前可以初始化" : "当前资料尚未齐全，仍可先编辑初始化草稿"}</p><p class="settings-muted">${esc(inputMessage)}</p><p class="settings-muted">${esc(ruleMessage)}</p><button class="button button-primary" data-action="edit-channel-initialization" data-id="${esc(readiness.channel_id)}">${icon("wand-sparkles")} 初始化工作台</button></div>`;
+    return `<div class="detail-block"><h3>初始化准备 ${readiness.can_initialize ? tag("ready") : tag("pending")}</h3><p>${readiness.can_initialize ? "当前可以初始化" : "当前资料尚未齐全，仍可先编辑初始化草稿"}</p><p class="settings-muted">${esc(inputMessage)}</p><p class="settings-muted">${esc(ruleMessage)}</p><div class="row-actions"><button class="button button-primary" data-action="edit-channel-initialization" data-id="${esc(readiness.channel_id)}">${icon("wand-sparkles")} 初始化工作台</button><button class="button button-secondary" data-action="apply-channel-initialization" data-id="${esc(readiness.channel_id)}">${icon("check")} 应用草稿</button></div></div>`;
   }
   function channelInitializationDraftForm(channelId, draft, detail) {
     const output = draft?.output_draft || {};
@@ -999,6 +999,13 @@
       else if (action === "edit-channel-initialization") {
         const draft = await api(`/channels/${id}/initialization-draft`);
         openModal("频道初始化工作台", channelInitializationDraftForm(id, draft, state.channelDetail));
+      }
+      else if (action === "apply-channel-initialization") {
+        if (!window.confirm("确认把初始化草稿应用到正式频道配置？已有同名关键词、标签和播放列表不会重复创建。")) return;
+        const result = await api(`/channels/${id}/initialization-draft/apply`, { method: "POST" });
+        notify(`已应用 ${result.applied_modules.length} 个模块；新增词条 ${result.created_keywords}、置顶评论 ${result.created_pinned_comments}、播放列表 ${result.created_playlists}`);
+        state.channelDetail = null;
+        await showChannelDetail(id, "basic");
       }
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
