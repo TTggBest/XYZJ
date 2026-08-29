@@ -60,4 +60,4 @@ def test_channel_detail_loads_and_renders_initialization_readiness() -> None:
     assert "function channelInitializationReadiness" in source
     assert "`/channels/${id}/initialization-readiness`" in source
     assert "初始化准备" in source
-    assert "当前不可初始化" in source
+    assert "仍可先编辑初始化草稿" in source

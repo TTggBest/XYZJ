@@ -77,6 +77,32 @@ class ChannelInitializationReadinessRead(BaseModel):
     rules: list[ChannelInitializationRuleRead]
 
 
+class ChannelInitializationDraftUpsert(BaseModel):
+    description: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    avatar_prompt: str | None = None
+    banner_prompt: str | None = None
+    pinned_comment: str | None = None
+    title_template: str | None = None
+    popup_scheme: str | None = None
+    playlists: list[str] = Field(default_factory=list)
+    initial_audience: str | None = None
+    initial_analysis: str | None = None
+    operating_reference: str | None = None
+
+
+class ChannelInitializationDraftRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    channel_id: str
+    input_snapshot: dict[str, object]
+    output_draft: dict[str, object]
+    created_at: datetime
+    updated_at: datetime
+
+
 class ChannelKeywordCreate(BaseModel):
     keyword: str = Field(min_length=1, max_length=255)
     keyword_type: Literal["keyword", "tag"]

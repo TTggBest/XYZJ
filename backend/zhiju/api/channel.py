@@ -9,6 +9,8 @@ from zhiju.schemas.channel import (
     ChannelDnaVersionCreate,
     ChannelDnaVersionRead,
     ChannelHubUpdate,
+    ChannelInitializationDraftRead,
+    ChannelInitializationDraftUpsert,
     ChannelInitializationReadinessRead,
     ChannelKeywordCreate,
     ChannelKeywordRead,
@@ -29,6 +31,7 @@ from zhiju.services.channel import (
     create_dna_version,
     create_report,
     get_channel_detail,
+    get_channel_initialization_draft,
     get_channel_initialization_readiness,
     get_report_detail,
     get_media_asset,
@@ -42,6 +45,7 @@ from zhiju.services.channel import (
     delete_media_asset,
     upsert_profile,
     update_channel_hub,
+    upsert_channel_initialization_draft,
 )
 from zhiju.services.identity import ConflictError
 
@@ -72,6 +76,34 @@ def get_channel_initialization_status(
 ) -> ChannelInitializationReadinessRead:
     try:
         return get_channel_initialization_readiness(session, channel_id)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get(
+    "/channels/{channel_id}/initialization-draft",
+    response_model=ChannelInitializationDraftRead | None,
+)
+def get_channel_initialization_workspace(
+    channel_id: str, session: Session = Depends(get_db)
+) -> ChannelInitializationDraftRead | None:
+    try:
+        return get_channel_initialization_draft(session, channel_id)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.put(
+    "/channels/{channel_id}/initialization-draft",
+    response_model=ChannelInitializationDraftRead,
+)
+def put_channel_initialization_workspace(
+    channel_id: str,
+    payload: ChannelInitializationDraftUpsert,
+    session: Session = Depends(get_db),
+) -> ChannelInitializationDraftRead:
+    try:
+        return upsert_channel_initialization_draft(session, channel_id, payload)
     except NotFoundError as exc:
         raise _http_error(exc) from exc
 

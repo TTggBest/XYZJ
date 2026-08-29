@@ -222,7 +222,15 @@
     if (!readiness) return "";
     const inputMessage = readiness.missing_inputs.length ? `缺少基础资料：${readiness.missing_inputs.join("、")}` : "基础资料已齐全";
     const ruleMessage = readiness.missing_rule_modules.length ? `缺少已发布规则：${readiness.missing_rule_modules.join("、")}` : "初始化规则已齐全";
-    return `<div class="detail-block"><h3>初始化准备 ${readiness.can_initialize ? tag("ready") : tag("pending")}</h3><p>${readiness.can_initialize ? "当前可以初始化" : "当前不可初始化"}</p><p class="settings-muted">${esc(inputMessage)}</p><p class="settings-muted">${esc(ruleMessage)}</p></div>`;
+    return `<div class="detail-block"><h3>初始化准备 ${readiness.can_initialize ? tag("ready") : tag("pending")}</h3><p>${readiness.can_initialize ? "当前可以初始化" : "当前资料尚未齐全，仍可先编辑初始化草稿"}</p><p class="settings-muted">${esc(inputMessage)}</p><p class="settings-muted">${esc(ruleMessage)}</p><button class="button button-primary" data-action="edit-channel-initialization" data-id="${esc(readiness.channel_id)}">${icon("wand-sparkles")} 初始化工作台</button></div>`;
+  }
+  function channelInitializationDraftForm(channelId, draft, detail) {
+    const output = draft?.output_draft || {};
+    const profile = detail?.profile || {};
+    const keywords = output.keywords || detail?.keywords?.filter(item => item.keyword_type === "keyword").map(item => item.keyword) || [];
+    const tags = output.tags || detail?.keywords?.filter(item => item.keyword_type === "tag").map(item => item.keyword) || [];
+    const value = (key, fallback = "") => output[key] ?? fallback ?? "";
+    return `<form class="form-grid" id="channelInitializationDraftForm"><input type="hidden" name="channel_id" value="${esc(channelId)}"><div class="field field-wide"><label>频道说明</label><textarea class="textarea" name="description">${esc(value("description", profile.description))}</textarea></div><div class="field field-wide"><label>关键词（逗号或换行分隔）</label><textarea class="textarea" name="keywords">${esc(keywords.join("、"))}</textarea></div><div class="field field-wide"><label>标签（逗号或换行分隔）</label><textarea class="textarea" name="tags">${esc(tags.join("、"))}</textarea></div><div class="field field-wide"><label>头像出图词</label><textarea class="textarea" name="avatar_prompt">${esc(value("avatar_prompt", profile.avatar_prompt))}</textarea></div><div class="field field-wide"><label>横幅出图词</label><textarea class="textarea" name="banner_prompt">${esc(value("banner_prompt", profile.banner_prompt))}</textarea></div><div class="field field-wide"><label>置顶评论</label><textarea class="textarea" name="pinned_comment">${esc(value("pinned_comment"))}</textarea></div><div class="field field-wide"><label>标题模板</label><textarea class="textarea" name="title_template">${esc(value("title_template", profile.title_template))}</textarea></div><div class="field"><label>弹框方案</label><input class="input" name="popup_scheme" value="${esc(value("popup_scheme", profile.popup_scheme))}"></div><div class="field field-wide"><label>三条播放列表草稿（每行一条）</label><textarea class="textarea" name="playlists">${esc((output.playlists || []).join("\n"))}</textarea></div><div class="field field-wide"><label>初始用户画像</label><textarea class="textarea" name="initial_audience">${esc(value("initial_audience"))}</textarea></div><div class="field field-wide"><label>初始分析报告</label><textarea class="textarea" name="initial_analysis">${esc(value("initial_analysis"))}</textarea></div><div class="field field-wide"><label>频道运营参考</label><textarea class="textarea" name="operating_reference">${esc(value("operating_reference"))}</textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("save")} 保存初始化草稿</button></div></form>`;
   }
   function channelDetailTabs(detail, tab) {
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
@@ -988,6 +996,10 @@
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "channel-detail-tab") await showChannelDetail(id, button.dataset.channelDetailTab);
+      else if (action === "edit-channel-initialization") {
+        const draft = await api(`/channels/${id}/initialization-draft`);
+        openModal("频道初始化工作台", channelInitializationDraftForm(id, draft, state.channelDetail));
+      }
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
@@ -1061,6 +1073,16 @@
         for (const key of ["chinese_meaning", "default_genre", "drama_type", "description", "positioning", "avatar_prompt", "banner_prompt", "popup_scheme", "title_template", "fixed_symbol"]) data[key] = data[key].trim() || null;
         state.channelDetail = await api(`/channels/${channelId}/hub`, { method: "PUT", body: JSON.stringify(data) });
         notify("频道资料已保存"); await showChannelDetail(channelId, state.channelDetailTab);
+      }
+      if (form.id === "channelInitializationDraftForm") {
+        const channelId = data.channel_id; delete data.channel_id;
+        const splitList = value => value.split(/[，,\n]/).map(item => item.trim()).filter(Boolean);
+        data.keywords = splitList(data.keywords);
+        data.tags = splitList(data.tags);
+        data.playlists = data.playlists.split(/\n/).map(item => item.trim()).filter(Boolean);
+        for (const key of ["description", "avatar_prompt", "banner_prompt", "pinned_comment", "title_template", "popup_scheme", "initial_audience", "initial_analysis", "operating_reference"]) data[key] = data[key].trim() || null;
+        await api(`/channels/${channelId}/initialization-draft`, { method: "PUT", body: JSON.stringify(data) });
+        notify("频道初始化草稿已保存"); closeModal();
       }
       if (form.id === "channelLogoForm") {
         const payload = new FormData();

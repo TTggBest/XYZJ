@@ -16,6 +16,7 @@ from zhiju.models import (
     ChannelDnaSignal,
     ChannelDnaVersion,
     ChannelKeyword,
+    ChannelInitializationDraft,
     ChannelPinnedCommentTemplate,
     ChannelPlaylist,
     ChannelProfile,
@@ -37,6 +38,7 @@ from zhiju.schemas.channel import (
     ChannelAnalysisReportCreate,
     ChannelDnaVersionCreate,
     ChannelHubUpdate,
+    ChannelInitializationDraftUpsert,
     ChannelKeywordCreate,
     ChannelPinnedCommentTemplateCreate,
     ChannelProfileUpsert,
@@ -195,6 +197,54 @@ def get_channel_initialization_readiness(
         "missing_rule_modules": missing_rule_modules,
         "rules": rules,
     }
+
+
+def get_channel_initialization_draft(
+    session: Session, channel_id: str
+) -> ChannelInitializationDraft | None:
+    _channel(session, channel_id)
+    return session.scalar(
+        select(ChannelInitializationDraft).where(
+            ChannelInitializationDraft.channel_id == channel_id
+        )
+    )
+
+
+def upsert_channel_initialization_draft(
+    session: Session,
+    channel_id: str,
+    payload: ChannelInitializationDraftUpsert,
+) -> ChannelInitializationDraft:
+    channel = _channel(session, channel_id, lock=True)
+    draft = session.scalar(
+        select(ChannelInitializationDraft)
+        .where(ChannelInitializationDraft.channel_id == channel_id)
+        .with_for_update()
+    )
+    snapshot = {
+        "original_name": channel.original_name,
+        "youtube_channel_id": channel.youtube_channel_id,
+        "youtube_channel_url": channel.youtube_channel_url,
+        "chinese_meaning": channel.chinese_meaning,
+        "default_genre": channel.default_genre,
+        "drama_type": channel.drama_type,
+        "default_language": channel.default_language,
+    }
+    if draft is None:
+        draft = ChannelInitializationDraft(
+            channel_id=channel_id,
+            input_snapshot=snapshot,
+            output_draft=payload.model_dump(),
+        )
+        session.add(draft)
+    else:
+        draft.input_snapshot = snapshot
+        draft.output_draft = payload.model_dump()
+    session.flush()
+    _audit(session, "channel_initialization_draft.saved", "channel", channel_id)
+    session.commit()
+    session.refresh(draft)
+    return draft
 
 
 def update_channel_hub(

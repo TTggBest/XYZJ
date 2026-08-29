@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -77,6 +78,20 @@ class ChannelProfile(IdMixin, TimestampMixin, Base):
     title_template: Mapped[str | None] = mapped_column(Text, comment="频道标题模板")
     fixed_symbol: Mapped[str | None] = mapped_column(String(120), comment="标题固定符号")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft", comment="档案状态")
+
+
+class ChannelInitializationDraft(IdMixin, TimestampMixin, Base):
+    __tablename__ = "channel_initialization_drafts"
+    __table_args__ = (
+        UniqueConstraint("channel_id", name="uq_channel_initialization_drafts_channel_id"),
+        {"comment": "频道初始化工作台草稿"},
+    )
+
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID"
+    )
+    input_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, comment="初始化输入快照")
+    output_draft: Mapped[dict] = mapped_column(JSON, nullable=False, comment="初始化模块输出草稿")
 
 
 class ChannelPinnedCommentTemplate(IdMixin, TimestampMixin, Base):
