@@ -277,7 +277,7 @@
     let body = "";
     if (tab === "operations") {
       const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong><div class="row-actions">${tag(item.status)}${item.status !== "active" ? `<button class="button button-quiet button-small" data-action="activate-pinned-comment" data-id="${item.id}" data-channel-id="${detail.channel.id}">启用</button>` : ""}</div></header><p>${esc(item.body)}</p></article>`).join("");
-      const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
+      const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}${!item.youtube_playlist_id ? `<button class="button button-secondary button-small" data-action="create-youtube-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">创建到 YouTube</button>` : ""}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
       body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><header class="settings-content-head"><h3>置顶评论</h3><button class="button button-secondary button-small" data-action="add-pinned-comment" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${comments || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>播放列表</h3><button class="button button-secondary button-small" data-action="add-channel-playlist" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
       body = channelAnalysisPanel(detail);
@@ -1031,6 +1031,12 @@
       else if (action === "edit-channel-playlist") {
         const playlist = state.channelDetail.playlists.find(item => item.id === id);
         if (playlist) openModal("编辑播放列表", channelPlaylistForm(button.dataset.channelId, playlist));
+      }
+      else if (action === "create-youtube-playlist") {
+        if (!window.confirm("确认在当前授权的 YouTube 频道创建这个播放列表？")) return;
+        await api(`/channels/${button.dataset.channelId}/playlists/${id}/create-youtube`, { method: "POST" });
+        notify("已创建 YouTube 播放列表并回填链接");
+        state.channelDetail = null; await showChannelDetail(button.dataset.channelId, "operations");
       }
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);

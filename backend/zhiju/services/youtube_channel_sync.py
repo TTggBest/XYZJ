@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from zhiju.models import (
     AccountChannelAuthorization,
     Channel,
+    ChannelPlaylist,
     OAuthGrant,
     OperationPackage,
     OperationTask,
@@ -20,7 +21,7 @@ from zhiju.models import (
 )
 from zhiju.schemas.youtube import SyncComplete, SyncStart, VideoUpsert
 from zhiju.services.channel import NotFoundError
-from zhiju.services.identity import ConflictError
+from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.youtube import complete_sync, start_sync, upsert_video
 from zhiju.services.youtube_oauth import (
     OAUTH_TOKEN_KEYCHAIN_SERVICE,
@@ -103,8 +104,115 @@ def _youtube_request_json(url: str, access_token: str) -> Mapping[str, object]:
     return payload
 
 
+def _youtube_post_json(
+    url: str,
+    access_token: str,
+    payload: Mapping[str, object],
+) -> Mapping[str, object]:
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise ValueError(f"YouTube API请求失败：HTTP {exc.code}") from exc
+    except (URLError, TimeoutError) as exc:
+        raise ValueError("无法连接YouTube API") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError("YouTube API返回了无效数据") from exc
+    if not isinstance(result, dict):
+        raise ValueError("YouTube API返回了无效数据")
+    return result
+
+
 def _api_url(path: str, **params: object) -> str:
     return f"{YOUTUBE_API_ROOT}/{path}?{urlencode(params)}"
+
+
+def create_remote_youtube_playlist(
+    access_token: str,
+    title: str,
+    description: str,
+) -> Mapping[str, object]:
+    return _youtube_post_json(
+        _api_url("playlists", part="snippet,status"),
+        access_token,
+        {
+            "snippet": {"title": title, "description": description},
+            "status": {"privacyStatus": "public"},
+        },
+    )
+
+
+def create_authorized_channel_playlist(
+    session: Session,
+    store: object,
+    *,
+    channel_id: str,
+    playlist_id: str,
+    creator: Callable[[str, str, str], Mapping[str, object]] = create_remote_youtube_playlist,
+    now: datetime | None = None,
+) -> ChannelPlaylist:
+    current_time = now or datetime.now(timezone.utc)
+    channel = session.get(Channel, channel_id)
+    if channel is None or channel.deleted_at is not None:
+        raise NotFoundError("频道不存在")
+    playlist = session.scalar(
+        select(ChannelPlaylist)
+        .where(
+            ChannelPlaylist.id == playlist_id,
+            ChannelPlaylist.channel_id == channel_id,
+            ChannelPlaylist.status != "deleted",
+        )
+        .with_for_update()
+    )
+    if playlist is None:
+        raise NotFoundError("播放列表不存在")
+    if playlist.youtube_playlist_id:
+        raise ConflictError("播放列表已绑定YouTube播放列表")
+    authorization = session.scalar(
+        select(AccountChannelAuthorization)
+        .where(
+            AccountChannelAuthorization.channel_id == channel_id,
+            AccountChannelAuthorization.status == "active",
+            AccountChannelAuthorization.verified_youtube_channel_id == channel.youtube_channel_id,
+        )
+        .order_by(AccountChannelAuthorization.verified_at.desc())
+        .limit(1)
+    )
+    if authorization is None:
+        raise ConflictError("频道没有匹配且有效的YouTube授权绑定")
+    grant = session.get(OAuthGrant, authorization.oauth_grant_id)
+    if grant is None or grant.status != "active":
+        raise ConflictError("频道授权使用的OAuth Grant不可用")
+    access_token = ensure_grant_access_token(session, store, grant, now=current_time)
+    resource = creator(
+        access_token,
+        playlist.local_name,
+        playlist.local_description or "",
+    )
+    youtube_playlist_id = str(resource.get("id") or "").strip()
+    if not youtube_playlist_id:
+        raise ValueError("YouTube API未返回播放列表ID")
+    playlist.youtube_playlist_id = youtube_playlist_id
+    playlist.url = f"https://www.youtube.com/playlist?list={youtube_playlist_id}"
+    playlist.status = "active"
+    try:
+        session.flush()
+        _audit(session, "playlist.youtube_created", "channel_playlist", playlist.id)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("YouTube播放列表ID与现有记录冲突") from exc
+    session.refresh(playlist)
+    return playlist
 
 
 def fetch_channel_upload_videos(
