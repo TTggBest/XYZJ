@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from zhiju.schemas.identity import ChannelRead
 from zhiju.schemas.operations import PlaylistRead
-from zhiju.schemas.settings import ChannelDramaTypeRead
+from zhiju.schemas.settings import ChannelDramaTypeRead, ChannelInitializationRuleRead
 
 
 class ChannelProfileUpsert(BaseModel):
@@ -67,6 +67,54 @@ class ChannelRelevantSkillRead(BaseModel):
     version_id: str | None
     version_number: int | None
     version_status: str | None
+
+
+class ChannelInitializationReadinessRead(BaseModel):
+    channel_id: str
+    can_initialize: bool
+    missing_inputs: list[str]
+    missing_rule_modules: list[str]
+    rules: list[ChannelInitializationRuleRead]
+
+
+class ChannelInitializationDraftUpsert(BaseModel):
+    description: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    avatar_prompt: str | None = None
+    banner_prompt: str | None = None
+    pinned_comment: str | None = None
+    title_template: str | None = None
+    popup_scheme: str | None = None
+    playlists: list[str] = Field(default_factory=list)
+    initial_audience: str | None = None
+    initial_analysis: str | None = None
+    operating_reference: str | None = None
+
+
+class ChannelInitializationDraftRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    channel_id: str
+    input_snapshot: dict[str, object]
+    output_draft: dict[str, object]
+    applied_report_id: str | None
+    applied_dna_version_id: str | None
+    applied_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChannelInitializationApplyRead(BaseModel):
+    channel_id: str
+    applied_modules: list[str]
+    retained_draft_modules: list[str]
+    created_keywords: int
+    created_pinned_comments: int
+    created_playlists: int
+    analysis_report_id: str | None
+    dna_version_id: str | None
 
 
 class ChannelKeywordCreate(BaseModel):
@@ -293,6 +341,7 @@ class ChannelDnaVersionCreate(BaseModel):
     primary_genre: str = Field(min_length=1, max_length=120)
     secondary_genre: str | None = Field(default=None, max_length=255)
     audience_summary: str | None = None
+    reference_summary: str | None = None
     age_tendency: str | None = Field(default=None, max_length=120)
     gender_tendency: str | None = Field(default=None, max_length=120)
     emotion_preference: str | None = None
@@ -318,6 +367,7 @@ class ChannelDnaVersionRead(BaseModel):
     primary_genre: str
     secondary_genre: str | None
     audience_summary: str | None
+    reference_summary: str | None
     age_tendency: str | None
     gender_tendency: str | None
     emotion_preference: str | None

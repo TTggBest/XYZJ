@@ -167,6 +167,17 @@ class PlaylistCreate(BaseModel):
     status: Literal["draft", "active", "paused", "archived"] = "draft"
 
 
+class PlaylistUpdate(BaseModel):
+    youtube_playlist_id: str | None = Field(default=None, max_length=80)
+    local_name: str | None = Field(default=None, min_length=1, max_length=255)
+    chinese_name: str | None = Field(default=None, max_length=255)
+    local_description: str | None = None
+    chinese_description: str | None = None
+    url: str | None = Field(default=None, max_length=1000)
+    sort_order: int | None = Field(default=None, ge=0)
+    status: Literal["draft", "active", "paused", "archived"] | None = None
+
+
 class PlaylistRead(PlaylistCreate):
     model_config = ConfigDict(from_attributes=True)
 
@@ -313,6 +324,7 @@ class ScheduleRead(BaseModel):
     id: str
     channel_id: str
     drama_id: str
+    channel_dna_version_id: str | None
     playlist_id: str | None
     publish_slot_id: str
     publish_date: date

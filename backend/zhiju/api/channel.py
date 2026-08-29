@@ -9,6 +9,10 @@ from zhiju.schemas.channel import (
     ChannelDnaVersionCreate,
     ChannelDnaVersionRead,
     ChannelHubUpdate,
+    ChannelInitializationDraftRead,
+    ChannelInitializationDraftUpsert,
+    ChannelInitializationApplyRead,
+    ChannelInitializationReadinessRead,
     ChannelKeywordCreate,
     ChannelKeywordRead,
     ChannelPinnedCommentTemplateCreate,
@@ -23,11 +27,14 @@ from zhiju.schemas.channel import (
 from zhiju.services.channel import (
     NotFoundError,
     add_keyword,
+    apply_channel_initialization_draft,
     activate_pinned_comment_template,
     create_pinned_comment_template,
     create_dna_version,
     create_report,
     get_channel_detail,
+    get_channel_initialization_draft,
+    get_channel_initialization_readiness,
     get_report_detail,
     get_media_asset,
     list_dna_versions,
@@ -38,8 +45,10 @@ from zhiju.services.channel import (
     update_media_asset_metadata,
     change_media_asset_status,
     delete_media_asset,
+    deactivate_keyword,
     upsert_profile,
     update_channel_hub,
+    upsert_channel_initialization_draft,
 )
 from zhiju.services.identity import ConflictError
 
@@ -58,6 +67,60 @@ def get_channel(channel_id: str, session: Session = Depends(get_db)) -> ChannelD
     try:
         return get_channel_detail(session, channel_id)
     except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get(
+    "/channels/{channel_id}/initialization-readiness",
+    response_model=ChannelInitializationReadinessRead,
+)
+def get_channel_initialization_status(
+    channel_id: str, session: Session = Depends(get_db)
+) -> ChannelInitializationReadinessRead:
+    try:
+        return get_channel_initialization_readiness(session, channel_id)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get(
+    "/channels/{channel_id}/initialization-draft",
+    response_model=ChannelInitializationDraftRead | None,
+)
+def get_channel_initialization_workspace(
+    channel_id: str, session: Session = Depends(get_db)
+) -> ChannelInitializationDraftRead | None:
+    try:
+        return get_channel_initialization_draft(session, channel_id)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.put(
+    "/channels/{channel_id}/initialization-draft",
+    response_model=ChannelInitializationDraftRead,
+)
+def put_channel_initialization_workspace(
+    channel_id: str,
+    payload: ChannelInitializationDraftUpsert,
+    session: Session = Depends(get_db),
+) -> ChannelInitializationDraftRead:
+    try:
+        return upsert_channel_initialization_draft(session, channel_id, payload)
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/channels/{channel_id}/initialization-draft/apply",
+    response_model=ChannelInitializationApplyRead,
+)
+def post_apply_channel_initialization_workspace(
+    channel_id: str, session: Session = Depends(get_db)
+) -> ChannelInitializationApplyRead:
+    try:
+        return apply_channel_initialization_draft(session, channel_id)
+    except (NotFoundError, ConflictError) as exc:
         raise _http_error(exc) from exc
 
 
@@ -94,6 +157,19 @@ def post_channel_keyword(
     try:
         return add_keyword(session, channel_id, payload)
     except (NotFoundError, ConflictError) as exc:
+        raise _http_error(exc) from exc
+
+
+@router.delete(
+    "/channels/{channel_id}/keywords/{keyword_id}",
+    response_model=ChannelKeywordRead,
+)
+def delete_channel_keyword(
+    channel_id: str, keyword_id: str, session: Session = Depends(get_db)
+) -> ChannelKeywordRead:
+    try:
+        return deactivate_keyword(session, channel_id, keyword_id)
+    except NotFoundError as exc:
         raise _http_error(exc) from exc
 
 

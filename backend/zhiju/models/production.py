@@ -124,6 +124,9 @@ class WorkOrder(IdMixin, TimestampMixin, Base):
     schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="RESTRICT"), comment="来源排期ID")
     channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
     drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="剧目内部ID")
+    channel_dna_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("channel_dna_versions.id", ondelete="SET NULL"), comment="工单继承的频道运营参考版本ID"
+    )
     publish_slot_id: Mapped[str | None] = mapped_column(ForeignKey("channel_publish_slots.id", ondelete="RESTRICT"), comment="发布时间档位ID")
     playlist_id: Mapped[str | None] = mapped_column(ForeignKey("channel_playlists.id", ondelete="SET NULL"), comment="计划播放列表ID")
     production_date: Mapped[date] = mapped_column(Date, nullable=False, comment="生产日期")

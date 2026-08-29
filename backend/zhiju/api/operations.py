@@ -23,6 +23,7 @@ from zhiju.schemas.operations import (
     LanguageRead,
     PlaylistCreate,
     PlaylistRead,
+    PlaylistUpdate,
     PublishSlotChannelOverview,
     PublishSlotCreate,
     PublishSlotRead,
@@ -65,6 +66,7 @@ from zhiju.services.operations import (
     select_schedule_candidate,
     replace_cadence_template,
     update_channel_cadence,
+    update_playlist,
     upsert_drama_translation,
     update_publish_slot,
 )
@@ -243,6 +245,22 @@ def get_playlists(channel_id: str, session: Session = Depends(get_db)) -> list[P
 def post_playlist(channel_id: str, payload: PlaylistCreate, session: Session = Depends(get_db)) -> PlaylistRead:
     try:
         return create_playlist(session, channel_id, payload)
+    except (NotFoundError, ConflictError) as exc:
+        raise _raise(exc) from exc
+
+
+@router.patch(
+    "/channels/{channel_id}/playlists/{playlist_id}",
+    response_model=PlaylistRead,
+)
+def patch_playlist(
+    channel_id: str,
+    playlist_id: str,
+    payload: PlaylistUpdate,
+    session: Session = Depends(get_db),
+) -> PlaylistRead:
+    try:
+        return update_playlist(session, channel_id, playlist_id, payload)
     except (NotFoundError, ConflictError) as exc:
         raise _raise(exc) from exc
 

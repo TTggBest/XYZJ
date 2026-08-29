@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from zhiju.models import (
     Channel,
     ChannelCommunitySlot,
+    ChannelDnaVersion,
     ChannelPlaylist,
     ChannelPublishSlot,
     ChannelScheduleEntry,
@@ -34,6 +35,7 @@ from zhiju.schemas.operations import (
     DramaTranslationUpsert,
     LanguageCreate,
     PlaylistCreate,
+    PlaylistUpdate,
     PublishSlotCreate,
     ScheduleCandidateCreate,
     ScheduleCreate,
@@ -412,6 +414,42 @@ def list_playlists(session: Session, channel_id: str) -> list[ChannelPlaylist]:
             .order_by(ChannelPlaylist.sort_order, ChannelPlaylist.created_at)
         )
     )
+
+
+def update_playlist(
+    session: Session,
+    channel_id: str,
+    playlist_id: str,
+    payload: PlaylistUpdate,
+) -> ChannelPlaylist:
+    _active_channel(session, channel_id, lock=True)
+    playlist = session.scalar(
+        select(ChannelPlaylist)
+        .where(
+            ChannelPlaylist.id == playlist_id,
+            ChannelPlaylist.channel_id == channel_id,
+            ChannelPlaylist.status != "deleted",
+        )
+        .with_for_update()
+    )
+    if playlist is None:
+        raise NotFoundError("播放列表不存在")
+    values = payload.model_dump(exclude_unset=True)
+    if values.get("url") and "youtube_playlist_id" not in values:
+        match = re.search(r"[?&]list=([^&]+)", values["url"])
+        if match:
+            values["youtube_playlist_id"] = match.group(1)
+    for field, value in values.items():
+        setattr(playlist, field, value)
+    try:
+        session.flush()
+        _audit(session, "playlist.updated", "channel_playlist", playlist.id)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise ConflictError("频道内播放列表名称或YouTube播放列表ID重复") from exc
+    session.refresh(playlist)
+    return playlist
 
 
 def create_publish_slot(session: Session, channel_id: str, payload: PublishSlotCreate) -> ChannelPublishSlot:
@@ -824,8 +862,17 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
     local_aware = datetime.combine(payload.publish_date, slot.local_time, tzinfo=local_zone)
     utc_aware = local_aware.astimezone(timezone.utc)
     beijing_aware = utc_aware.astimezone(ZoneInfo("Asia/Shanghai"))
+    dna_version = session.scalar(
+        select(ChannelDnaVersion)
+        .where(
+            ChannelDnaVersion.channel_id == channel_id,
+            ChannelDnaVersion.status == "active",
+        )
+        .order_by(ChannelDnaVersion.version_number.desc())
+    )
     schedule = ChannelScheduleEntry(
         channel_id=channel_id,
+        channel_dna_version_id=dna_version.id if dna_version else None,
         **payload.model_dump(),
         planned_local_time=local_aware.replace(tzinfo=None),
         planned_beijing_time=beijing_aware.replace(tzinfo=None),

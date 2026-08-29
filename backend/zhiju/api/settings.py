@@ -8,13 +8,46 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import can_switch_database_environment, database_router, get_db
 from zhiju.schemas.identity import DeviceRead, DeviceRegister
-from zhiju.schemas.settings import AppIconSettingRead, AppIconUpload, ChannelDramaTypeCreate, ChannelDramaTypeRead, ChannelDramaTypeUpdate, RuntimeEnvironmentUpdate, RuntimeOverview, RuntimePackageBuildRead
+from zhiju.schemas.settings import (
+    AppIconSettingRead,
+    AppIconUpload,
+    ChannelDramaTypeCreate,
+    ChannelDramaTypeRead,
+    ChannelDramaTypeUpdate,
+    ChannelInitializationRuleRead,
+    RuntimeEnvironmentUpdate,
+    RuntimeOverview,
+    RuntimePackageBuildRead,
+)
 from zhiju.services.identity import ConflictError
 from zhiju.services.identity import list_devices, register_device
-from zhiju.services.settings import build_runtime_package, create_channel_drama_type, get_app_icon_setting, get_current_runtime_package, list_channel_drama_types, list_runtime_packages, restore_default_app_icon, runtime_overview, stream_runtime_package, update_channel_drama_type, upload_app_icon
+from zhiju.services.settings import (
+    build_runtime_package,
+    create_channel_drama_type,
+    get_app_icon_setting,
+    get_current_runtime_package,
+    list_channel_drama_types,
+    list_channel_initialization_rules,
+    list_runtime_packages,
+    restore_default_app_icon,
+    runtime_overview,
+    stream_runtime_package,
+    update_channel_drama_type,
+    upload_app_icon,
+)
 
 
 router = APIRouter(prefix="/v3", tags=["settings"])
+
+
+@router.get(
+    "/settings/channel-initialization-rules",
+    response_model=list[ChannelInitializationRuleRead],
+)
+def get_channel_initialization_rules(
+    session: Session = Depends(get_db),
+) -> list[ChannelInitializationRuleRead]:
+    return list_channel_initialization_rules(session)
 
 
 @router.get("/settings/channel-drama-types", response_model=list[ChannelDramaTypeRead])

@@ -188,12 +188,25 @@ def dispatch_task(session: Session, task_id: str) -> dict[str, object]:
     if task.status != "pending_dispatch":
         raise ConflictError("只有待下发任务可以下发")
     now = datetime.now(timezone.utc)
+    schedule = session.get(ChannelScheduleEntry, task.schedule_id) if task.schedule_id else None
+    dna_version_id = schedule.channel_dna_version_id if schedule else None
+    if dna_version_id is None:
+        active_dna = session.scalar(
+            select(ChannelDnaVersion)
+            .where(
+                ChannelDnaVersion.channel_id == task.channel_id,
+                ChannelDnaVersion.status == "active",
+            )
+            .order_by(ChannelDnaVersion.version_number.desc())
+        )
+        dna_version_id = active_dna.id if active_dna else None
     work_order = WorkOrder(
         task_id=task.id,
         batch_id=task.batch_id,
         schedule_id=task.schedule_id,
         channel_id=task.channel_id,
         drama_id=task.drama_id,
+        channel_dna_version_id=dna_version_id,
         publish_slot_id=task.publish_slot_id,
         playlist_id=task.playlist_id,
         production_date=task.task_date,
@@ -203,18 +216,13 @@ def dispatch_task(session: Session, task_id: str) -> dict[str, object]:
     )
     session.add(work_order)
     session.flush()
-    dna_version = session.scalar(
-        select(ChannelDnaVersion)
-        .where(ChannelDnaVersion.channel_id == task.channel_id, ChannelDnaVersion.status == "active")
-        .order_by(ChannelDnaVersion.version_number.desc())
-    )
     package = OperationPackage(
         work_order_id=work_order.id,
         batch_id=task.batch_id,
         schedule_id=task.schedule_id,
         channel_id=task.channel_id,
         drama_id=task.drama_id,
-        channel_dna_version_id=dna_version.id if dna_version else None,
+        channel_dna_version_id=dna_version_id,
         version_number=1,
         status="building",
     )

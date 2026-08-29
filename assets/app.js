@@ -218,6 +218,30 @@
     const identity = `<div class="channel-hub-identity">${settingValue("频道名", channel.original_name)}${settingValue("YouTube Channel ID", channel.youtube_channel_id, true)}${settingValue("频道地址", channel.youtube_channel_url || "—", true)}</div>`;
     return `${identity}<form class="form-grid channel-hub-form" id="channelHubForm"><input type="hidden" name="channel_id" value="${esc(channel.id)}"><div class="field"><label>频道中文意思</label><input class="input" name="chinese_meaning" value="${esc(channel.chinese_meaning || "")}" maxlength="255"></div><div class="field"><label>初始题材</label><input class="input" name="default_genre" value="${esc(channel.default_genre || "")}" maxlength="120"></div><div class="field"><label>短剧类型</label><select class="select" name="drama_type"><option value="">暂未选择</option>${typeOptions}</select></div><div class="field field-wide"><label>频道说明</label><textarea class="textarea" name="description">${esc(profile.description || "")}</textarea></div><div class="field field-wide"><label>频道定位</label><textarea class="textarea" name="positioning">${esc(profile.positioning || "")}</textarea></div><div class="field field-wide"><label>头像出图词</label><textarea class="textarea" name="avatar_prompt">${esc(profile.avatar_prompt || "")}</textarea></div><div class="field field-wide"><label>横幅出图词</label><textarea class="textarea" name="banner_prompt">${esc(profile.banner_prompt || "")}</textarea></div><div class="field"><label>弹框方案</label><input class="input" name="popup_scheme" value="${esc(profile.popup_scheme || "")}" maxlength="120"></div><div class="field"><label>固定符号</label><input class="input" name="fixed_symbol" value="${esc(profile.fixed_symbol || "")}" maxlength="120"></div><div class="field field-wide"><label>标题模板</label><textarea class="textarea" name="title_template">${esc(profile.title_template || "")}</textarea></div><div class="form-actions"><button class="button button-primary" type="submit">${icon("save")} 保存频道资料</button></div></form>`;
   }
+  function channelInitializationReadiness(readiness) {
+    if (!readiness) return "";
+    const inputMessage = readiness.missing_inputs.length ? `缺少基础资料：${readiness.missing_inputs.join("、")}` : "基础资料已齐全";
+    const ruleMessage = readiness.missing_rule_modules.length ? `缺少已发布规则：${readiness.missing_rule_modules.join("、")}` : "初始化规则已齐全";
+    return `<div class="detail-block"><h3>初始化准备 ${readiness.can_initialize ? tag("ready") : tag("pending")}</h3><p>${readiness.can_initialize ? "当前可以初始化" : "当前资料尚未齐全，仍可先编辑初始化草稿"}</p><p class="settings-muted">${esc(inputMessage)}</p><p class="settings-muted">${esc(ruleMessage)}</p><div class="row-actions"><button class="button button-primary" data-action="edit-channel-initialization" data-id="${esc(readiness.channel_id)}">${icon("wand-sparkles")} 初始化工作台</button><button class="button button-secondary" data-action="apply-channel-initialization" data-id="${esc(readiness.channel_id)}">${icon("check")} 应用草稿</button></div></div>`;
+  }
+  function channelInitializationDraftForm(channelId, draft, detail) {
+    const output = draft?.output_draft || {};
+    const profile = detail?.profile || {};
+    const keywords = output.keywords || detail?.keywords?.filter(item => item.keyword_type === "keyword").map(item => item.keyword) || [];
+    const tags = output.tags || detail?.keywords?.filter(item => item.keyword_type === "tag").map(item => item.keyword) || [];
+    const value = (key, fallback = "") => output[key] ?? fallback ?? "";
+    return `<form class="form-grid" id="channelInitializationDraftForm"><input type="hidden" name="channel_id" value="${esc(channelId)}"><div class="field field-wide"><label>频道说明</label><textarea class="textarea" name="description">${esc(value("description", profile.description))}</textarea></div><div class="field field-wide"><label>关键词（逗号或换行分隔）</label><textarea class="textarea" name="keywords">${esc(keywords.join("、"))}</textarea></div><div class="field field-wide"><label>标签（逗号或换行分隔）</label><textarea class="textarea" name="tags">${esc(tags.join("、"))}</textarea></div><div class="field field-wide"><label>头像出图词</label><textarea class="textarea" name="avatar_prompt">${esc(value("avatar_prompt", profile.avatar_prompt))}</textarea></div><div class="field field-wide"><label>横幅出图词</label><textarea class="textarea" name="banner_prompt">${esc(value("banner_prompt", profile.banner_prompt))}</textarea></div><div class="field field-wide"><label>置顶评论</label><textarea class="textarea" name="pinned_comment">${esc(value("pinned_comment"))}</textarea></div><div class="field field-wide"><label>标题模板</label><textarea class="textarea" name="title_template">${esc(value("title_template", profile.title_template))}</textarea></div><div class="field"><label>弹框方案</label><input class="input" name="popup_scheme" value="${esc(value("popup_scheme", profile.popup_scheme))}"></div><div class="field field-wide"><label>三条播放列表草稿（每行一条）</label><textarea class="textarea" name="playlists">${esc((output.playlists || []).join("\n"))}</textarea></div><div class="field field-wide"><label>初始用户画像</label><textarea class="textarea" name="initial_audience">${esc(value("initial_audience"))}</textarea></div><div class="field field-wide"><label>初始分析报告</label><textarea class="textarea" name="initial_analysis">${esc(value("initial_analysis"))}</textarea></div><div class="field field-wide"><label>频道运营参考</label><textarea class="textarea" name="operating_reference">${esc(value("operating_reference"))}</textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("save")} 保存初始化草稿</button></div></form>`;
+  }
+  function channelKeywordForm(channel) {
+    return `<form class="form-grid" id="channelKeywordForm"><input type="hidden" name="channel_id" value="${esc(channel.id)}"><div class="field"><label>类型</label><select class="select" name="keyword_type"><option value="keyword">关键词</option><option value="tag">标签</option></select></div><div class="field"><label>语言</label><input class="input" name="language" value="${esc(channel.default_language || "zh-CN")}" required></div><div class="field field-wide"><label>内容</label><input class="input" name="keyword" required maxlength="255"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存词条</button></div></form>`;
+  }
+  function channelPinnedCommentForm(channel) {
+    return `<form class="form-grid" id="channelPinnedCommentForm"><input type="hidden" name="channel_id" value="${esc(channel.id)}"><div class="field"><label>语言</label><input class="input" name="language" value="${esc(channel.default_language || "zh-CN")}" required></div><div class="field"><label>保存后启用</label><select class="select" name="activate"><option value="false">仅保存草稿</option><option value="true">立即启用</option></select></div><div class="field field-wide"><label>置顶评论</label><textarea class="textarea" name="body" required></textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存置顶评论</button></div></form>`;
+  }
+  function channelPlaylistForm(channelId, playlist = null) {
+    const item = playlist || {};
+    return `<form class="form-grid" id="channelPlaylistForm"><input type="hidden" name="channel_id" value="${esc(channelId)}"><input type="hidden" name="playlist_id" value="${esc(item.id || "")}"><div class="field"><label>播放列表名称</label><input class="input" name="local_name" value="${esc(item.local_name || "")}" required maxlength="255"></div><div class="field"><label>中文名称</label><input class="input" name="chinese_name" value="${esc(item.chinese_name || "")}" maxlength="255"></div><div class="field field-wide"><label>YouTube 链接</label><input class="input mono" name="url" value="${esc(item.url || "")}" maxlength="1000"></div><div class="field field-wide"><label>目标语言说明</label><textarea class="textarea" name="local_description">${esc(item.local_description || "")}</textarea></div><div class="field field-wide"><label>中文说明</label><textarea class="textarea" name="chinese_description">${esc(item.chinese_description || "")}</textarea></div><div class="field"><label>排序</label><input class="input" type="number" name="sort_order" min="0" value="${Number(item.sort_order || 0)}"></div><div class="field"><label>状态</label><select class="select" name="status">${[["draft", "草稿"], ["active", "启用"], ["paused", "暂停"], ["archived", "归档"]].map(([value, text]) => `<option value="${value}" ${item.status === value ? "selected" : ""}>${text}</option>`).join("")}</select></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存播放列表</button></div></form>`;
+  }
   function channelDetailTabs(detail, tab) {
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
   }
@@ -246,15 +270,15 @@
   }
   function channelReferencePanel(detail) {
     const versions = detail.dna_versions || [];
-    const cards = versions.map(dna => `<article class="hub-report"><header><div><strong>运营参考 v${dna.version_number}</strong><span class="cell-sub">${esc(languageLabel(dna.language))} · ${fmtUtc(dna.created_at)}</span></div>${tag(dna.status)}</header><div class="detail-grid">${settingValue("主题材", dna.primary_genre)}${settingValue("辅题材", dna.secondary_genre || "—")}${settingValue("年龄倾向", dna.age_tendency || "—")}${settingValue("性别倾向", dna.gender_tendency || "—")}</div>${[["用户画像", dna.audience_summary], ["情绪偏好", dna.emotion_preference], ["剧情偏好", dna.plot_preference], ["角色偏好", dna.character_preference], ["冲突偏好", dna.conflict_preference], ["标题风格", dna.title_style], ["封面风格", dna.cover_style], ["社群风格", dna.community_style], ["内容节奏", dna.content_pace]].map(([title, value]) => value ? `<div class="detail-block"><h3>${title}</h3><p>${esc(value)}</p></div>` : "").join("")}${(dna.signals || []).length ? `<div class="detail-block"><h3>高低表现信号</h3>${reportList(dna.signals, "")}</div>` : ""}</article>`).join("");
+    const cards = versions.map(dna => `<article class="hub-report"><header><div><strong>运营参考 v${dna.version_number}</strong><span class="cell-sub">${esc(languageLabel(dna.language))} · ${fmtUtc(dna.created_at)}</span></div>${tag(dna.status)}</header><div class="detail-grid">${settingValue("主题材", dna.primary_genre)}${settingValue("辅题材", dna.secondary_genre || "—")}${settingValue("年龄倾向", dna.age_tendency || "—")}${settingValue("性别倾向", dna.gender_tendency || "—")}</div>${[["运营包参考", dna.reference_summary], ["用户画像", dna.audience_summary], ["情绪偏好", dna.emotion_preference], ["剧情偏好", dna.plot_preference], ["角色偏好", dna.character_preference], ["冲突偏好", dna.conflict_preference], ["标题风格", dna.title_style], ["封面风格", dna.cover_style], ["社群风格", dna.community_style], ["内容节奏", dna.content_pace]].map(([title, value]) => value ? `<div class="detail-block"><h3>${title}</h3><p>${esc(value)}</p></div>` : "").join("")}${(dna.signals || []).length ? `<div class="detail-block"><h3>高低表现信号</h3>${reportList(dna.signals, "")}</div>` : ""}</article>`).join("");
     return `<div class="detail-block"><h3>运营参考历史版本</h3>${cards || `<div class="hub-empty-note">尚无频道运营参考版本。</div>`}</div>`;
   }
   function channelDetailBody(detail, tab = "basic") {
     let body = "";
     if (tab === "operations") {
-      const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong>${tag(item.status)}</header><p>${esc(item.body)}</p></article>`).join("");
-      const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong>${tag(item.status)}</header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
-      body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><h3>置顶评论</h3>${comments || `<p class="settings-muted">待完善</p>`}</section><section><h3>播放列表</h3>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
+      const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong><div class="row-actions">${tag(item.status)}${item.status !== "active" ? `<button class="button button-quiet button-small" data-action="activate-pinned-comment" data-id="${item.id}" data-channel-id="${detail.channel.id}">启用</button>` : ""}</div></header><p>${esc(item.body)}</p></article>`).join("");
+      const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}${!item.youtube_playlist_id ? `<button class="button button-secondary button-small" data-action="create-youtube-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">创建到 YouTube</button>` : ""}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
+      body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><header class="settings-content-head"><h3>置顶评论</h3><button class="button button-secondary button-small" data-action="add-pinned-comment" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${comments || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>播放列表</h3><button class="button button-secondary button-small" data-action="add-channel-playlist" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
       body = channelAnalysisPanel(detail);
     } else if (tab === "reference") {
@@ -264,15 +288,16 @@
       const assets = detail.branding_assets.map(item => `<article class="hub-record"><header><strong>${item.role === "avatar" ? "频道头像" : item.role === "banner" ? "频道横幅" : esc(item.role)}</strong>${tag(item.status)}</header><p class="mono">素材 ${esc(item.asset_id)}</p></article>`).join("");
       body = `<div class="hub-columns"><section><h3>模块规则版本</h3>${skills || `<p class="settings-muted">尚未配置频道相关 Skill</p>`}</section><section><h3>装修资源版本</h3>${assets || `<p class="settings-muted">尚无装修资源历史</p>`}</section></div>`;
     } else {
-      const keywords = detail.keywords.filter(item => item.keyword_type === "keyword").map(item => item.keyword).join("、");
-      const tags = detail.keywords.filter(item => item.keyword_type === "tag").map(item => item.keyword).join("、");
-      body = `${channelHubForm(detail)}<div class="hub-columns"><section><h3>关键词</h3><p>${esc(keywords || "待完善")}</p></section><section><h3>标签</h3><p>${esc(tags || "待完善")}</p></section></div>`;
+      const keywordCards = type => detail.keywords.filter(item => item.keyword_type === type).map(item => `<article class="hub-record"><header><strong>${esc(item.keyword)}</strong><button class="button button-quiet button-small" data-action="delete-channel-keyword" data-id="${item.id}" data-channel-id="${detail.channel.id}">移除</button></header><span class="cell-sub">${esc(item.language)} · ${esc(item.source)}</span></article>`).join("");
+      body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><header class="settings-content-head"><h3>关键词</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("keyword") || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>标签</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("tag") || `<p class="settings-muted">待完善</p>`}</section></div>`;
     }
     return `<div class="channel-hub">${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
   }
   async function showChannelDetail(id, tab = "basic") {
     const detail = state.channelDetailId === id && state.channelDetail ? state.channelDetail : await api(`/channels/${id}`);
-    if (tab === "analysis") {
+    if (tab === "basic") {
+      detail.initialization_readiness = await api(`/channels/${id}/initialization-readiness`);
+    } else if (tab === "analysis") {
       const analysis = await loadChannelAnalysisCenter(id);
       detail.analysis_reports = analysis.reports;
       detail.channel_metrics = analysis.metrics;
@@ -609,10 +634,14 @@
     root.innerHTML = `<div class="page-stack">${section("Skills 管理", "业务规则正文与版本均存储在数据库；不直接读取外部工作流文件", rows.length ? table(["Skill", "分类", "用途", "状态", "更新时间", ""], rows, 900) : empty("还没有 Skills", "创建 Skill 后再维护中英文版本与发布状态。", "add-skill", "新建 Skill"), `<button class="button button-primary" data-action="add-skill">${icon("plus")} 新建 Skill</button>`)}</div>`;
   }
   function skillForm() { return `<form class="form-grid" id="skillForm"><div class="field"><label>代码</label><input class="input mono" name="code" pattern="[a-z0-9][a-z0-9_-]*" required placeholder="xy-title"></div><div class="field"><label>名称</label><input class="input" name="name" required></div><div class="field"><label>分类</label><input class="input" name="category" required placeholder="production"></div><div class="field"><label>状态</label><select class="select" name="status"><option value="active">启用</option><option value="disabled">停用</option></select></div><div class="field field-wide"><label>用途</label><textarea class="textarea" name="purpose" required></textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">创建 Skill</button></div></form>`; }
+  function skillVersionForm(skillId, version = {}) {
+    return `<form class="form-grid" id="skillVersionForm"><input type="hidden" name="skill_id" value="${esc(skillId)}"><input type="hidden" name="version_id" value="${esc(version.id || "")}"><div class="field field-wide"><label>中文正文</label><textarea class="textarea code-preview" name="body_zh_cn" required>${esc(version.body_zh_cn || "")}</textarea></div><div class="field field-wide"><label>正式执行原文</label><textarea class="textarea code-preview" name="body_original" required>${esc(version.body_original || "")}</textarea></div><div class="field field-wide"><label>变更说明</label><textarea class="textarea" name="change_summary">${esc(version.change_summary || "")}</textarea></div><div class="field field-wide"><label>创建人</label><input class="input" name="created_by" value="${esc(version.created_by || "")}" maxlength="120"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存草稿</button></div></form>`;
+  }
   async function skillDetail(id) {
     const skill = await api(`/skills/${id}`), versions = await api(`/skills/${id}/versions`);
     const current = skill.current_version;
-    openDrawer(skill.name, `<div class="detail-grid"><div class="detail-item"><span>代码</span><strong class="mono">${esc(skill.code)}</strong></div><div class="detail-item"><span>状态</span><strong>${tag(skill.status)}</strong></div><div class="detail-item"><span>分类</span><strong>${esc(skill.category)}</strong></div><div class="detail-item"><span>版本数量</span><strong>${versions.length}</strong></div></div><div class="detail-block"><h3>当前中文正文</h3><pre class="code-preview">${esc(current?.body_zh_cn || "尚未发布版本")}</pre></div><div class="detail-block"><h3>当前原文</h3><pre class="code-preview">${esc(current?.body_original || "尚未发布版本")}</pre></div>`);
+    const versionRows = versions.map(version => `<article class="hub-record"><header><div><strong>v${version.version_number}</strong><span class="cell-sub">${fmtUtc(version.created_at)}</span></div>${tag(version.status)}</header><p>${esc(version.change_summary || "未填写变更说明")}</p>${version.status === "draft" ? `<div class="row-actions"><button class="button button-secondary button-small" data-action="edit-skill-version" data-skill-id="${esc(id)}" data-id="${esc(version.id)}">编辑草稿</button><button class="button button-primary button-small" data-action="publish-skill-version" data-skill-id="${esc(id)}" data-id="${esc(version.id)}">发布版本</button></div>` : ""}</article>`).join("");
+    openDrawer(skill.name, `<div class="detail-grid"><div class="detail-item"><span>代码</span><strong class="mono">${esc(skill.code)}</strong></div><div class="detail-item"><span>状态</span><strong>${tag(skill.status)}</strong></div><div class="detail-item"><span>分类</span><strong>${esc(skill.category)}</strong></div><div class="detail-item"><span>版本数量</span><strong>${versions.length}</strong></div></div><div class="detail-block"><h3>当前中文正文</h3><pre class="code-preview">${esc(current?.body_zh_cn || "尚未发布版本")}</pre></div><div class="detail-block"><h3>当前原文</h3><pre class="code-preview">${esc(current?.body_original || "尚未发布版本")}</pre></div><div class="detail-block"><header class="settings-subhead"><h3>版本历史</h3><button class="button button-primary button-small" data-action="add-skill-version" data-skill-id="${esc(id)}">${icon("plus")} 新建版本</button></header>${versionRows || `<p class="settings-muted">尚未创建版本</p>`}</div>`);
   }
 
   async function showLogs() {
@@ -625,7 +654,7 @@
     return items.length ? table(type === "status" ? ["时间", "实体", "实体 ID", "新状态", "原因", "执行者"] : ["时间", "动作", "实体", "实体 ID", "变更摘要", "执行者"], rows, 900) : empty("暂无日志", "数据库中尚无对应记录。");
   }
 
-  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["channelInitialization", "初始化规则", "wand-sparkles"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
     return `<div class="settings-layout"><aside class="settings-tabs">${tabs}</aside><div class="settings-content">${body}</div></div>`;
@@ -657,6 +686,11 @@
       state.channelDramaTypes = items;
       const rows = items.map(item => `<tr><td><span class="cell-main">${esc(item.name)}</span><span class="cell-sub mono">${esc(item.code)}</span></td><td>${esc(item.description || "—")}</td><td>${item.sort_order}</td><td>${tag(item.status)}</td><td><button class="button button-secondary button-small" data-action="edit-channel-drama-type" data-id="${item.id}">编辑</button></td></tr>`);
       body = `<header class="settings-content-head"><div><h2>频道短剧类型</h2><p>维护频道可选择的男频、女频、AI 等运营类型；停用不会删除频道已有数据。</p></div><button class="button button-primary" data-action="add-channel-drama-type">${icon("plus")} 新增类型</button></header>${items.length ? table(["类型", "说明", "排序", "状态", ""], rows, 760) : empty("还没有短剧类型", "新增后可在频道详情中选择。", "add-channel-drama-type", "新增类型")}`;
+    } else if (state.settingsTab === "channelInitialization") {
+      const rules = await api("/settings/channel-initialization-rules");
+      const rows = rules.map(item => `<tr><td><span class="cell-main">${esc(item.module_name)}</span><span class="cell-sub mono">${esc(item.module_key)}</span></td><td>${esc(item.output_description)}</td><td class="mono">${esc(item.skill_code)}</td><td>${item.current_version_number ? `v${item.current_version_number}` : "—"}</td><td>${item.readiness === "ready" ? tag("ready") : item.readiness === "missing_skill" ? tag("missing") : tag("draft")}</td></tr>`);
+      const ready = rules.filter(item => item.readiness === "ready").length;
+      body = `<header class="settings-content-head"><div><h2>频道初始化规则</h2><p>初始化生成只使用当前已发布版本；模板正文与版本在 Skills 中维护。</p></div><button class="button button-primary" data-action="go-skills">${icon("arrow-right")} 进入 Skills</button></header><div class="setting-grid">${settingValue("模块总数", rules.length)}${settingValue("已就绪", ready)}${settingValue("待配置", rules.length - ready)}</div>${table(["初始化模块", "输出内容", "Skill 代码", "当前版本", "状态"], rows, 900)}`;
     } else if (state.settingsTab === "images") {
       const workspace = await api("/settings/image-workspace");
       body = `<header class="settings-content-head"><div><h2>图片目录</h2><p>相对路径以当前设备 ZHJ_SHARED_ROOT 为根；绝对路径只用于本机独立目录。</p></div></header><form id="imageWorkspaceForm" class="workspace-settings-form"><div class="field"><label>根目录</label><input class="input mono" name="root_path" value="${esc(workspace?.root_path || "images")}" required maxlength="1000"></div><button class="button button-primary" type="submit">${icon("save")} 保存目录</button></form>${workspace ? `<div class="setting-grid">${settingValue("当前设备解析路径", workspace.resolved_root, true)}${settingValue("系统素材（不随产物清理）", workspace.persistent_root, true)}${settingValue("用户产物（可重新生成）", workspace.output_root, true)}</div>` : ""}`;
@@ -872,6 +906,19 @@
         await showDramaDetail(id, "languages");
       }
       else if (action === "add-skill") openModal("新建 Skill", skillForm());
+      else if (action === "add-skill-version") openModal("新建 Skill 版本", skillVersionForm(button.dataset.skillId));
+      else if (action === "edit-skill-version") {
+        const skillId = button.dataset.skillId;
+        const version = await api(`/skills/${skillId}/versions/${id}`);
+        openModal(`编辑 Skill v${version.version_number}`, skillVersionForm(skillId, version));
+      }
+      else if (action === "publish-skill-version") {
+        const skillId = button.dataset.skillId, versionId = id;
+        if (!window.confirm("确认发布这个 Skill 版本？\n\n发布后正文不可覆盖，后续修改需要创建新版本。")) return;
+        await api(`/skills/${skillId}/versions/${versionId}/publish`, { method: "POST" });
+        notify("Skill 版本已发布"); await skillDetail(skillId);
+      }
+      else if (action === "go-skills") await loadView("skills");
       else if (action === "add-channel-drama-type") openModal("新增短剧类型", channelDramaTypeForm());
       else if (action === "edit-channel-drama-type") {
         const item = state.channelDramaTypes.find(candidate => candidate.id === id);
@@ -958,6 +1005,39 @@
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "channel-detail-tab") await showChannelDetail(id, button.dataset.channelDetailTab);
+      else if (action === "edit-channel-initialization") {
+        const draft = await api(`/channels/${id}/initialization-draft`);
+        openModal("频道初始化工作台", channelInitializationDraftForm(id, draft, state.channelDetail));
+      }
+      else if (action === "apply-channel-initialization") {
+        if (!window.confirm("确认把初始化草稿应用到正式频道配置？已有同名关键词、标签和播放列表不会重复创建。")) return;
+        const result = await api(`/channels/${id}/initialization-draft/apply`, { method: "POST" });
+        notify(`已应用 ${result.applied_modules.length} 个模块；新增词条 ${result.created_keywords}、置顶评论 ${result.created_pinned_comments}、播放列表 ${result.created_playlists}`);
+        state.channelDetail = null;
+        await showChannelDetail(id, "basic");
+      }
+      else if (action === "add-channel-keyword") openModal("新增关键词或标签", channelKeywordForm(state.channelDetail.channel));
+      else if (action === "delete-channel-keyword") {
+        if (!window.confirm("确认从当前频道移除此关键词或标签？")) return;
+        await api(`/channels/${button.dataset.channelId}/keywords/${id}`, { method: "DELETE" });
+        state.channelDetail = null; await showChannelDetail(button.dataset.channelId, "basic");
+      }
+      else if (action === "add-pinned-comment") openModal("新增置顶评论", channelPinnedCommentForm(state.channelDetail.channel));
+      else if (action === "activate-pinned-comment") {
+        await api(`/channels/${button.dataset.channelId}/pinned-comment-templates/${id}/activate`, { method: "POST" });
+        state.channelDetail = null; await showChannelDetail(button.dataset.channelId, "operations");
+      }
+      else if (action === "add-channel-playlist") openModal("新增播放列表", channelPlaylistForm(id));
+      else if (action === "edit-channel-playlist") {
+        const playlist = state.channelDetail.playlists.find(item => item.id === id);
+        if (playlist) openModal("编辑播放列表", channelPlaylistForm(button.dataset.channelId, playlist));
+      }
+      else if (action === "create-youtube-playlist") {
+        if (!window.confirm("确认在当前授权的 YouTube 频道创建这个播放列表？")) return;
+        await api(`/channels/${button.dataset.channelId}/playlists/${id}/create-youtube`, { method: "POST" });
+        notify("已创建 YouTube 播放列表并回填链接");
+        state.channelDetail = null; await showChannelDetail(button.dataset.channelId, "operations");
+      }
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
@@ -1032,6 +1112,33 @@
         state.channelDetail = await api(`/channels/${channelId}/hub`, { method: "PUT", body: JSON.stringify(data) });
         notify("频道资料已保存"); await showChannelDetail(channelId, state.channelDetailTab);
       }
+      if (form.id === "channelInitializationDraftForm") {
+        const channelId = data.channel_id; delete data.channel_id;
+        const splitList = value => value.split(/[，,\n]/).map(item => item.trim()).filter(Boolean);
+        data.keywords = splitList(data.keywords);
+        data.tags = splitList(data.tags);
+        data.playlists = data.playlists.split(/\n/).map(item => item.trim()).filter(Boolean);
+        for (const key of ["description", "avatar_prompt", "banner_prompt", "pinned_comment", "title_template", "popup_scheme", "initial_audience", "initial_analysis", "operating_reference"]) data[key] = data[key].trim() || null;
+        await api(`/channels/${channelId}/initialization-draft`, { method: "PUT", body: JSON.stringify(data) });
+        notify("频道初始化草稿已保存"); closeModal();
+      }
+      if (form.id === "channelKeywordForm") {
+        const channelId = data.channel_id; delete data.channel_id;
+        await api(`/channels/${channelId}/keywords`, { method: "POST", body: JSON.stringify({ ...data, weight: 0.5, source: "manual" }) });
+        notify("频道词条已保存"); closeModal(); state.channelDetail = null; await showChannelDetail(channelId, "basic");
+      }
+      if (form.id === "channelPinnedCommentForm") {
+        const channelId = data.channel_id; delete data.channel_id; data.activate = data.activate === "true";
+        await api(`/channels/${channelId}/pinned-comment-templates`, { method: "POST", body: JSON.stringify(data) });
+        notify("置顶评论已保存"); closeModal(); state.channelDetail = null; await showChannelDetail(channelId, "operations");
+      }
+      if (form.id === "channelPlaylistForm") {
+        const channelId = data.channel_id, playlistId = data.playlist_id; delete data.channel_id; delete data.playlist_id;
+        data.sort_order = Number(data.sort_order);
+        for (const key of ["chinese_name", "url", "local_description", "chinese_description"]) data[key] = data[key].trim() || null;
+        await api(playlistId ? `/channels/${channelId}/playlists/${playlistId}` : `/channels/${channelId}/playlists`, { method: playlistId ? "PATCH" : "POST", body: JSON.stringify(data) });
+        notify("播放列表已保存"); closeModal(); state.channelDetail = null; await showChannelDetail(channelId, "operations");
+      }
       if (form.id === "channelLogoForm") {
         const payload = new FormData();
         payload.append("left_logo", form.elements.left_logo.files[0]);
@@ -1088,6 +1195,12 @@
         if (state.view === "dramaProgress") await loadView("dramaProgress", { preservePosition: true });
       }
       if (form.id === "skillForm") { await api("/skills", { method: "POST", body: JSON.stringify(data) }); notify("Skill 已创建"); closeModal(); await loadView("skills"); }
+      if (form.id === "skillVersionForm") {
+        const skillId = data.skill_id, versionId = data.version_id; delete data.skill_id; delete data.version_id;
+        data.change_summary = data.change_summary.trim() || null; data.created_by = data.created_by.trim() || null;
+        await api(versionId ? `/skills/${skillId}/versions/${versionId}` : `/skills/${skillId}/versions`, { method: versionId ? "PUT" : "POST", body: JSON.stringify(data) });
+        notify(versionId ? "Skill 草稿已更新" : "Skill 版本草稿已创建"); closeModal(); await skillDetail(skillId);
+      }
       if (form.id === "scheduleForm") { const channelId = data.channel_id; delete data.channel_id; data.community_count = Number(data.community_count); data.priority = Number(data.priority); if (!data.playlist_id) data.playlist_id = null; data.idempotency_key = idempotency("schedule", channelId, data.drama_id, data.publish_date); await api(`/channels/${channelId}/schedules`, { method: "POST", body: JSON.stringify(data) }); notify("排期已保存"); closeModal(); state.date = data.publish_date; state.scheduleChannelId = channelId; await loadView("schedules"); }
       if (form.id === "publishSlotForm") { const channelId = data.channel_id, slotId = data.publish_slot_id; delete data.channel_id; delete data.publish_slot_id; data.slot_number = Number(data.slot_number); const path = slotId ? `/channels/${channelId}/publish-slots/${slotId}` : `/channels/${channelId}/publish-slots`; await api(path, { method: slotId ? "PATCH" : "POST", body: JSON.stringify(data) }); notify("频道档期已保存"); closeModal(); await loadView("publishSlots"); }
       if (form.id === "integrationForm") { data.status = "active"; await api("/integrations", { method: "POST", body: JSON.stringify(data) }); notify("第三方服务已保存"); closeModal(); await loadView("settings"); }

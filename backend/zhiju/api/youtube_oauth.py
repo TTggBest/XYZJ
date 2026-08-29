@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from zhiju.config import APP_ROOT, get_settings
 from zhiju.database import get_db
 from zhiju.models.identity import Channel
+from zhiju.schemas.operations import PlaylistRead
 from zhiju.schemas.youtube_oauth import (
     YouTubeAuthorizationStart,
     YouTubeOAuthClientStatus,
@@ -16,7 +17,10 @@ from zhiju.schemas.youtube_oauth import (
 )
 from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError
-from zhiju.services.youtube_channel_sync import sync_authorized_channel_videos
+from zhiju.services.youtube_channel_sync import (
+    create_authorized_channel_playlist,
+    sync_authorized_channel_videos,
+)
 from zhiju.services.youtube_oauth import (
     MacOSKeychainSecretStore,
     OAuthCallbackRelay,
@@ -127,6 +131,31 @@ def post_sync_youtube_channel_videos(
                 MacOSKeychainSecretStore(),
                 channel_id=channel_id,
             )
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ConflictError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
+    "/channels/{channel_id}/playlists/{playlist_id}/create-youtube",
+    response_model=PlaylistRead,
+)
+def post_create_youtube_playlist(
+    channel_id: str,
+    playlist_id: str,
+    session: Session = Depends(get_db),
+) -> PlaylistRead:
+    settings = get_settings()
+    if settings.device_role != "builder":
+        raise HTTPException(status_code=403, detail="仅代码机可以创建YouTube播放列表")
+    try:
+        return create_authorized_channel_playlist(
+            session,
+            MacOSKeychainSecretStore(),
+            channel_id=channel_id,
+            playlist_id=playlist_id,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
