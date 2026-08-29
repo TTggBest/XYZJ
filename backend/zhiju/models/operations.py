@@ -271,6 +271,9 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
 
     channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
     drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="剧目内部ID")
+    channel_dna_version_id: Mapped[str | None] = mapped_column(
+        ForeignKey("channel_dna_versions.id", ondelete="SET NULL"), comment="创建排期时采用的频道运营参考版本ID"
+    )
     playlist_id: Mapped[str | None] = mapped_column(ForeignKey("channel_playlists.id", ondelete="SET NULL"), comment="计划加入的播放列表ID")
     publish_slot_id: Mapped[str] = mapped_column(ForeignKey("channel_publish_slots.id", ondelete="RESTRICT"), nullable=False, comment="发布时间档位ID")
     publish_date: Mapped[date] = mapped_column(Date, nullable=False, comment="频道当地发布日期")

@@ -324,6 +324,7 @@ class ScheduleRead(BaseModel):
     id: str
     channel_id: str
     drama_id: str
+    channel_dna_version_id: str | None
     playlist_id: str | None
     publish_slot_id: str
     publish_date: date

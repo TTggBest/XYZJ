@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from zhiju.models import (
     Channel,
     ChannelCommunitySlot,
+    ChannelDnaVersion,
     ChannelPlaylist,
     ChannelPublishSlot,
     ChannelScheduleEntry,
@@ -861,8 +862,17 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
     local_aware = datetime.combine(payload.publish_date, slot.local_time, tzinfo=local_zone)
     utc_aware = local_aware.astimezone(timezone.utc)
     beijing_aware = utc_aware.astimezone(ZoneInfo("Asia/Shanghai"))
+    dna_version = session.scalar(
+        select(ChannelDnaVersion)
+        .where(
+            ChannelDnaVersion.channel_id == channel_id,
+            ChannelDnaVersion.status == "active",
+        )
+        .order_by(ChannelDnaVersion.version_number.desc())
+    )
     schedule = ChannelScheduleEntry(
         channel_id=channel_id,
+        channel_dna_version_id=dna_version.id if dna_version else None,
         **payload.model_dump(),
         planned_local_time=local_aware.replace(tzinfo=None),
         planned_beijing_time=beijing_aware.replace(tzinfo=None),
