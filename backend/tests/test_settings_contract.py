@@ -1,5 +1,8 @@
 import io
+import os
+import subprocess
 import tarfile
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -105,17 +108,40 @@ def test_launchers_wait_for_process_exit_and_force_stuck_sse_shutdown() -> None:
     assert 'set URL of browserTab to targetURL' in browser_opener
 
 
-def test_code_machine_desktop_app_only_starts_clean_dev_commit() -> None:
-    from pathlib import Path
+def test_code_machine_launcher_allows_feature_branch_and_worktree_changes(tmp_path: Path) -> None:
+    launcher = Path(__file__).resolve().parents[2] / "start-dev.command"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    commands = {
+        "git": """#!/bin/sh
+case "$1 $2" in
+  "branch --show-current") echo feature/test-launch ;;
+  "status --porcelain") echo ' M backend/example.py' ;;
+  "rev-parse --short=12") echo abcdef123456 ;;
+esac
+""",
+        "curl": "#!/bin/sh\nexit 1\n",
+        "lsof": "#!/bin/sh\nexit 0\n",
+    }
+    for name, body in commands.items():
+        path = fake_bin / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
 
-    launcher = (Path(__file__).resolve().parents[2] / "start-dev.command").read_text(encoding="utf-8")
+    result = subprocess.run(
+        ["/bin/bash", str(launcher)],
+        input="",
+        text=True,
+        capture_output=True,
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        timeout=10,
+        check=False,
+    )
 
-    assert 'CURRENT_BRANCH="$(git branch --show-current)"' in launcher
-    assert '[[ "$CURRENT_BRANCH" != "dev" ]]' in launcher
-    assert 'git status --porcelain' in launcher
-    assert 'DEV_COMMIT="$(git rev-parse --short=12 HEAD)"' in launcher
-    assert 'BROWSER_URL="${URL}?dev_commit=${DEV_COMMIT}"' in launcher
-    assert 'open_app_url.sh" "$BROWSER_URL" "$URL"' in launcher
+    assert "代码分支：feature/test-launch" in result.stdout
+    assert "只能从 dev 分支启动" not in result.stdout
+    assert "工作区存在未提交变更" not in result.stdout
+    assert "端口 19732 已被其他程序占用" in result.stdout
 
 
 def test_system_timestamps_are_rendered_in_beijing_time() -> None:

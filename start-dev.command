@@ -10,25 +10,13 @@ cd "$ROOT"
 printf '\033]0;筱宇智矩 - 19732\007'
 
 CURRENT_BRANCH="$(git branch --show-current)"
-if [[ "$CURRENT_BRANCH" != "dev" ]]; then
-  echo "[启动失败] 代码机桌面应用只能从 dev 分支启动，当前分支：${CURRENT_BRANCH:-未知}"
-  read -r -n 1 -s -p "按任意键关闭窗口..."
-  exit 1
-fi
-
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "[启动失败] dev 工作区存在未提交变更，不是已合并的固定代码。"
-  echo "请先处理 Git 变更后重新启动。"
-  read -r -n 1 -s -p "按任意键关闭窗口..."
-  exit 1
-fi
-
 DEV_COMMIT="$(git rev-parse --short=12 HEAD)"
 BROWSER_URL="${URL}?dev_commit=${DEV_COMMIT}"
 
 echo "[筱宇智矩] 项目目录：$ROOT"
 echo "[筱宇智矩] Web 地址：$URL"
-echo "[筱宇智矩] Dev 提交：$DEV_COMMIT"
+echo "[筱宇智矩] 代码分支：${CURRENT_BRANCH:-未知}"
+echo "[筱宇智矩] 代码提交：$DEV_COMMIT"
 
 if curl -fsS --max-time 2 "$HEALTH_URL" 2>/dev/null | grep -q '筱宇智矩'; then
   OLD_PID="$(lsof -tiTCP:19732 -sTCP:LISTEN | head -n 1)"
