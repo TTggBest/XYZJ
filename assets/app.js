@@ -221,6 +221,34 @@
   function channelDetailTabs(detail, tab) {
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
   }
+  async function loadChannelAnalysisCenter(channelId) {
+    const [reports, metrics] = await Promise.all([
+      api(`/channels/${channelId}/analysis-reports`),
+      api(`/youtube/channel-daily-metrics${query({ channel_id: channelId })}`)
+    ]);
+    return { reports, metrics };
+  }
+  async function loadChannelReferenceVersions(channelId) {
+    return api(`/channels/${channelId}/dna-versions`);
+  }
+  function reportTypeLabel(value) {
+    return value === "initial" ? "初始化运营假设" : value === "periodic" ? "真实数据周期报告" : value === "incident" ? "专项分析" : "人工分析报告";
+  }
+  function reportList(items, emptyText) {
+    return items.length ? `<div class="hub-record-list">${items.map(item => `<article class="hub-record"><header><strong>${esc(item.segment_value || item.topic || item.keyword || item.recommendation || item.value)}</strong>${item.score != null ? `<span>${Math.round(Number(item.score) * 100)}%</span>` : ""}</header>${item.summary || item.evidence_summary || item.rationale ? `<p>${esc(item.summary || item.evidence_summary || item.rationale)}</p>` : ""}</article>`).join("")}</div>` : `<p class="settings-muted">${esc(emptyText)}</p>`;
+  }
+  function channelAnalysisPanel(detail) {
+    const reports = detail.analysis_reports || [];
+    const metrics = (detail.channel_metrics || []).slice(0, 14);
+    const metricRows = metrics.map(item => `<tr><td>${fmt(item.metric_date, true)}</td><td>${Number(item.views || 0).toLocaleString()}</td><td>${Math.round(Number(item.watch_time_minutes || 0)).toLocaleString()}</td><td>+${Number(item.subscribers_gained || 0).toLocaleString()} / -${Number(item.subscribers_lost || 0).toLocaleString()}</td><td>${item.ctr == null ? "—" : `${(Number(item.ctr) * 100).toFixed(2)}%`}</td></tr>`);
+    const reportCards = reports.map(item => `<article class="hub-report"><header><div><strong>${reportTypeLabel(item.report_type)} · v${item.version_number}</strong><span class="cell-sub">${fmtUtc(item.created_at)}</span></div>${tag(item.status)}</header><div class="detail-block"><h3>报告摘要</h3><p>${esc(item.summary || "尚无摘要")}</p></div>${item.recommendations ? `<div class="detail-block"><h3>总体建议</h3><p>${esc(item.recommendations)}</p></div>` : ""}<div class="hub-columns"><section><h3>用户画像</h3>${reportList(item.audience_profiles || [], "尚无结构化用户画像")}</section><section><h3>题材与关键词</h3>${reportList([...(item.topic_scores || []), ...(item.keyword_scores || [])], "尚无题材和关键词结论")}</section></div><div class="detail-block"><h3>策略建议</h3>${reportList(item.strategy_recommendations || [], "尚无结构化策略建议")}</div></article>`).join("");
+    return `<div class="detail-block"><h3>频道日数据</h3>${metricRows.length ? table(["日期", "播放量", "观看分钟", "订阅增减", "点击率"], metricRows, 680) : `<div class="hub-empty-note">尚无频道日数据。</div>`}</div><div class="detail-block"><h3>分析报告</h3>${reportCards || `<div class="hub-empty-note">尚无分析报告。初始化推测与真实数据报告将在后续生成阶段分别建立。</div>`}</div>`;
+  }
+  function channelReferencePanel(detail) {
+    const versions = detail.dna_versions || [];
+    const cards = versions.map(dna => `<article class="hub-report"><header><div><strong>运营参考 v${dna.version_number}</strong><span class="cell-sub">${esc(languageLabel(dna.language))} · ${fmtUtc(dna.created_at)}</span></div>${tag(dna.status)}</header><div class="detail-grid">${settingValue("主题材", dna.primary_genre)}${settingValue("辅题材", dna.secondary_genre || "—")}${settingValue("年龄倾向", dna.age_tendency || "—")}${settingValue("性别倾向", dna.gender_tendency || "—")}</div>${[["用户画像", dna.audience_summary], ["情绪偏好", dna.emotion_preference], ["剧情偏好", dna.plot_preference], ["角色偏好", dna.character_preference], ["冲突偏好", dna.conflict_preference], ["标题风格", dna.title_style], ["封面风格", dna.cover_style], ["社群风格", dna.community_style], ["内容节奏", dna.content_pace]].map(([title, value]) => value ? `<div class="detail-block"><h3>${title}</h3><p>${esc(value)}</p></div>` : "").join("")}${(dna.signals || []).length ? `<div class="detail-block"><h3>高低表现信号</h3>${reportList(dna.signals, "")}</div>` : ""}</article>`).join("");
+    return `<div class="detail-block"><h3>运营参考历史版本</h3>${cards || `<div class="hub-empty-note">尚无频道运营参考版本。</div>`}</div>`;
+  }
   function channelDetailBody(detail, tab = "basic") {
     let body = "";
     if (tab === "operations") {
@@ -228,10 +256,9 @@
       const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong>${tag(item.status)}</header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
       body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><h3>置顶评论</h3>${comments || `<p class="settings-muted">待完善</p>`}</section><section><h3>播放列表</h3>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
-      body = detail.recent_reports.length ? `<div class="hub-record-list">${detail.recent_reports.map(item => `<article class="hub-record"><header><strong>${item.report_type === "initial" ? "初始化运营假设" : item.report_type === "periodic" ? "真实数据周期报告" : "分析报告"} · v${item.version_number}</strong>${tag(item.status)}</header><p>${esc(item.summary || "尚无摘要")}</p><span class="cell-sub">${fmtUtc(item.created_at)}</span></article>`).join("")}</div>` : `<div class="hub-empty-note">尚无分析报告。初始化推测与真实数据报告将在后续生成阶段分别建立。</div>`;
+      body = channelAnalysisPanel(detail);
     } else if (tab === "reference") {
-      const dna = detail.active_dna;
-      body = dna ? `<div class="detail-grid">${settingValue("版本", `v${dna.version_number}`)}${settingValue("主题材", dna.primary_genre)}${settingValue("辅题材", dna.secondary_genre || "—")}${settingValue("语言", dna.language)}</div>${[["用户画像", dna.audience_summary], ["情绪偏好", dna.emotion_preference], ["剧情偏好", dna.plot_preference], ["角色偏好", dna.character_preference], ["标题风格", dna.title_style], ["封面风格", dna.cover_style], ["社群风格", dna.community_style]].map(([title, value]) => `<div class="detail-block"><h3>${title}</h3><p>${esc(value || "待完善")}</p></div>`).join("")}` : `<div class="hub-empty-note">尚无生效的频道运营参考版本。</div>`;
+      body = channelReferencePanel(detail);
     } else if (tab === "versions") {
       const skills = detail.relevant_skills.map(item => `<article class="hub-record"><header><strong>${esc(item.name)}</strong>${item.version_number ? tag(item.version_status) : tag("missing")}</header><p class="mono">${esc(item.code)}</p><span class="cell-sub">${item.version_number ? `当前 v${item.version_number}` : "尚未发布版本"}</span></article>`).join("");
       const assets = detail.branding_assets.map(item => `<article class="hub-record"><header><strong>${item.role === "avatar" ? "频道头像" : item.role === "banner" ? "频道横幅" : esc(item.role)}</strong>${tag(item.status)}</header><p class="mono">素材 ${esc(item.asset_id)}</p></article>`).join("");
@@ -245,6 +272,13 @@
   }
   async function showChannelDetail(id, tab = "basic") {
     const detail = state.channelDetailId === id && state.channelDetail ? state.channelDetail : await api(`/channels/${id}`);
+    if (tab === "analysis") {
+      const analysis = await loadChannelAnalysisCenter(id);
+      detail.analysis_reports = analysis.reports;
+      detail.channel_metrics = analysis.metrics;
+    } else if (tab === "reference") {
+      detail.dna_versions = await loadChannelReferenceVersions(id);
+    }
     state.channelDetail = detail; state.channelDetailId = id; state.channelDetailTab = tab;
     openDrawer(detail.channel.operational_name || detail.channel.original_name || "频道详情", channelDetailBody(detail, tab));
   }

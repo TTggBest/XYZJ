@@ -365,6 +365,10 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .hub-record + .hub-record { margin-top: 8px; }
 .hub-record header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hub-record p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hub-report { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.hub-report + .hub-report { margin-top: 12px; }
+.hub-report > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.hub-report > header strong, .hub-report > header .cell-sub { display: block; }
 .hub-empty-note { padding: 28px 16px; color: var(--muted); text-align: center; border: 1px dashed var(--line); border-radius: var(--radius); }
 .eyebrow { color: var(--muted); font-size: 10px; }
 .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); }
