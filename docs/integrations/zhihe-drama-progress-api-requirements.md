@@ -1,104 +1,82 @@
-# 智核制剧进度 API 需求
+# 智核制剧进度 API 对接说明
 
-日期：2026-08-28
+日期：2026-08-31
 
-## 目标
+## 边界
 
-智矩通过正式 HTTP API 获取智核的制剧进度，不直接读写智核数据库。制剧进度按剧目记录，与目标语言无关。网盘下载由智矩人工确认，智核不得提供或覆盖该节点。
+智矩只通过智核提供的 HTTP GET 接口读取制剧进度，不连接智核数据库，不判断智核内部状态是否正确，不改写智核业务。
 
-## 剧目标识
+制剧进度按“每部剧唯一一套”保存，与语言无关。智矩自己维护“网盘下载”和“不制作”，智核同步不覆盖这两项。
 
-智核必须为每部剧提供不变的 `drama_id`，并返回：
+## 配置
 
-- `drama_id`：智核稳定剧目 ID。
-- `chinese_title`：中文主剧名，用于首次建立智核 ID 与智矩 `drama_id` 的映射。
-- `updated_at`：该剧在智核的最后变更时间，ISO 8601，包含时区。
+```env
+ZHJ_ZHIHE_API_BASE_URL=http://<zhihe-host>:<port>
+ZHJ_ZHIHE_API_TOKEN=<service-token>
+```
 
-建立映射后，后续同步以稳定 `drama_id` 为准，不依赖剧名重新匹配。
+开发和生产分别配置地址与令牌，不写入业务表。
 
-## 进度字段
+## 智核已提供的接口
 
-智核为每部剧返回以下八个固定节点：
+### 增量列表
 
-1. `parameter_normalization`：统一参数。
-2. `youtube_upload`：上传 YouTube。
-3. `copyright_verification`：版权验证。
-4. `subtitle_extraction`：字幕提取。
-5. `guishou_upload`：鬼手上传。
-6. `role_extraction`：角色提取。
-7. `tts`：TTS。
-8. `production_completion`：制作完成。
-
-智矩把本地维护的 `cloud_download` 与上述八个智核节点组合成九节点制剧流程。同步时只更新智核负责的八个节点，必须保留智矩当前的 `cloud_download` 状态和“不制作”标记。
-
-每个节点包含：
-
-- `status`：`not_started` / `in_progress` / `completed` / `failed`。
-- `started_at`：开始时间，可空。
-- `completed_at`：完成时间，可空。
-- `failure_reason`：失败原因，可空。
-- `resource_uris`：该节点产物定位地址数组，可空。
-
-剧目顶层另需返回：
-
-- `episode_count`：剧集数。
-- `total_duration_seconds`：剧集合集总时长，秒。
-- `updated_at`：该进度整体最后变更时间。
-
-## 查询接口
-
-### 增量查询
-
-`GET /api/v1/dramas/production-progress`
+```http
+GET /api/v1/dramas/production-progress
+Authorization: Bearer <token>
+```
 
 参数：
 
-- `cursor`：上一页返回的不透明游标，首页留空。
-- `limit`：建议默认 100，最大 500。
-- `updated_after`：可选 ISO 8601 时间，用于首次补同步。
+- `limit`：1 到 500。
+- `updated_after`：首页可选，带时区的 ISO 8601 时间。
+- `cursor`：上一页返回的游标；使用游标时不再传 `updated_after`。
 
-返回：`items`、`next_cursor`、`has_more`。同一游标重试必须返回同一分页边界。
-
-智矩保存最后成功消费的游标和高水位时间。事件通知丢失、中断恢复或人工补同步时，都从该水位使用 `updated_after` 重新拉取，不要直接修改智核数据库。
+返回 `items`、`next_cursor`、`has_more` 和 `watermark`。
 
 ### 单剧查询
 
-`GET /api/v1/dramas/{drama_id}/production-progress`
+```http
+GET /api/v1/dramas/{drama_id}/production-progress
+Authorization: Bearer <token>
+```
 
-返回该剧完整的八个智核节点、剧集数、总时长和资源地址。剧目不存在返回 404。
+## 智矩采用的字段
 
-## 事件通知
+剧目顶层字段：
 
-智核可在节点状态变化后向智矩发送：
-
-`POST /api/v3/integrations/zhihe/drama-progress-events`
-
-请求包含：
-
-- `event_id`：智核生成的唯一事件 ID，重试保持不变。
-- `event_type`：固定为 `drama.production_progress.changed`。
-- `occurred_at`：事件时间。
 - `drama_id`：智核稳定剧目 ID。
-- `updated_at`：该剧进度版本时间。
+- `chinese_title`：首次建立映射时做精确剧名匹配。
+- `episode_count`：剧集数。
+- `total_duration_seconds`：合集总时长，单位秒。
+- `updated_at`：智核本条进度的更新时间。
+- `nodes`：八个节点。
 
-事件只用于触发智矩拉取单剧最新状态，不把事件载荷直接当成最终业务数据。
+八个节点原样采用：
 
-智矩必须按 `event_id` 幂等受理：首次接收记录事件并触发拉取，重复接收返回与首次一致的成功确认，不重复应用状态。如果新拉取数据的 `updated_at` 早于或等于当前已采用版本，智矩跳过回写，防止乱序事件回退进度。
+1. `parameter_normalization`
+2. `youtube_upload`
+3. `copyright_verification`
+4. `subtitle_extraction`
+5. `guishou_upload`
+6. `role_extraction`
+7. `tts`
+8. `production_completion`
 
-智矩还需提供人工触发的全量/按时间补同步入口；补同步复用上述查询 API 和同一幂等写入逻辑，不新建第二套进度数据通道。
+智矩使用智核返回的 `not_started` / `in_progress` / `completed` / `failed`，不在对接层重新判定。节点失败原因汇总到智矩当前的“失败原因”字段。
 
-## 认证与错误
+## 映射和写入规则
 
-- 本地化部署先支持智矩向智核发起的服务凭证；具体认证头由智核确认。
-- 400：参数或状态值不合法。
-- 401/403：凭证不合法或无权读取。
-- 404：剧目不存在。
-- 429/5xx：智矩会延时重试，不将本次失败写成制剧节点失败。
+1. 先按已保存的智核 `drama_id` 匹配。
+2. 首次对接时仅按规范化后的中文剧名精确匹配。
+3. 无匹配或多条同名时跳过，不模糊匹配，不自动新建剧目。
+4. 智核 `updated_at` 早于或等于智矩已采用版本时跳过，防止旧数据回退。
+5. 同步只覆盖智核负责的八个节点、剧集数和总时长。
 
-## 智核需要回复的事项
+## 智矩入口
 
-1. 稳定 `drama_id` 的现有字段和生成规则。
-2. 八个智核节点在现有状态中的精确映射，并确认不会回传 `cloud_download`。
-3. 剧集数、总时长和四类产物地址的现有字段。
-4. 可用的认证方式、服务地址和网络边界。
-5. 是否能提供增量游标和状态变化通知。
+```http
+POST /api/v3/integrations/zhihe/drama-progress/sync
+```
+
+制剧进度页“同步智核”按钮调用该接口。当前是人工触发同步；智核尚未提供 Webhook，智矩不伪造实时同步。
