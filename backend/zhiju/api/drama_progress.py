@@ -1,14 +1,17 @@
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
+from zhiju.config import get_settings
 from zhiju.schemas.drama_progress import (
     DramaProductionExclusionWrite,
     DramaProductionStateRead,
     DramaProductionStateWrite,
     DramaProgressPage,
+    ZhiheProgressSyncResult,
 )
 from zhiju.services.channel import NotFoundError
 from zhiju.services.drama_progress import (
@@ -17,6 +20,11 @@ from zhiju.services.drama_progress import (
     list_drama_progress,
     set_production_exclusion,
     update_drama_progress,
+)
+from zhiju.services.zhihe_progress_sync import (
+    ZhiheApiError,
+    ZhiheProgressClient,
+    sync_zhihe_progress,
 )
 
 
@@ -106,3 +114,26 @@ def put_production_exclusion(
         return set_production_exclusion(session, drama_id, excluded=payload.excluded)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post(
+    "/integrations/zhihe/drama-progress/sync",
+    response_model=ZhiheProgressSyncResult,
+)
+def post_zhihe_progress_sync(
+    updated_after: datetime | None = None,
+    session: Session = Depends(get_db),
+) -> ZhiheProgressSyncResult:
+    settings = get_settings()
+    if not settings.zhihe_api_base_url or not settings.zhihe_api_token:
+        raise HTTPException(status_code=409, detail="尚未配置智核 API 地址或访问令牌")
+    client = ZhiheProgressClient(
+        base_url=settings.zhihe_api_base_url,
+        token=settings.zhihe_api_token,
+    )
+    try:
+        return ZhiheProgressSyncResult(
+            **sync_zhihe_progress(session, client, updated_after=updated_after)
+        )
+    except ZhiheApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

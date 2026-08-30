@@ -74,6 +74,8 @@ def main() -> None:
         "ZHJ_FEISHU_WIKI_TOKEN",
         "ZHJ_FEISHU_WORK_ORDER_SHEET_ID",
         "ZHJ_FEISHU_OPERATION_PACKAGE_SHEET_ID",
+        "ZHJ_ZHIHE_API_BASE_URL",
+        "ZHJ_ZHIHE_API_TOKEN",
     ):
         if current.get(key):
             runtime[key] = current[key]

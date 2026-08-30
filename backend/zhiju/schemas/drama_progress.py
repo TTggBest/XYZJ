@@ -53,3 +53,10 @@ class DramaProgressPage(BaseModel):
     page_size: int
     total: int
     pages: int
+
+
+class ZhiheProgressSyncResult(BaseModel):
+    fetched: int
+    updated: int
+    skipped_stale: int
+    skipped_unmatched: int
