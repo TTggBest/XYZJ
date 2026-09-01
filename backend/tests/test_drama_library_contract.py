@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_drama_model_tracks_feishu_source_metadata() -> None:
     columns = Drama.__table__.columns
 
+    assert columns["comprehensive_score"].nullable is True
     assert columns["batch_name"].nullable is True
     assert columns["source_type"].nullable is False
     assert columns["source_sheet_id"].nullable is True
@@ -204,6 +205,87 @@ def test_drama_feishu_value_mapping_uses_beijing_day_end() -> None:
     assert map_status("已删") == "archived"
 
 
+def test_drama_feishu_score_mapping_accepts_numbers_and_missing_values() -> None:
+    parse_score = getattr(feishu_sync, "parse_drama_comprehensive_score", None)
+
+    assert callable(parse_score)
+    assert parse_score("95") == 95
+    assert parse_score("88.5") == 88.5
+    assert parse_score(96) == 96
+    assert parse_score("") is None
+    assert parse_score("#N/A") is None
+
+
+def test_drama_feishu_deleted_status_excludes_production(monkeypatch) -> None:
+    suffix = uuid4().hex[:12]
+    title = f"飞书已删同步测试剧-{suffix}"
+
+    class FakeClient:
+        def rows_by_title(self, wiki_token: str, sheet_title: str, last_column: str):
+            assert last_column == "J"
+            return "drama-sheet", [{
+                "__source_row_number": 737,
+                "作品名称": title,
+                "综合评分": "95",
+                "状态": "已删",
+            }]
+
+        def matrix_by_title(self, wiki_token: str, sheet_title: str, last_column: str):
+            return "operation-sheet", [["剧名", "时长", "集数"]]
+
+    monkeypatch.setattr(feishu_sync, "_client", lambda: FakeClient())
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        feishu_sync.sync_dramas(session)
+
+        drama = session.query(Drama).filter_by(normalized_title=feishu_sync.normalize_drama_title(title)).one()
+        state = session.query(DramaProductionState).filter_by(drama_id=drama.id).one()
+        assert drama.status == "archived"
+        assert float(drama.comprehensive_score) == 95
+        assert state.is_production_excluded is True
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_drama_library_can_sort_by_comprehensive_score() -> None:
+    suffix = uuid4().hex[:12]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        for index, score in enumerate((72, 96), start=1):
+            title = f"综合评分排序测试剧-{suffix}-{index}"
+            session.add(Drama(
+                drama_number=-100 - index,
+                drama_code=f"SCORE-{suffix}-{index}",
+                chinese_title=title,
+                normalized_title=feishu_sync.normalize_drama_title(title),
+                comprehensive_score=score,
+                source_type="manual",
+                status="active",
+            ))
+        session.commit()
+
+        page = list_drama_library(
+            session,
+            page=1,
+            page_size=10,
+            search=f"综合评分排序测试剧-{suffix}",
+            sort_by="comprehensive_score",
+            sort_order="desc",
+        )
+
+        assert [float(item["comprehensive_score"]) for item in page["items"]] == [96, 72]
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
 def test_drama_feishu_expiry_accepts_non_padded_month_and_day() -> None:
     assert feishu_sync.parse_drama_expiry("2027/3/18") == datetime(2027, 3, 18, 23, 59, 59)
 
@@ -256,6 +338,12 @@ def test_drama_library_frontend_uses_paginated_workspace() -> None:
     assert 'data-drama-tab="languages"' in source
     assert 'data-drama-tab="channels"' in source
     assert '"剧集数", "合集总时长"' in source
+    assert '"综合评分", "批次"' in source
+    assert 'id="dramaLibrarySortBy"' in source
+    assert 'sort_by: state.dramaLibrarySortBy' in source
+    assert '"#dramaLibrarySearch, #dramaLibraryBatch"' in source
+    assert '"#dramaProgressSearch, #dramaProgressBatch"' in source
+    assert 'class="drama-progress-excluded-cell"' in source
 
 
 def test_drama_bulk_csv_route_and_parser_support_quoted_content() -> None:

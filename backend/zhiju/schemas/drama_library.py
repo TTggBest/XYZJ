@@ -87,6 +87,7 @@ class DramaLibraryRow(BaseModel):
     drama_number: int
     drama_code: str
     chinese_title: str
+    comprehensive_score: float | None
     batch_name: str | None
     expires_at: datetime | None
     content_summary: str | None
