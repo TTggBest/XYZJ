@@ -807,11 +807,9 @@ def parse_drama_expiry(value: str) -> datetime | None:
 
 def map_drama_status(value: str) -> str:
     normalized = value.strip()
-    if normalized in {"", "制作"}:
-        return "active"
     if normalized == "已删":
         return "archived"
-    raise FeishuSyncError(f"未知剧库状态：{value}")
+    return "active"
 
 
 def parse_drama_comprehensive_score(value: object) -> float | None:
