@@ -187,6 +187,118 @@ def test_zhihe_sync_skips_stale_and_unmatched_items() -> None:
         connection.close()
 
 
+def test_zhihe_sync_repairs_cloud_download_when_completed_final_is_stale() -> None:
+    from zhiju.services.zhihe_progress_sync import sync_zhihe_progress
+
+    suffix = uuid4().hex[:12]
+    title = f"智核终态回填剧-{suffix}"
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = models.Drama(
+            drama_number=-92,
+            drama_code=f"TEST-ZHIHE-FINAL-{suffix}",
+            chinese_title=title,
+            normalized_title=title.lower(),
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.flush()
+        session.add(
+            models.DramaProductionState(
+                drama_id=drama.id,
+                cloud_download_status="not_started",
+                production_completion_status="completed",
+                source_type="zhihe",
+                source_external_id=f"ZH-{suffix}",
+                source_updated_at=datetime(2026, 8, 31, 3, 0, 0),
+            )
+        )
+        session.commit()
+
+        client = SimpleNamespace(
+            iter_progress_items=lambda **_: iter(
+                [
+                    _remote_item(
+                        title=title,
+                        drama_id=f"ZH-{suffix}",
+                        updated_at="2026-08-31T10:00:00+08:00",
+                    )
+                ]
+            )
+        )
+        result = sync_zhihe_progress(session, client)
+        session.expire_all()
+        saved = session.scalar(
+            select(models.DramaProductionState).where(
+                models.DramaProductionState.drama_id == drama.id
+            )
+        )
+
+        assert result == {
+            "fetched": 1,
+            "updated": 1,
+            "skipped_stale": 0,
+            "skipped_unmatched": 0,
+        }
+        assert saved is not None
+        assert saved.cloud_download_status == "completed"
+        assert saved.production_completion_status == "completed"
+        assert saved.source_updated_at == datetime(2026, 8, 31, 3, 0, 0)
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_zhihe_sync_completes_cloud_download_for_new_finished_result() -> None:
+    from zhiju.services.zhihe_progress_sync import sync_zhihe_progress
+
+    suffix = uuid4().hex[:12]
+    title = f"智核新终态剧-{suffix}"
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = models.Drama(
+            drama_number=-93,
+            drama_code=f"TEST-ZHIHE-NEW-FINAL-{suffix}",
+            chinese_title=title,
+            normalized_title=title.lower(),
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.commit()
+
+        item = _remote_item(
+            title=title,
+            drama_id=f"ZH-{suffix}",
+            updated_at="2026-08-31T10:00:00+08:00",
+        )
+        item["nodes"]["production_completion"]["status"] = "completed"
+        client = SimpleNamespace(iter_progress_items=lambda **_: iter([item]))
+
+        result = sync_zhihe_progress(session, client)
+        session.expire_all()
+        saved = session.scalar(
+            select(models.DramaProductionState).where(
+                models.DramaProductionState.drama_id == drama.id
+            )
+        )
+
+        assert result["updated"] == 1
+        assert saved is not None
+        assert saved.production_completion_status == "completed"
+        assert saved.cloud_download_status == "completed"
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
 class _JsonResponse:
     def __init__(self, payload: dict[str, object]) -> None:
         self.payload = payload
