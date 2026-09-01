@@ -789,6 +789,10 @@ def parse_language_matrix(matrix: list[list[str]]) -> dict[str, object]:
 
 
 def _parse_date(value: str) -> date:
+    separated = re.match(r"^\s*(\d{4})\D+(\d{1,2})\D+(\d{1,2})(?:\D|$)", value)
+    if separated:
+        year, month, day = (int(part) for part in separated.groups())
+        return date(year, month, day)
     normalized = re.sub(r"\D", "", value)
     if len(normalized) < 8:
         raise FeishuSyncError(f"日期格式不正确：{value}")
