@@ -171,6 +171,10 @@ def test_drama_feishu_value_mapping_uses_beijing_day_end() -> None:
     assert map_status("已删") == "archived"
 
 
+def test_drama_feishu_expiry_accepts_non_padded_month_and_day() -> None:
+    assert feishu_sync.parse_drama_expiry("2027/3/18") == datetime(2027, 3, 18, 23, 59, 59)
+
+
 def test_new_feishu_dramas_are_created_from_bottom_to_top() -> None:
     order_rows = getattr(feishu_sync, "new_drama_rows_in_insert_order", None)
     prepared = [
