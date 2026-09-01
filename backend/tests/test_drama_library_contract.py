@@ -202,6 +202,7 @@ def test_drama_feishu_value_mapping_uses_beijing_day_end() -> None:
     assert parse_expiry("") is None
     assert map_status("制作") == "active"
     assert map_status("") == "active"
+    assert map_status("//") == "active"
     assert map_status("已删") == "archived"
 
 
