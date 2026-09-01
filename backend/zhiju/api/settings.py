@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from zhiju.database import can_switch_database_environment, database_router, get_db
+from zhiju.database import (
+    can_switch_database_environment,
+    database_router,
+    get_db,
+    upgrade_production_database,
+)
 from zhiju.schemas.identity import DeviceRead, DeviceRegister
 from zhiju.schemas.settings import (
     AppIconSettingRead,
@@ -95,6 +100,8 @@ def get_runtime_settings(session: Session = Depends(get_db)) -> RuntimeOverview:
 @router.put("/settings/runtime/environment", response_model=RuntimeOverview)
 def put_runtime_environment(payload: RuntimeEnvironmentUpdate) -> RuntimeOverview:
     try:
+        if payload.environment == "production":
+            upgrade_production_database()
         database_router.switch_environment(
             payload.environment,
             allow_switch=can_switch_database_environment(),

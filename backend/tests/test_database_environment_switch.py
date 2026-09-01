@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from zhiju.app import app
+import zhiju.api.settings as settings_api
 import zhiju.database as database_module
 from zhiju.database import DatabaseRouter, read_database_url
 
@@ -122,3 +124,92 @@ def test_frontend_exposes_switch_and_persistent_environment_state() -> None:
     assert "生产环境" in app_source
     assert "开发环境" in app_source
     assert '"/api/v3/settings/runtime/environment"' in backend_source
+
+
+def test_switching_to_production_runs_canonical_migrations_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    monkeypatch.setattr(settings_api, "can_switch_database_environment", lambda: True)
+    monkeypatch.setattr(
+        settings_api,
+        "upgrade_production_database",
+        lambda: events.append("migrate"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        settings_api.database_router,
+        "switch_environment",
+        lambda environment, *, allow_switch: events.append(f"switch:{environment}"),
+    )
+
+    response = TestClient(app).put(
+        "/api/v3/settings/runtime/environment",
+        json={"environment": "production"},
+    )
+
+    assert response.status_code == 200
+    assert events == ["migrate", "switch:production"]
+
+
+def test_failed_production_migration_prevents_environment_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    switched: list[str] = []
+
+    monkeypatch.setattr(settings_api, "can_switch_database_environment", lambda: True)
+
+    def fail_migration() -> None:
+        raise RuntimeError("生产数据库迁移失败：测试错误")
+
+    monkeypatch.setattr(
+        settings_api,
+        "upgrade_production_database",
+        fail_migration,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        settings_api.database_router,
+        "switch_environment",
+        lambda environment, *, allow_switch: switched.append(environment),
+    )
+
+    response = TestClient(app).put(
+        "/api/v3/settings/runtime/environment",
+        json={"environment": "production"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "生产数据库迁移失败：测试错误"
+    assert switched == []
+
+
+def test_production_upgrade_uses_project_alembic_chain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_config = tmp_path / "zhiju-runtime.env"
+    runtime_config.write_text(
+        "ZHJ_ENV=production\n"
+        "ZHJ_DATABASE_URL=mysql+pymysql://app:secret@db:33306/zhiju_prod\n"
+        "ZHJ_MIGRATION_DATABASE_URL=mysql+pymysql://migrator:secret@db:33306/zhiju_prod\n",
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(database_module, "PRODUCTION_CONFIG_CANDIDATES", (runtime_config,))
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    database_module.upgrade_production_database()
+
+    assert captured["command"][-2:] == ["upgrade", "head"]
+    environment = captured["kwargs"]["env"]
+    assert environment["ZHJ_ENV"] == "production"
+    assert environment["ZHJ_DATABASE_URL"].endswith("/zhiju_prod")
+    assert environment["ZHJ_MIGRATION_DATABASE_URL"].endswith("/zhiju_prod")

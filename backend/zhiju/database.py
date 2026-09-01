@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
+import os
 from pathlib import Path
+import subprocess
+import sys
 from threading import RLock
 
 from sqlalchemy import create_engine, text
@@ -18,21 +21,54 @@ PRODUCTION_CONFIG_CANDIDATES = (
 )
 
 
-def read_database_url(path: Path) -> str:
+def _read_runtime_value(path: Path, key: str) -> str:
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
-        if line.startswith("ZHJ_DATABASE_URL="):
+        if line.startswith(f"{key}="):
             value = line.split("=", 1)[1].strip()
             if value:
                 return value
-    raise ValueError(f"生产配置未提供 ZHJ_DATABASE_URL：{path}")
+    raise ValueError(f"生产配置未提供 {key}：{path}")
+
+
+def read_database_url(path: Path) -> str:
+    return _read_runtime_value(path, "ZHJ_DATABASE_URL")
+
+
+def _load_production_runtime_value(key: str) -> str:
+    for path in PRODUCTION_CONFIG_CANDIDATES:
+        if path.is_file():
+            return _read_runtime_value(path, key)
+    raise FileNotFoundError("未找到智矩生产配置，请确认 XYData/XYZJ 已挂载")
 
 
 def load_production_database_url() -> str:
-    for path in PRODUCTION_CONFIG_CANDIDATES:
-        if path.is_file():
-            return read_database_url(path)
-    raise FileNotFoundError("未找到智矩生产配置，请确认 XYData/XYZJ 已挂载")
+    return _load_production_runtime_value("ZHJ_DATABASE_URL")
+
+
+def upgrade_production_database() -> None:
+    database_url = load_production_database_url()
+    migration_url = _load_production_runtime_value("ZHJ_MIGRATION_DATABASE_URL")
+    if make_url(database_url).database != "zhiju_prod" or make_url(migration_url).database != "zhiju_prod":
+        raise RuntimeError("生产数据库迁移失败：生产配置未指向 zhiju_prod")
+
+    environment = os.environ.copy()
+    environment.update(
+        ZHJ_ENV="production",
+        ZHJ_DATABASE_URL=database_url,
+        ZHJ_MIGRATION_DATABASE_URL=migration_url,
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", str(APP_ROOT / "alembic.ini"), "upgrade", "head"],
+        cwd=APP_ROOT,
+        env=environment,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        raise RuntimeError(f"生产数据库迁移失败：{detail[-1] if detail else 'Alembic 执行失败'}")
 
 
 def load_development_database_url() -> str:
