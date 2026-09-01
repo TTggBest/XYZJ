@@ -53,6 +53,7 @@ class Drama(IdMixin, TimestampMixin, Base):
     drama_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, comment="系统自动生成的可读剧库ID")
     chinese_title: Mapped[str] = mapped_column(String(255), nullable=False, comment="中文主剧名")
     normalized_title: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, comment="用于完全匹配的规范化主剧名")
+    comprehensive_score: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), comment="飞书剧库综合评分")
     baidu_cloud_url: Mapped[str | None] = mapped_column(String(1000), comment="百度网盘资源地址")
     content_summary: Mapped[str | None] = mapped_column(Text, comment="内容概要")
     plot_archive: Mapped[str | None] = mapped_column(Text, comment="剧情档案")

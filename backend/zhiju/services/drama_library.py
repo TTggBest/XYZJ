@@ -60,6 +60,7 @@ def list_drama_library(
     *,
     page: int,
     page_size: int,
+    sort_by: str = "drama_number",
     sort_order: str = "asc",
     search: str | None = None,
     status: str | None = None,
@@ -98,6 +99,11 @@ def list_drama_library(
         filters.append(Drama.expires_at <= expires_to)
 
     total = int(session.scalar(select(func.count(Drama.id)).where(*filters)) or 0)
+    if sort_by == "comprehensive_score":
+        score_order = Drama.comprehensive_score.asc() if sort_order == "asc" else Drama.comprehensive_score.desc()
+        ordering = (Drama.comprehensive_score.is_(None).asc(), score_order, Drama.drama_number.asc())
+    else:
+        ordering = (Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc(),)
     statement = (
         select(
             Drama,
@@ -110,7 +116,7 @@ def list_drama_library(
         .outerjoin(channel_counts, channel_counts.c.drama_id == Drama.id)
         .outerjoin(DramaProductionState, DramaProductionState.drama_id == Drama.id)
         .where(*filters)
-        .order_by(Drama.drama_number.asc() if sort_order == "asc" else Drama.drama_number.desc())
+        .order_by(*ordering)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

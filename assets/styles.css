@@ -242,6 +242,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .drama-progress-title-cell .cell-sub { max-width: 150px; }
 .drama-progress-batch-cell,
 .drama-progress-node-cell { text-align: center; white-space: nowrap; }
+.drama-progress-excluded-cell { text-align: center; }
 .drama-progress-node-cell .tag { padding-right: 5px; padding-left: 5px; }
 .drama-progress-spec-cell,
 .drama-progress-updated-cell { display: table-cell; text-align: center; white-space: nowrap; }
@@ -253,10 +254,12 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .drama-progress-actions-cell .row-actions { gap: 4px; }
 .drama-progress-row.is-in-progress > td { background: #fff8dc; }
 .drama-progress-row.is-completed > td { background: #edf8f2; }
-.drama-progress-row.is-not-producing > td { background: #fff0ef; }
+.drama-progress-row.is-not-producing > td,
+.drama-library-row.is-not-producing > td { background: #ffd9d6; }
 .drama-progress-row.is-in-progress:hover > td { background: #fff3c7; }
 .drama-progress-row.is-completed:hover > td { background: #e3f3eb; }
-.drama-progress-row.is-not-producing:hover > td { background: #ffe4e1; }
+.drama-progress-row.is-not-producing:hover > td,
+.drama-library-row.is-not-producing:hover > td { background: #ffcbc7; }
 .status-action { padding: 0; background: transparent; border: 0; border-radius: 4px; }
 .status-action:hover .tag { box-shadow: 0 0 0 2px rgba(8,123,84,.16); }
 .cell-summary { display: -webkit-box; max-width: 360px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.45; }

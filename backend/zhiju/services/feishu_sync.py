@@ -814,6 +814,16 @@ def map_drama_status(value: str) -> str:
     raise FeishuSyncError(f"未知剧库状态：{value}")
 
 
+def parse_drama_comprehensive_score(value: object) -> float | None:
+    normalized = cell_text(value).strip()
+    if not normalized or normalized == "#N/A":
+        return None
+    try:
+        return float(normalized)
+    except ValueError as exc:
+        raise FeishuSyncError(f"综合评分格式不正确：{normalized}") from exc
+
+
 def _parse_slot(value: str) -> tuple[date, time]:
     normalized = re.sub(r"\D", "", value)
     if len(normalized) < 10:
@@ -1540,7 +1550,7 @@ def sync_dramas(session: Session) -> dict[str, object]:
     sheet_id, rows = _client().rows_by_title(
         settings.feishu_drama_wiki_token,
         settings.feishu_drama_sheet_title,
-        "I",
+        "J",
     )
     now = datetime.now(timezone.utc)
     run = FeishuSyncRun(
@@ -1571,6 +1581,7 @@ def sync_dramas(session: Session) -> dict[str, object]:
             prepared.append((row_number, normalized_title, {
                 "chinese_title": title,
                 "normalized_title": normalized_title,
+                "comprehensive_score": parse_drama_comprehensive_score(row.get("综合评分", "")),
                 "baidu_cloud_url": row.get("百度网盘链接", "").strip() or None,
                 "content_summary": row.get("内容概述", "").strip() or None,
                 "plot_archive": row.get("剧情档案", "").strip() or None,
@@ -1589,6 +1600,8 @@ def sync_dramas(session: Session) -> dict[str, object]:
             for drama in session.scalars(select(Drama).where(Drama.normalized_title.in_(normalized_seen)))
         }
         aliases = set(session.scalars(select(DramaAlias.normalized_alias).where(DramaAlias.normalized_alias.in_(normalized_seen))))
+        existing_before_insert = set(existing)
+        drama_changed: dict[str, bool] = {}
         new_rows = []
         for row_number, normalized_title, values in prepared:
             drama = existing.get(normalized_title)
@@ -1607,6 +1620,7 @@ def sync_dramas(session: Session) -> dict[str, object]:
                 updated += 1
             else:
                 skipped += 1
+            drama_changed[normalized_title] = changed
 
         for _, normalized_title, values in new_drama_rows_in_insert_order(new_rows):
             drama = Drama(
@@ -1619,6 +1633,32 @@ def sync_dramas(session: Session) -> dict[str, object]:
             inserted += 1
 
         session.flush()
+        production_states = {
+            state.drama_id: state
+            for state in session.scalars(
+                select(DramaProductionState).where(
+                    DramaProductionState.drama_id.in_([drama.id for drama in existing.values()])
+                )
+            )
+        }
+        for _, normalized_title, values in prepared:
+            drama = existing[normalized_title]
+            excluded = values["status"] == "archived"
+            state = production_states.get(drama.id)
+            if state is None and not excluded:
+                continue
+            if state is None:
+                state = DramaProductionState(drama_id=drama.id, is_production_excluded=True)
+                session.add(state)
+                production_states[drama.id] = state
+                state_changed = True
+            else:
+                state_changed = state.is_production_excluded != excluded
+                state.is_production_excluded = excluded
+            if state_changed and normalized_title in existing_before_insert and not drama_changed[normalized_title]:
+                skipped -= 1
+                updated += 1
+
         metadata = sync_drama_operation_metadata(session, now=now)
 
         run = session.get(FeishuSyncRun, run.id)
