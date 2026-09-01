@@ -10,7 +10,7 @@ from zhiju.database import database_router
 from zhiju.app import app
 from zhiju.models import Drama, DramaProductionState, FeishuSyncRun
 from zhiju.services import feishu_sync
-from zhiju.services.drama_library import list_drama_library
+from zhiju.services.drama_library import get_drama_library_detail, list_drama_library
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -152,6 +152,39 @@ def test_drama_library_rows_include_episode_count_and_duration() -> None:
 
         assert page["items"][0]["episode_count"] == 24
         assert page["items"][0]["total_duration_seconds"] == 5400
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_drama_library_detail_includes_episode_count_and_duration() -> None:
+    suffix = uuid4().hex[:12]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        drama = Drama(
+            drama_number=-12,
+            drama_code=f"TEST-{suffix}",
+            chinese_title=f"剧库详情元数据测试剧-{suffix}",
+            normalized_title=f"剧库详情元数据测试剧-{suffix}",
+            source_type="manual",
+            status="active",
+        )
+        session.add(drama)
+        session.flush()
+        session.add(DramaProductionState(
+            drama_id=drama.id,
+            episode_count=36,
+            total_duration_seconds=7200,
+        ))
+        session.commit()
+
+        detail = get_drama_library_detail(session, drama.id)
+
+        assert detail["episode_count"] == 36
+        assert detail["total_duration_seconds"] == 7200
     finally:
         session.close()
         transaction.rollback()

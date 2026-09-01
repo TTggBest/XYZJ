@@ -190,13 +190,16 @@ def get_drama_library_detail(session: Session, drama_id: str) -> dict[str, objec
     production_state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama.id)
     )
+    production = production_state_payload(production_state, drama.id)
     return {
         **drama.__dict__,
         "aliases": aliases,
         "core_terms": core_terms,
         "languages": languages,
         "channels": channels,
-        "production_state": production_state_payload(production_state, drama.id),
+        "production_state": production,
+        "episode_count": production["episode_count"],
+        "total_duration_seconds": production["total_duration_seconds"],
         "language_count": sum(item["translation_status"] != "missing" or item["asset_status"] != "missing" for item in languages),
         "published_channel_count": len({item["channel_id"] for item in channels}),
     }

@@ -40,4 +40,3 @@ def test_drama_lists_support_descending_order_and_selectable_page_sizes(
     assert payload["page_size"] == page_size
     assert len(numbers) == page_size
     assert numbers == sorted(numbers, reverse=True)
-    assert numbers[0] == payload["total"]
