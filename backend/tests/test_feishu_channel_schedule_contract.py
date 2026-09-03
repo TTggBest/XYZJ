@@ -318,6 +318,56 @@ def test_prepare_channel_schedule_rows_does_not_create_unknown_business_entities
         connection.close()
 
 
+def test_prepare_channel_schedule_rows_skips_directory_entries_without_sheet_link() -> None:
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        skipped_channel = models.Channel(
+            youtube_channel_id=f"UC-NO-SHEET-{suffix}",
+            original_name=f"无排期表频道-{suffix}",
+            timezone="Asia/Shanghai",
+            daily_publish_count=1,
+            status="active",
+        )
+        linked_channel = models.Channel(
+            youtube_channel_id=f"UC-WITH-SHEET-{suffix}",
+            original_name=f"有排期表频道-{suffix}",
+            timezone="Asia/Shanghai",
+            daily_publish_count=1,
+            status="active",
+        )
+        session.add_all([skipped_channel, linked_channel])
+        session.commit()
+
+        prepared, corrected = feishu_sync.prepare_channel_schedule_rows(
+            session,
+            directory_rows=[
+                {
+                    "频道名": skipped_channel.original_name,
+                    "频道昵称": skipped_channel.original_name,
+                    "链接": "",
+                    "__source_row_number": "16",
+                },
+                {
+                    "频道名": linked_channel.original_name,
+                    "频道昵称": linked_channel.original_name,
+                    "链接": "https://example.feishu.cn/wiki/token?sheet=linked-sheet",
+                    "__source_row_number": "17",
+                },
+            ],
+            sheet_rows=[("linked-sheet", linked_channel.original_name, [])],
+        )
+
+        assert prepared == []
+        assert corrected == 0
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
 def test_prepare_channel_schedule_rows_archives_historical_slot_without_changing_active_cadence() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
@@ -516,6 +566,84 @@ def test_channel_schedule_upsert_is_idempotent_and_does_not_create_tasks() -> No
         session.refresh(schedule)
         assert schedule.status == "confirmed"
         assert schedule.is_uploaded is True
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_feishu_resync_preserves_manually_overridden_video_fields() -> None:
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        channel = models.Channel(
+            youtube_channel_id=f"UC-OVERRIDE-{suffix}",
+            original_name=f"人工视频频道-{suffix}",
+            timezone="Asia/Shanghai",
+            daily_publish_count=1,
+            status="active",
+        )
+        drama = models.Drama(
+            drama_number=-int(f"2{suffix[:7]}", 16),
+            drama_code=f"OVERRIDE-{suffix}",
+            chinese_title=f"人工视频剧目-{suffix}",
+            normalized_title=f"人工视频剧目-{suffix}".casefold(),
+            source_type="manual",
+            status="active",
+        )
+        session.add_all([channel, drama])
+        session.flush()
+        slot = models.ChannelPublishSlot(
+            channel_id=channel.id,
+            slot_type="main",
+            slot_number=1,
+            local_time=time(20, 0),
+            timezone=channel.timezone,
+            status="active",
+        )
+        session.add(slot)
+        session.commit()
+        prepared = [{
+            "channel_id": channel.id,
+            "drama_id": drama.id,
+            "publish_slot_id": slot.id,
+            "publish_date": date(2026, 9, 7),
+            "planned_local_time": datetime(2026, 9, 7, 20, 0),
+            "planned_beijing_time": datetime(2026, 9, 7, 20, 0),
+            "planned_utc_time": datetime(2026, 9, 7, 12, 0),
+            "source_type": "feishu",
+            "source_sheet_id": "sheet-override",
+            "source_sheet_title": channel.original_name,
+            "source_row_number": 2,
+            "source_video_id": None,
+            "source_video_url": None,
+            "is_uploaded": False,
+            "is_published": False,
+            "is_task_written": False,
+        }]
+        feishu_sync.upsert_channel_schedule_rows(
+            session, prepared, now=datetime(2026, 9, 3, 10, 0)
+        )
+        session.commit()
+        schedule = session.scalar(select(models.ChannelScheduleEntry).where(
+            models.ChannelScheduleEntry.channel_id == channel.id
+        ))
+        schedule.source_video_id = "IQ7Cw_wpiqE"
+        schedule.source_video_url = "https://youtu.be/IQ7Cw_wpiqE"
+        schedule.source_video_overridden = True
+        session.commit()
+
+        result = feishu_sync.upsert_channel_schedule_rows(
+            session, prepared, now=datetime(2026, 9, 3, 10, 1)
+        )
+        session.commit()
+
+        session.refresh(schedule)
+        assert result == {"inserted": 0, "updated": 0, "skipped": 1}
+        assert schedule.source_video_id == "IQ7Cw_wpiqE"
+        assert schedule.source_video_url == "https://youtu.be/IQ7Cw_wpiqE"
     finally:
         session.close()
         transaction.rollback()

@@ -115,6 +115,9 @@ def create_task(session: Session, payload: TaskCreate) -> OperationTask:
         source="schedule",
         status="pending_dispatch",
         idempotency_key=payload.idempotency_key,
+        source_video_id=schedule.source_video_id,
+        source_video_url=schedule.source_video_url,
+        source_row_number=schedule.source_row_number,
     )
     session.add(task)
     try:

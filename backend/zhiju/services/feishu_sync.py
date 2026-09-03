@@ -267,7 +267,7 @@ def prepare_channel_schedule_rows(
         row_number = int(row.get("__source_row_number") or 0)
         sheet_id = feishu_sheet_id_from_url(row.get("链接", ""))
         if not sheet_id:
-            raise FeishuSyncError(f"飞书频道目录第 {row_number} 行缺少频道工作表链接")
+            continue
         if sheet_id in directory_by_sheet:
             raise FeishuSyncError(f"飞书频道目录第 {row_number} 行工作表重复：{sheet_id}")
         directory_by_sheet[sheet_id] = _unique_channel_for_directory(
@@ -528,6 +528,9 @@ def upsert_channel_schedule_rows(
             continue
 
         values = {field: row[field] for field in synced_fields}
+        if schedule.source_video_overridden:
+            values.pop("source_video_id")
+            values.pop("source_video_url")
         changed = schedule.status != status or any(
             getattr(schedule, field) != value for field, value in values.items()
         )
