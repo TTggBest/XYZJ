@@ -422,20 +422,34 @@
     openDrawer(drama.chinese_title, dramaDetailBody(drama, tab));
   }
 
+  function sourceVideoCell(item, entityType) {
+    const targetId = entityType === "task" ? item.task_id : item.schedule_id;
+    const link = item.source_video_url
+      ? `<a class="cell-link mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开链接")}</a>`
+      : `<span class="cell-sub mono">${esc(item.source_video_id || "待补充")}</span>`;
+    return `<div class="row-actions">${link}<button class="button button-secondary button-small" data-action="edit-${entityType}-video" data-id="${targetId}">${icon("pencil")} 编辑</button></div>`;
+  }
+
+  function openSourceVideoForm(entityType, item) {
+    const entityId = entityType === "task" ? item.task_id : item.schedule_id;
+    openModal("编辑视频信息", `<form class="form-grid" id="sourceVideoForm"><input type="hidden" name="entity_type" value="${entityType}"><input type="hidden" name="entity_id" value="${entityId}"><div class="field"><label>剧目</label><input class="input" value="${esc(item.chinese_title)}" disabled></div><div class="field"><label>YouTube 链接</label><input class="input" name="source_video_url" value="${esc(item.source_video_url || "")}" placeholder="可留空，后续补充"></div><div class="field"><label>Video ID</label><input class="input mono" name="source_video_id" value="${esc(item.source_video_id || "")}" maxlength="32" placeholder="填链接时可自动识别"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存视频信息</button></div></form>`);
+  }
+
   async function showSchedules() {
     const [channels, dramas] = await Promise.all([api("/channels/overview"), api("/schedules/eligible-dramas")]);
     if (!channels.some(channel => channel.channel_id === state.scheduleChannelId)) state.scheduleChannelId = channels[0]?.channel_id || "";
     const date = state.date;
     const fullMode = state.scheduleViewMode === "full";
-    const schedules = !fullMode && state.scheduleChannelId ? await api(`/schedules/overview${query({ channel_id: state.scheduleChannelId, date_from: date, date_to: date })}`) : [];
+    const allDayMode = state.scheduleViewMode === "all-day";
+    const schedules = !fullMode && (allDayMode || state.scheduleChannelId) ? await api(`/schedules/overview${query({ channel_id: allDayMode ? null : state.scheduleChannelId, date_from: date, date_to: date })}`) : [];
     const full = fullMode && state.scheduleChannelId ? await api(`/schedules/channel-view${query({ channel_id: state.scheduleChannelId, query: state.scheduleFullSearch, sort_order: state.scheduleFullSortOrder, page: state.scheduleFullPage, page_size: state.scheduleFullPageSize })}`) : { page: 1, page_size: state.scheduleFullPageSize, total: 0, items: [] };
     Object.assign(state, { schedules, channels, dramas, scheduleFull: full });
     const selectedChannel = channels.find(channel => channel.channel_id === state.scheduleChannelId);
     const channelOptions = channels.map(channel => `<option value="${channel.channel_id}" ${channel.channel_id === state.scheduleChannelId ? "selected" : ""}>${esc(channel.display_name)}</option>`).join("");
-    const viewSwitch = `<div class="schedule-view-switch" role="group" aria-label="排期视图"><button class="button ${fullMode ? "button-secondary" : "button-primary"}" data-action="schedule-view-mode" data-mode="day">按日查看</button><button class="button ${fullMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="full">频道完整排期</button></div>`;
-    const commonActions = `<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button><button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button>`;
+    const viewSwitch = `<div class="schedule-view-switch" role="group" aria-label="排期视图"><button class="button ${!fullMode && !allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="day">按日查看</button><button class="button ${fullMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="full">频道完整排期</button><button class="button ${allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="all-day">全部频道当日</button></div>`;
+    const commonActions = `<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button>${allDayMode ? "" : `<button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button>`}`;
     if (fullMode) {
-      const rows = full.items.map(item => `<tr><td>${fmt(item.planned_beijing_time)}</td><td><span class="cell-main">${item.slot_type === "main" ? "主档" : "辅档"}</span><span class="cell-sub">档位 ${item.slot_number}</span></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}</span></td><td>${item.source_video_url ? `<a class="cell-link mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开视频")}</a>` : `<span class="mono">${esc(item.source_video_id || "—")}</span>`}</td><td>${tag(item.is_uploaded ? "completed" : "pending")}</td><td>${tag(item.is_published ? "completed" : "pending")}</td><td>${tag(item.is_task_written ? "completed" : "pending")}</td><td>${item.source_type === "feishu" ? "飞书" : item.source_type === "system" ? "系统" : "人工"}</td><td>${fmtUtc(item.source_synced_at)}</td><td>${tag(item.schedule_status)}</td><td>${item.task_id ? tag(item.task_status) : "—"}</td></tr>`);
+      const rows = full.items.map(item => `<tr><td>${fmt(item.planned_beijing_time)}</td><td><span class="cell-main">${item.slot_type === "main" ? "主档" : "辅档"}</span><span class="cell-sub">档位 ${item.slot_number}</span></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}</span></td><td>${sourceVideoCell(item, "schedule")}</td><td>${tag(item.is_uploaded ? "completed" : "pending")}</td><td>${tag(item.is_published ? "completed" : "pending")}</td><td>${tag(item.is_task_written ? "completed" : "pending")}</td><td>${item.source_type === "feishu" ? "飞书" : item.source_type === "system" ? "系统" : "人工"}</td><td>${fmtUtc(item.source_synced_at)}</td><td>${tag(item.schedule_status)}</td><td>${item.task_id ? tag(item.task_status) : "—"}</td></tr>`);
       const pages = Math.max(1, Math.ceil(full.total / full.page_size));
       const pager = full.total > full.page_size ? `<div class="pagination"><button class="button button-secondary button-small" data-action="schedule-full-page" data-page="${full.page - 1}" ${full.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${full.page} / ${pages} 页 · ${full.total} 条</span><button class="button button-secondary button-small" data-action="schedule-full-page" data-page="${full.page + 1}" ${full.page >= pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
       const tools = `<div class="toolbar schedule-toolbar">${viewSwitch}<div class="field"><label>频道</label><select class="select" id="scheduleChannelFilter" ${channels.length ? "" : "disabled"}>${channelOptions || `<option>暂无频道</option>`}</select></div><div class="field search-field"><label>搜索</label><input class="input" id="scheduleFullSearch" value="${esc(state.scheduleFullSearch)}" placeholder="剧名、剧库 ID 或 Video ID"></div><div class="field"><label>排序</label><select class="select" id="scheduleFullSortOrder"><option value="asc" ${state.scheduleFullSortOrder === "asc" ? "selected" : ""}>正序</option><option value="desc" ${state.scheduleFullSortOrder === "desc" ? "selected" : ""}>倒序</option></select></div><div class="field"><label>每页</label><select class="select" id="scheduleFullPageSize"><option value="50" ${state.scheduleFullPageSize === 50 ? "selected" : ""}>50 条</option><option value="100" ${state.scheduleFullPageSize === 100 ? "selected" : ""}>100 条</option><option value="150" ${state.scheduleFullPageSize === 150 ? "selected" : ""}>150 条</option></select></div><button class="button button-primary" data-action="apply-schedule-full-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div>${commonActions}</div>`;
@@ -443,9 +457,14 @@
       root.innerHTML = `<div class="page-stack">${section("频道完整排期", `${esc(selectedChannel?.display_name || "尚未选择频道")} · 共 ${full.total} 条 · 覆盖历史与未来`, body, tools)}</div>`;
       return;
     }
-    const rows = schedules.map(item => `<tr><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub">${esc(item.drama_code)}</span></td><td>${esc(item.slot_type === "main" ? "主档" : "辅档")} ${String(item.slot_local_time).slice(0, 5)}</td><td>${fmt(item.planned_beijing_time)}</td><td>${esc(item.playlist_name || "—")}</td><td>${item.community_count}</td><td>${tag(item.schedule_status)}</td><td><div class="row-actions">${item.task_id ? tag(item.task_status) : `<button class="button button-quiet button-small" data-action="create-task" data-id="${item.schedule_id}">生成工单</button>`}</div></td></tr>`);
-    const tools = `<div class="toolbar schedule-toolbar">${viewSwitch}<div class="field"><label>频道</label><select class="select" id="scheduleChannelFilter" ${channels.length ? "" : "disabled"}>${channelOptions || `<option>暂无频道</option>`}</select></div><div class="field"><label>排期日期</label><input class="input" type="date" id="scheduleDate" value="${date}"></div><div class="toolbar-spacer"></div>${commonActions}</div>`;
-    root.innerHTML = `<div class="page-stack">${section("频道排期", `${esc(selectedChannel?.display_name || "尚未选择频道")} · ${schedules.length} 条当日安排 · 时间统一展示北京时间`, rows.length ? table(["剧目", "档位", "北京时间", "播放列表", "社群", "排期状态", "工单"], rows, 920, "channel-schedule-table") : empty("该频道当天没有排期", "只能从制剧已全部完成的剧目中创建排期。", "add-schedule", "新建排期"), tools)}</div>`;
+    const rows = schedules.map(item => `<tr>${allDayMode ? `<td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.youtube_channel_id)}</span></td>` : ""}<td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub">${esc(item.drama_code)}</span></td><td>${sourceVideoCell(item, "schedule")}</td><td>${esc(item.slot_type === "main" ? "主档" : "辅档")} ${String(item.slot_local_time).slice(0, 5)}</td><td>${fmt(item.planned_beijing_time)}</td><td>${esc(item.playlist_name || "—")}</td><td>${item.community_count}</td><td>${tag(item.schedule_status)}</td><td><div class="row-actions">${item.task_id ? tag(item.task_status) : `<button class="button button-quiet button-small" data-action="create-task" data-id="${item.schedule_id}">生成工单</button>`}</div></td></tr>`);
+    const channelFilter = allDayMode ? "" : `<div class="field"><label>频道</label><select class="select" id="scheduleChannelFilter" ${channels.length ? "" : "disabled"}>${channelOptions || `<option>暂无频道</option>`}</select></div>`;
+    const tools = `<div class="toolbar schedule-toolbar">${viewSwitch}${channelFilter}<div class="field"><label>排期日期</label><input class="input" type="date" id="scheduleDate" value="${date}"></div><div class="toolbar-spacer"></div>${commonActions}</div>`;
+    const headers = [...(allDayMode ? ["频道"] : []), "剧目", "Video ID / 链接", "档位", "北京时间", "播放列表", "社群", "排期状态", "工单"];
+    const title = allDayMode ? "全部频道当日排期" : "频道排期";
+    const subtitle = allDayMode ? `${date} · ${schedules.length} 条安排 · 时间统一展示北京时间` : `${esc(selectedChannel?.display_name || "尚未选择频道")} · ${schedules.length} 条当日安排 · 时间统一展示北京时间`;
+    const noData = allDayMode ? empty("当天所有频道都没有排期", "可切换到单频道当日视图创建排期。") : empty("该频道当天没有排期", "只能从制剧已全部完成的剧目中创建排期。", "add-schedule", "新建排期");
+    root.innerHTML = `<div class="page-stack">${section(title, subtitle, rows.length ? table(headers, rows, allDayMode ? 1220 : 1080, "channel-schedule-table") : noData, tools)}</div>`;
   }
   function publishSlotItems(channel, slotType) {
     const slots = channel.slots.filter(item => item.slot_type === slotType);
@@ -511,9 +530,9 @@
 
   async function showWorkorders() {
     const tasks = await api(`/tasks/overview${query({ task_date: state.date })}`); state.tasks = tasks;
-    const rows = tasks.map((item, index) => `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.business_drama_id)}</span></td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${item.community_count}</td><td>${tag(item.work_order_status || item.task_status)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${item.task_status === "pending_dispatch" ? `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${item.task_id}">${icon("play")} 开始生产</button>` : item.work_order_id ? `<button class="button button-secondary button-small" data-action="work-detail" data-id="${item.work_order_id}">查看进度</button>` : ""}</div></td></tr>`);
+    const rows = tasks.map((item, index) => `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${item.community_count}</td><td>${tag(item.work_order_status || item.task_status)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${item.task_status === "pending_dispatch" ? `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${item.task_id}">${icon("play")} 开始生产</button>` : item.work_order_id ? `<button class="button button-secondary button-small" data-action="work-detail" data-id="${item.work_order_id}">查看进度</button>` : ""}</div></td></tr>`);
     const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button><span class="stat-line">${tasks.length} 条工单</span></div>`;
-    root.innerHTML = `<div class="page-stack">${section("工单列表", "罗列需要生产运营包的剧目，并显示搜索、标题、封面、说明、社群、合成进度", rows.length ? table(["序号", "", "剧目 / ID", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1120) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
+    root.innerHTML = `<div class="page-stack">${section("工单列表", "罗列需要生产运营包的剧目，并显示搜索、标题、封面、说明、社群、合成进度", rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
   async function workDetail(id) {
     const detail = await api(`/work-orders/${id}`);
@@ -940,8 +959,16 @@
         if (item) openModal("编辑短剧类型", channelDramaTypeForm(item));
       }
       else if (action === "add-schedule") await openScheduleForm();
+      else if (action === "edit-schedule-video") {
+        const item = [...(state.schedules || []), ...(state.scheduleFull?.items || [])].find(candidate => candidate.schedule_id === id);
+        if (item) openSourceVideoForm("schedule", item);
+      }
+      else if (action === "edit-task-video") {
+        const item = state.tasks.find(candidate => candidate.task_id === id);
+        if (item) openSourceVideoForm("task", item);
+      }
       else if (action === "schedule-view-mode") {
-        state.scheduleViewMode = button.dataset.mode === "full" ? "full" : "day";
+        state.scheduleViewMode = ["day", "full", "all-day"].includes(button.dataset.mode) ? button.dataset.mode : "day";
         state.scheduleFullPage = 1;
         await loadView("schedules");
       }
@@ -1208,6 +1235,12 @@
         notify("制剧进度已保存"); closeModal();
         if (!el("drawerBackdrop").hidden && state.dramaDetail?.id === dramaId) await showDramaDetail(dramaId, "production");
         if (state.view === "dramaProgress") await loadView("dramaProgress", { preservePosition: true });
+      }
+      if (form.id === "sourceVideoForm") {
+        const entityType = data.entity_type, entityId = data.entity_id;
+        const payload = { source_video_url: data.source_video_url.trim() || null, source_video_id: data.source_video_id.trim() || null };
+        await api(`/${entityType === "task" ? "tasks" : "schedules"}/${entityId}/source-video`, { method: "PATCH", body: JSON.stringify(payload) });
+        notify("视频信息已更新，排期与工单已联动"); closeModal(); await loadView(state.view, { preservePosition: true });
       }
       if (form.id === "skillForm") { await api("/skills", { method: "POST", body: JSON.stringify(data) }); notify("Skill 已创建"); closeModal(); await loadView("skills"); }
       if (form.id === "skillVersionForm") {

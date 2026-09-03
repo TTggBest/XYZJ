@@ -33,6 +33,7 @@ from zhiju.schemas.operations import (
     ScheduleCandidateRead,
     ScheduleCandidateSelect,
     ScheduleRead,
+    SourceVideoUpdate,
     ScheduleStatusChange,
 )
 from zhiju.services.channel import NotFoundError
@@ -70,6 +71,7 @@ from zhiju.services.operations import (
     upsert_drama_translation,
     update_publish_slot,
 )
+from zhiju.services.schedule_video import update_schedule_source_video
 
 
 router = APIRouter(prefix="/v3", tags=["operations"])
@@ -454,6 +456,18 @@ def patch_schedule_status(
     try:
         return change_schedule_status(session, schedule_id, payload.status, payload.reason)
     except (NotFoundError, ConflictError) as exc:
+        raise _raise(exc) from exc
+
+
+@router.patch("/schedules/{schedule_id}/source-video", response_model=ScheduleRead)
+def patch_schedule_source_video(
+    schedule_id: str,
+    payload: SourceVideoUpdate,
+    session: Session = Depends(get_db),
+) -> ScheduleRead:
+    try:
+        return update_schedule_source_video(session, schedule_id, payload)
+    except NotFoundError as exc:
         raise _raise(exc) from exc
 
 

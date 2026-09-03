@@ -36,6 +36,7 @@ from zhiju.schemas.production import (
     WorkOrderOverview,
     WorkOrderRead,
 )
+from zhiju.schemas.operations import SourceVideoUpdate
 from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError
 from zhiju.services.production import (
@@ -51,6 +52,7 @@ from zhiju.services.production import (
     review_package,
     start_node,
 )
+from zhiju.services.schedule_video import update_task_source_video
 from zhiju.services.package_outputs import (
     add_validation,
     get_package_outputs,
@@ -114,6 +116,18 @@ def post_task_dispatch(task_id: str, session: Session = Depends(get_db)) -> Work
     try:
         return dispatch_task(session, task_id)
     except (NotFoundError, ConflictError) as exc:
+        raise _raise(exc) from exc
+
+
+@router.patch("/tasks/{task_id}/source-video", response_model=TaskRead)
+def patch_task_source_video(
+    task_id: str,
+    payload: SourceVideoUpdate,
+    session: Session = Depends(get_db),
+) -> TaskRead:
+    try:
+        return update_task_source_video(session, task_id, payload)
+    except NotFoundError as exc:
         raise _raise(exc) from exc
 
 

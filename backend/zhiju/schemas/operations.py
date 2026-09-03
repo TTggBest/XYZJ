@@ -318,6 +318,19 @@ class ScheduleCreate(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=160)
 
 
+class SourceVideoUpdate(BaseModel):
+    source_video_id: str | None = Field(default=None, max_length=32)
+    source_video_url: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("source_video_id", "source_video_url")
+    @classmethod
+    def normalize_optional_value(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class ScheduleRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -342,6 +355,7 @@ class ScheduleRead(BaseModel):
     source_synced_at: datetime | None
     source_video_id: str | None
     source_video_url: str | None
+    source_video_overridden: bool
     is_uploaded: bool
     is_published: bool
     is_task_written: bool
@@ -371,6 +385,9 @@ class ScheduleOverview(BaseModel):
     playlist_id: str | None
     playlist_name: str | None
     playlist_url: str | None
+    source_video_id: str | None
+    source_video_url: str | None
+    source_video_overridden: bool
     community_count: int
     priority: int
     schedule_status: str
@@ -406,6 +423,7 @@ class ChannelScheduleRow(BaseModel):
     source_synced_at: datetime | None
     source_video_id: str | None
     source_video_url: str | None
+    source_video_overridden: bool
     is_uploaded: bool
     is_published: bool
     is_task_written: bool

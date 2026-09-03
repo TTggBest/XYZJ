@@ -149,6 +149,8 @@ def test_schedule_frontend_has_full_channel_view_and_read_only_sync_controls() -
     for marker in (
         "频道完整排期",
         "按日查看",
+        "全部频道当日",
+        'data-mode="all-day"',
         "sync-feishu-channel-schedules",
         "scheduleFullSearch",
         "scheduleFullSortOrder",
@@ -162,6 +164,11 @@ def test_schedule_frontend_has_full_channel_view_and_read_only_sync_controls() -
         "已写任务",
         "数据来源",
         "同步时间",
+        "sourceVideoForm",
+        "edit-schedule-video",
+        "edit-task-video",
+        "/source-video",
+        "待补充",
     ):
         assert marker in source
     assert 'api("/feishu-sync/channel-schedules", { method: "POST" })' in source

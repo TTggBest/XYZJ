@@ -292,6 +292,12 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
     source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
     source_video_id: Mapped[str | None] = mapped_column(String(32), comment="来源视频ID")
     source_video_url: Mapped[str | None] = mapped_column(String(1000), comment="来源视频地址")
+    source_video_overridden: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default="0",
+        comment="视频信息是否已在智矩人工修改",
+    )
     is_uploaded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已上传")
     is_published: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已上线")
     is_task_written: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已写入任务")

@@ -30,6 +30,8 @@ class TaskRead(BaseModel):
     dispatched_at: datetime | None
     completed_at: datetime | None
     failure_reason: str | None
+    source_video_id: str | None
+    source_video_url: str | None
     created_at: datetime
     updated_at: datetime
 
