@@ -14,6 +14,7 @@ echo "[筱宇智矩] 代码目录：$ROOT"
 [[ -f "$CONFIG_FILE" ]] || { echo "[启动失败] 未找到生产配置：$CONFIG_FILE"; exit 1; }
 [[ -x "$ROOT/.venv/bin/python" ]] || { echo "[启动失败] 运行环境未安装，请重新执行运行包安装指令。"; exit 1; }
 
+bash "$ROOT/scripts/ensure_local_production_mysql.sh"
 PYTHONPATH="$ROOT/backend" "$ROOT/.venv/bin/python" "$ROOT/scripts/configure_package_device.py"
 
 set -a

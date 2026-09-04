@@ -48,6 +48,7 @@ echo "[筱宇智矩] 使用运行环境：$($PYTHON_BIN --version 2>&1)"
 rm -rf "$ROOT/.venv"
 "$PYTHON_BIN" -m venv "$ROOT/.venv"
 "$ROOT/.venv/bin/python" -m pip install --disable-pip-version-check -q -r "$ROOT/requirements-runtime.txt"
+bash "$ROOT/scripts/ensure_local_production_mysql.sh"
 PYTHONPATH="$ROOT/backend" "$ROOT/.venv/bin/python" "$ROOT/scripts/configure_package_device.py"
 set -a
 source "$CONFIG_FILE"
