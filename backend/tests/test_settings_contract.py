@@ -203,6 +203,40 @@ def test_studio_mysql_bootstrap_uses_an_independent_instance() -> None:
     assert "mysql.server stop" not in source
 
 
+def test_runtime_start_ensures_local_production_mysql_before_device_lookup() -> None:
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "scripts" / "start_package.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"$ROOT/scripts/ensure_local_production_mysql.sh"' in source
+    assert source.index("ensure_local_production_mysql.sh") < source.index("configure_package_device.py")
+
+
+def test_runtime_install_ensures_local_production_mysql_before_device_lookup() -> None:
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "scripts" / "setup_package.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert '"$ROOT/scripts/ensure_local_production_mysql.sh"' in source
+    assert source.index("ensure_local_production_mysql.sh") < source.index("configure_package_device.py")
+
+
+def test_local_production_mysql_start_refuses_to_initialize_an_empty_database() -> None:
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[2] / "scripts" / "ensure_local_production_mysql.sh"
+    ).read_text(encoding="utf-8")
+
+    assert '[[ -d "$DATADIR/mysql" ]]' in source
+    assert '[[ -f "$CNF_FILE" ]]' in source
+    assert "--initialize" not in source
+
+
 def test_only_current_runtime_package_has_download_endpoint() -> None:
     client = TestClient(app)
     packages = client.get("/api/v3/runtime-packages").json()
