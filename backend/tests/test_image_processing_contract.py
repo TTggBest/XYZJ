@@ -48,7 +48,9 @@ def test_v11_image_names_are_classified_by_video_id() -> None:
         "abc1233_4_5.png": "05_标题3_4x5",
         "abc1233.png": "06_标题3_16x9",
         "abc123.png": "07_社群1_1x1",
-        "abc123_2.jpg": "08_社群2_1x1",
+        "abc123-2.jpg": "08_社群2_1x1",
+        "abc123-3.webp": "09_社群3_1x1",
+        "abc123-12.png": "18_社群12_1x1",
     }
 
     for filename, role in expected.items():
@@ -56,6 +58,22 @@ def test_v11_image_names_are_classified_by_video_id() -> None:
         assert result.identifier == "abc123"
         assert result.role == role
         assert result.match_status == "matched"
+
+
+def test_old_underscore_community_suffix_is_not_matched() -> None:
+    result = classify_image_filename("abc123_2.jpg", ["abc123"])
+
+    assert result.identifier is None
+    assert result.role is None
+    assert result.match_status == "unmatched"
+
+
+def test_existing_full_community_role_name_remains_supported() -> None:
+    result = classify_image_filename("abc123_08_社群2_1x1.png", ["abc123"])
+
+    assert result.identifier == "abc123"
+    assert result.role == "08_社群2_1x1"
+    assert result.match_status == "matched"
 
 
 def test_template_calibration_finds_left_and_right_logo_regions(tmp_path: Path) -> None:
