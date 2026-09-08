@@ -219,3 +219,18 @@ def test_media_page_filters_assets_by_language_and_channel() -> None:
     assert "全部语言" in source
     assert "全部频道" in source
     assert "visibleMediaGroups" in source
+
+
+def test_media_viewer_hides_thumbnail_strip_until_bottom_interaction() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "assets" / "app.js").read_text(encoding="utf-8")
+    styles = (root / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert "bindMediaViewerStrip" in source
+    assert "media-viewer-strip-handle" in source
+    assert "mouseenter" in source
+    assert "mouseleave" in source
+    assert "toggle-media-strip" in source
+    assert ".media-viewer.is-strip-open" in styles
+    assert "grid-template-rows: 68px minmax(0, 1fr) 18px" in styles
+    assert "grid-template-rows: 68px minmax(0, 1fr) 142px" in styles

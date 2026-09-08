@@ -30,7 +30,7 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaViewer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -747,19 +747,49 @@
   }
 
   function closeMediaViewer() {
+    if (state.mediaStripHideTimer) clearTimeout(state.mediaStripHideTimer);
+    state.mediaStripHideTimer = null;
     document.getElementById("mediaViewer")?.remove();
     state.mediaViewer = null;
+  }
+
+  function bindMediaViewerStrip() {
+    const viewerNode = el("mediaViewer");
+    const strip = viewerNode?.querySelector(".media-viewer-strip");
+    if (!viewerNode || !strip || !state.mediaViewer) return;
+    const openStrip = () => {
+      if (state.mediaStripHideTimer) clearTimeout(state.mediaStripHideTimer);
+      state.mediaStripHideTimer = null;
+      if (state.mediaViewer) state.mediaViewer.stripOpen = true;
+      viewerNode.classList.add("is-strip-open");
+    };
+    const scheduleClose = () => {
+      if (state.mediaStripHideTimer) clearTimeout(state.mediaStripHideTimer);
+      state.mediaStripHideTimer = setTimeout(() => {
+        if (strip.matches(":hover") || strip.contains(document.activeElement)) return;
+        if (state.mediaViewer) state.mediaViewer.stripOpen = false;
+        viewerNode.classList.remove("is-strip-open");
+        state.mediaStripHideTimer = null;
+      }, 900);
+    };
+    strip.addEventListener("mouseenter", openStrip);
+    strip.addEventListener("mouseleave", scheduleClose);
+    strip.addEventListener("focusin", openStrip);
+    strip.addEventListener("focusout", scheduleClose);
   }
 
   function renderMediaViewer() {
     const viewer = state.mediaViewer;
     if (!viewer) return closeMediaViewer();
+    if (state.mediaStripHideTimer) clearTimeout(state.mediaStripHideTimer);
+    state.mediaStripHideTimer = null;
     const group = state.visibleMediaGroups[viewer.groupIndex];
     const asset = group?.assets[viewer.assetIndex];
     if (!asset) return closeMediaViewer();
     document.getElementById("mediaViewer")?.remove();
-    document.body.insertAdjacentHTML("beforeend", `<div class="media-viewer" id="mediaViewer" role="dialog" aria-modal="true" aria-label="图片大图预览"><header><div><strong>${esc(group.meta.chinese_title || "素材预览")}</strong><span>${viewer.assetIndex + 1} / ${group.assets.length} · ${esc(asset.label)}</span></div><button class="media-viewer-close" type="button" data-action="close-media-viewer" aria-label="关闭">${icon("x")}</button></header><div class="media-viewer-stage"><button class="media-viewer-arrow is-left" type="button" data-action="step-media-viewer" data-step="-1" aria-label="上一张">${icon("chevron-left")}</button><img src="${asset.contentUrl}" alt="${esc(asset.label)}原始图"><button class="media-viewer-arrow is-right" type="button" data-action="step-media-viewer" data-step="1" aria-label="下一张">${icon("chevron-right")}</button></div><footer class="media-viewer-strip">${group.assets.map((item, index) => `<article class="${index === viewer.assetIndex ? "is-active" : ""}"><button class="media-viewer-mini" type="button" data-action="select-media-viewer" data-asset-index="${index}"><img src="${item.contentUrl}" alt="${esc(item.label)}"></button><button class="media-viewer-filename" type="button" data-action="reveal-media-asset" data-id="${esc(item.id)}" title="打开所在文件夹">${esc(item.label)}</button></article>`).join("")}</footer></div>`);
+    document.body.insertAdjacentHTML("beforeend", `<div class="media-viewer ${viewer.stripOpen ? "is-strip-open" : ""}" id="mediaViewer" role="dialog" aria-modal="true" aria-label="图片大图预览"><header><div><strong>${esc(group.meta.chinese_title || "素材预览")}</strong><span>${viewer.assetIndex + 1} / ${group.assets.length} · ${esc(asset.label)}</span></div><button class="media-viewer-close" type="button" data-action="close-media-viewer" aria-label="关闭">${icon("x")}</button></header><div class="media-viewer-stage"><button class="media-viewer-arrow is-left" type="button" data-action="step-media-viewer" data-step="-1" aria-label="上一张">${icon("chevron-left")}</button><img src="${asset.contentUrl}" alt="${esc(asset.label)}原始图"><button class="media-viewer-arrow is-right" type="button" data-action="step-media-viewer" data-step="1" aria-label="下一张">${icon("chevron-right")}</button></div><footer class="media-viewer-strip"><button class="media-viewer-strip-handle" type="button" data-action="toggle-media-strip" aria-label="展开或收起缩略图">${icon("chevron-up")}<span>移至底部查看缩略图</span></button><div class="media-viewer-strip-content">${group.assets.map((item, index) => `<article class="${index === viewer.assetIndex ? "is-active" : ""}"><button class="media-viewer-mini" type="button" data-action="select-media-viewer" data-asset-index="${index}"><img src="${item.contentUrl}" alt="${esc(item.label)}"></button><button class="media-viewer-filename" type="button" data-action="reveal-media-asset" data-id="${esc(item.id)}" title="打开所在文件夹">${esc(item.label)}</button></article>`).join("")}</div></footer></div>`);
     renderIcons();
+    bindMediaViewerStrip();
   }
 
   async function showMedia() {
@@ -1224,6 +1254,12 @@
         renderMediaViewer();
       }
       else if (action === "close-media-viewer") closeMediaViewer();
+      else if (action === "toggle-media-strip") {
+        if (state.mediaViewer) {
+          state.mediaViewer.stripOpen = !state.mediaViewer.stripOpen;
+          el("mediaViewer")?.classList.toggle("is-strip-open", state.mediaViewer.stripOpen);
+        }
+      }
       else if (action === "step-media-viewer") {
         const group = state.visibleMediaGroups[state.mediaViewer?.groupIndex];
         if (group?.assets.length) {
