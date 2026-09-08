@@ -177,3 +177,13 @@ def test_media_page_groups_assets_and_provides_image_viewer() -> None:
     assert "select-media-viewer" in source
     assert "reveal-media-asset" in source
     assert "/content" in source
+
+
+def test_media_page_filters_assets_by_language_and_channel() -> None:
+    source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="mediaLanguageFilter"' in source
+    assert 'id="mediaChannelFilter"' in source
+    assert "全部语言" in source
+    assert "全部频道" in source
+    assert "visibleMediaGroups" in source

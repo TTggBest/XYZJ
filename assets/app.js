@@ -30,7 +30,7 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], mediaViewer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaViewer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -666,12 +666,17 @@
     };
   }
 
-  function buildMediaGroups(assets, packages) {
+  function buildMediaGroups(assets, packages, channels) {
     const packageById = new Map(packages.map(item => [item.package_id, item]));
+    const channelById = new Map(channels.map(item => [item.channel_id, item]));
+    const channelByName = new Map(channels.flatMap(item => [item.original_name, item.operational_name, item.display_name].filter(Boolean).map(name => [name, item])));
     const groups = new Map();
     assets.filter(asset => asset.asset_type === "image").forEach(asset => {
       const fallback = mediaFallbackMeta(asset);
-      const meta = packageById.get(asset.operation_package_id) || fallback;
+      const packageMeta = packageById.get(asset.operation_package_id);
+      const sourceMeta = packageMeta || fallback;
+      const channel = channelById.get(sourceMeta.channel_id) || channelByName.get(sourceMeta.channel_name);
+      const meta = { ...sourceMeta, channel_id: sourceMeta.channel_id || channel?.channel_id || "", language_code: channel?.default_language || "" };
       const fallbackKey = String(asset.storage_key || "").split("/").slice(0, -1).join("/");
       const key = asset.operation_package_id || fallbackKey || asset.id;
       if (!groups.has(key)) groups.set(key, { key, meta, assets: [] });
@@ -698,6 +703,30 @@
     return `<article class="media-gallery-group"><div class="media-gallery-meta"><div><span>剧名</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${tag(group.status)}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button></div><div class="media-gallery-assets">${group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")}</div></article>`;
   }
 
+  function renderMediaGallery() {
+    const languageSelect = el("mediaLanguageFilter");
+    const channelSelect = el("mediaChannelFilter");
+    const content = el("mediaGalleryContent");
+    const summary = el("mediaGallerySummary");
+    if (!languageSelect || !channelSelect || !content || !summary) return;
+
+    const languageGroups = state.mediaGroups.filter(group => !state.mediaLanguage || group.meta.language_code === state.mediaLanguage);
+    const channels = [...new Map(languageGroups.map(group => {
+      const key = group.meta.channel_id || group.meta.channel_name;
+      return [key, { key, name: group.meta.channel_name || "未关联频道" }];
+    })).values()].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+    if (state.mediaChannel && !channels.some(channel => channel.key === state.mediaChannel)) state.mediaChannel = "";
+    channelSelect.innerHTML = `<option value="">全部频道</option>${channels.map(channel => `<option value="${esc(channel.key)}" ${channel.key === state.mediaChannel ? "selected" : ""}>${esc(channel.name)}</option>`).join("")}`;
+
+    state.visibleMediaGroups = languageGroups.filter(group => !state.mediaChannel || (group.meta.channel_id || group.meta.channel_name) === state.mediaChannel);
+    const imageCount = state.visibleMediaGroups.reduce((total, group) => total + group.assets.length, 0);
+    summary.textContent = `${state.visibleMediaGroups.length} 个剧目 · ${imageCount} 张可验收图片`;
+    content.innerHTML = state.visibleMediaGroups.length
+      ? `<div class="media-gallery">${state.visibleMediaGroups.map(mediaGroupCard).join("")}</div>`
+      : empty("没有符合条件的素材", "请调整语言或频道筛选条件。");
+    renderIcons();
+  }
+
   function closeMediaViewer() {
     document.getElementById("mediaViewer")?.remove();
     state.mediaViewer = null;
@@ -706,7 +735,7 @@
   function renderMediaViewer() {
     const viewer = state.mediaViewer;
     if (!viewer) return closeMediaViewer();
-    const group = state.mediaGroups[viewer.groupIndex];
+    const group = state.visibleMediaGroups[viewer.groupIndex];
     const asset = group?.assets[viewer.assetIndex];
     if (!asset) return closeMediaViewer();
     document.getElementById("mediaViewer")?.remove();
@@ -715,14 +744,17 @@
   }
 
   async function showMedia() {
-    const [workspace, batches, runs, assets, packages] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets?limit=500"), api("/packages/operations-overview")]);
+    const [workspace, batches, runs, assets, packages, channels] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets?limit=500"), api("/packages/operations-overview"), api("/channels/overview")]);
     state.imageRuns = runs; state.mediaAssets = assets;
     const batchOptions = batches.map(batch => `<option value="${batch.id}">${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
     const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
     const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
-    state.mediaGroups = buildMediaGroups(assets, packages);
-    const gallery = state.mediaGroups.map(mediaGroupCard).join("");
-    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${state.mediaGroups.length} 个剧目 · ${assets.filter(asset => asset.asset_type === "image").length} 张可验收图片`, gallery ? `<div class="media-gallery">${gallery}</div>` : empty("还没有素材资产", "封面和社群图生成后会按剧目集中展示。"))}</div>`;
+    state.mediaGroups = buildMediaGroups(assets, packages, channels);
+    const languages = [...new Set(state.mediaGroups.map(group => group.meta.language_code).filter(Boolean))].sort((left, right) => languageLabel(left).localeCompare(languageLabel(right), "zh-CN"));
+    if (state.mediaLanguage && !languages.includes(state.mediaLanguage)) state.mediaLanguage = "";
+    const filters = `<div class="media-gallery-filters"><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option>${languages.map(code => `<option value="${esc(code)}" ${code === state.mediaLanguage ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}</select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label></div>`;
+    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", "", `<div class="media-gallery-summary" id="mediaGallerySummary"></div><div id="mediaGalleryContent"></div>`, filters)}</div>`;
+    renderMediaGallery();
   }
 
   async function showSkills() {
@@ -1164,7 +1196,7 @@
       }
       else if (action === "close-media-viewer") closeMediaViewer();
       else if (action === "step-media-viewer") {
-        const group = state.mediaGroups[state.mediaViewer?.groupIndex];
+        const group = state.visibleMediaGroups[state.mediaViewer?.groupIndex];
         if (group?.assets.length) {
           state.mediaViewer.assetIndex = (state.mediaViewer.assetIndex + Number(button.dataset.step) + group.assets.length) % group.assets.length;
           renderMediaViewer();
@@ -1251,6 +1283,8 @@
     if (event.target.id === "packageChannel") { state.packageChannel = event.target.value; await loadView("packages"); }
     if (event.target.id === "packageStatus") { state.packageStatus = event.target.value; await loadView("packages"); }
     if (event.target.id === "packageSearch") { state.packageSearch = event.target.value; await loadView("packages"); }
+    if (event.target.id === "mediaLanguageFilter") { state.mediaLanguage = event.target.value; renderMediaGallery(); }
+    if (event.target.id === "mediaChannelFilter") { state.mediaChannel = event.target.value; renderMediaGallery(); }
     if (event.target.id === "scheduleChannel" && event.target.value) { try { await loadChannelScheduling(event.target.value); } catch (error) { notify(error.message, true); } }
   });
   document.addEventListener("submit", async event => {
@@ -1395,7 +1429,7 @@
     if (event.key === "Escape") { closeMediaViewer(); closeModal(); closeDrawer(); el("appShell").classList.remove("mobile-nav-open"); return; }
     if (state.mediaViewer && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
       event.preventDefault();
-      const group = state.mediaGroups[state.mediaViewer.groupIndex];
+      const group = state.visibleMediaGroups[state.mediaViewer.groupIndex];
       if (group?.assets.length) {
         const step = event.key === "ArrowLeft" ? -1 : 1;
         state.mediaViewer.assetIndex = (state.mediaViewer.assetIndex + step + group.assets.length) % group.assets.length;
