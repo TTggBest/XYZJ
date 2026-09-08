@@ -63,6 +63,7 @@ def test_package_operations_overview_exposes_copyable_modules() -> None:
         "covers",
         "description",
         "community_posts",
+        "media_assets",
         "copy_status",
         "copied_keys",
         "copied_count",
@@ -83,6 +84,10 @@ def test_package_community_cell_exposes_planned_time() -> None:
     schemas = TestClient(app).get("/openapi.json").json()["components"]["schemas"]
 
     assert "planned_time" in schemas["PackageCommunityCell"]["properties"]
+    assert "asset_ids" in schemas["PackageCommunityCell"]["properties"]
+    assert {"id", "original_filename", "asset_role", "status"} <= set(
+        schemas["PackageMediaAssetCell"]["properties"]
+    )
 
 
 def test_copy_progress_contract_tracks_current_output_ids() -> None:

@@ -20,6 +20,7 @@ from zhiju.models import (
     ChannelLogoProfile,
     ChannelPublishSlot,
     ChannelScheduleEntry,
+    CommunityPostAsset,
     Drama,
     ImageProcessingItem,
     ImageProcessingRun,
@@ -27,11 +28,15 @@ from zhiju.models import (
     MediaAsset,
     OperationPackage,
     OperationTask,
+    PackageCommunityPost,
+    PackageCoverVariant,
+    PackageTitle,
     ProductionBatch,
     WorkOrder,
 )
 from zhiju.schemas.image_processing import (
     ChannelLogoProfileRead,
+    ImageAssetReconcileRead,
     ImageProcessingBatchRead,
     ImageProcessingItemRead,
     ImageProcessingRunRead,
@@ -504,12 +509,14 @@ def import_images(
         )
         session.add(item)
         if status == "matched" and match.role and "_社群" in match.role:
-            _register_imported_community_asset(
+            asset = _register_imported_community_asset(
                 session,
                 item,
                 destination,
                 _relative(root, destination),
             )
+            session.flush()
+            _bind_asset_to_package_output(session, item, asset)
     run.matched_files = matched_count
     run.unmatched_files = unmatched_count
     run.status = "classified" if unmatched_count == 0 else "partially_classified"
@@ -638,6 +645,127 @@ def _register_imported_community_asset(
     return asset
 
 
+def _bind_asset_to_package_output(
+    session: Session,
+    item: ImageProcessingItem,
+    asset: MediaAsset,
+) -> bool:
+    if not item.package_id or not item.image_role:
+        return False
+    cover_match = re.search(r"_标题([123])_16x9$", item.image_role)
+    if cover_match:
+        cover = session.scalar(
+            select(PackageCoverVariant)
+            .join(PackageTitle, PackageTitle.id == PackageCoverVariant.title_id)
+            .where(
+                PackageCoverVariant.package_id == item.package_id,
+                PackageCoverVariant.aspect_ratio == "16:9",
+                PackageTitle.variant_number == int(cover_match.group(1)),
+            )
+            .order_by(
+                PackageCoverVariant.selected.desc(),
+                PackageCoverVariant.generation_number.desc(),
+            )
+        )
+        if cover is None:
+            return False
+        cover.asset_id = asset.id
+        if cover.status == "prompt_ready":
+            cover.status = "rendered"
+        return True
+
+    community_match = re.search(r"_社群(\d+)_1x1$", item.image_role)
+    if not community_match:
+        return False
+    post = session.scalar(
+        select(PackageCommunityPost)
+        .where(
+            PackageCommunityPost.package_id == item.package_id,
+            PackageCommunityPost.sequence_number == int(community_match.group(1)),
+        )
+        .order_by(
+            PackageCommunityPost.selected.desc(),
+            PackageCommunityPost.version_number.desc(),
+        )
+    )
+    if post is None:
+        return False
+    link = session.scalar(
+        select(CommunityPostAsset).where(
+            CommunityPostAsset.community_post_id == post.id,
+            CommunityPostAsset.position_number == 1,
+        )
+    )
+    if link is None:
+        session.add(
+            CommunityPostAsset(
+                community_post_id=post.id,
+                asset_id=asset.id,
+                position_number=1,
+            )
+        )
+    else:
+        link.asset_id = asset.id
+    return True
+
+
+def reconcile_processing_assets(session: Session) -> ImageAssetReconcileRead:
+    setting = _workspace_setting(session)
+    root, _, _ = _ensure_workspace(setting)
+    items = list(
+        session.scalars(
+            select(ImageProcessingItem)
+            .where(
+                ImageProcessingItem.match_status == "matched",
+                ImageProcessingItem.package_id.is_not(None),
+                or_(
+                    ImageProcessingItem.image_role.in_(LOGO_ROLES),
+                    ImageProcessingItem.image_role.like("%_社群%_1x1"),
+                ),
+            )
+            .order_by(ImageProcessingItem.created_at)
+        )
+    )
+    registered = 0
+    bound = 0
+    missing = 0
+    unbound = 0
+    for item in items:
+        relative_path = item.output_path if item.image_role in LOGO_ROLES else item.stored_path
+        if not relative_path:
+            continue
+        path = (root / relative_path).resolve()
+        if not path.is_file():
+            missing += 1
+            continue
+        existing = session.scalar(
+            select(MediaAsset).where(
+                MediaAsset.storage_provider == "local",
+                MediaAsset.storage_key == relative_path,
+            )
+        )
+        asset = (
+            _register_logo_asset(session, item, path, relative_path)
+            if item.image_role in LOGO_ROLES
+            else _register_imported_community_asset(session, item, path, relative_path)
+        )
+        if existing is None:
+            registered += 1
+        session.flush()
+        if _bind_asset_to_package_output(session, item, asset):
+            bound += 1
+        else:
+            unbound += 1
+    session.commit()
+    return ImageAssetReconcileRead(
+        scanned_items=len(items),
+        registered_assets=registered,
+        bound_assets=bound,
+        missing_files=missing,
+        unbound_assets=unbound,
+    )
+
+
 def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
     run = session.get(ImageProcessingRun, run_id)
     if run is None:
@@ -669,7 +797,9 @@ def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
         try:
             _compose_logo(root / item.stored_path, output_path, profile, root)
             item.output_path = _relative(root, output_path)
-            _register_logo_asset(session, item, output_path, item.output_path)
+            asset = _register_logo_asset(session, item, output_path, item.output_path)
+            session.flush()
+            _bind_asset_to_package_output(session, item, asset)
             item.error_message = None
             generated += 1
         except Exception as exc:

@@ -637,6 +637,18 @@ def list_package_operation_overview(
     copy_rows = list(session.scalars(
         select(PackageOutputCopyState).where(PackageOutputCopyState.package_id.in_(package_ids))
     ))
+    media_rows = list(
+        session.scalars(
+            select(MediaAsset)
+            .where(
+                MediaAsset.operation_package_id.in_(package_ids),
+                MediaAsset.asset_type == "image",
+                MediaAsset.status == "ready",
+                MediaAsset.deleted_at.is_(None),
+            )
+            .order_by(MediaAsset.created_at)
+        )
+    )
 
     titles: dict[str, list[PackageTitle]] = defaultdict(list)
     for title in _current_rows(title_rows, lambda row: (row.package_id, row.variant_number)):
@@ -651,6 +663,18 @@ def list_package_operation_overview(
     communities: dict[str, list[PackageCommunityPost]] = defaultdict(list)
     for post in _current_rows(community_rows, lambda row: (row.package_id, row.sequence_number)):
         communities[post.package_id].append(post)
+    community_asset_ids: dict[str, list[str]] = defaultdict(list)
+    current_post_ids = [post.id for posts in communities.values() for post in posts]
+    if current_post_ids:
+        for post_id, asset_id in session.execute(
+            select(CommunityPostAsset.community_post_id, CommunityPostAsset.asset_id)
+            .where(CommunityPostAsset.community_post_id.in_(current_post_ids))
+            .order_by(CommunityPostAsset.community_post_id, CommunityPostAsset.position_number)
+        ):
+            community_asset_ids[post_id].append(asset_id)
+    media_by_package: dict[str, list[MediaAsset]] = defaultdict(list)
+    for asset in media_rows:
+        media_by_package[asset.operation_package_id].append(asset)
     playlists: dict[str, tuple[PackagePlaylistAssignment, ChannelPlaylist]] = {}
     for assignment, playlist in playlist_rows:
         current = playlists.get(assignment.package_id)
@@ -668,6 +692,20 @@ def list_package_operation_overview(
         package_covers = covers.get(package.id, [])
         package_description = descriptions.get(package.id)
         package_communities = sorted(communities.get(package.id, []), key=lambda item: item.sequence_number)
+        package_community_cells = [
+            {
+                "id": post.id,
+                "sequence_number": post.sequence_number,
+                "localized_text": post.localized_text,
+                "chinese_translation": post.chinese_translation,
+                "image_prompt": post.image_prompt,
+                "planned_time": post.planned_time,
+                "asset_ids": community_asset_ids.get(post.id, []),
+                "selected": post.selected,
+                "status": post.status,
+            }
+            for post in package_communities
+        ]
         copy_progress = _copy_progress_payload(
             package.id,
             _copy_targets(package_titles, package_covers, package_description, package_communities),
@@ -712,7 +750,8 @@ def list_package_operation_overview(
             "titles": package_titles,
             "covers": package_covers,
             "description": package_description,
-            "community_posts": package_communities,
+            "community_posts": package_community_cells,
+            "media_assets": media_by_package.get(package.id, []),
             **copy_progress,
         })
     return result

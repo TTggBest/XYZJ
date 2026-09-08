@@ -73,3 +73,11 @@ class ImageProcessingRunRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     items: list[ImageProcessingItemRead]
+
+
+class ImageAssetReconcileRead(BaseModel):
+    scanned_items: int
+    registered_assets: int
+    bound_assets: int
+    missing_files: int
+    unbound_assets: int

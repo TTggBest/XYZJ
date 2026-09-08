@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from zhiju.database import get_db
 from zhiju.schemas.image_processing import (
     ChannelLogoProfileRead,
+    ImageAssetReconcileRead,
     ImageProcessingBatchRead,
     ImageProcessingRunRead,
     ImageWorkspaceRead,
@@ -16,6 +17,7 @@ from zhiju.services.image_processing import (
     list_channel_logo_profiles,
     list_processing_batches,
     list_processing_runs,
+    reconcile_processing_assets,
     reveal_media_asset_folder,
     save_channel_logo_profile,
     save_workspace,
@@ -96,6 +98,16 @@ async def post_image_import(
 def post_generate_logo(run_id: str, session: Session = Depends(get_db)) -> ImageProcessingRunRead:
     try:
         return generate_logos(session, run_id)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/image-processing/assets/reconcile", response_model=ImageAssetReconcileRead)
+def post_reconcile_processing_assets(
+    session: Session = Depends(get_db),
+) -> ImageAssetReconcileRead:
+    try:
+        return reconcile_processing_assets(session)
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
