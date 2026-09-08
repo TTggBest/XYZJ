@@ -30,7 +30,7 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], mediaViewer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -645,27 +645,84 @@
     root.innerHTML = `<div class="page-stack"><div class="kpi-grid">${kpi("video", "视频", videos.length, "已落库 YouTube 视频")}${kpi("link", "未关联排期", unmatched, "等待频道排期或运营任务关联")}${kpi("message-square", "评论", comments.length, "默认排除频道自身评论")}${kpi("refresh-cw", "同步水位", watermarks.length, "按频道和数据类型隔离")}${kpi("gauge", "配额记录", quota.length, "数据库聚合")}</div>${section("YouTube 视频", "视频通过频道排期或运营任务关联剧目，不直接绑定公共剧库", videoRows.length ? table(["视频", "频道 ID", "排期剧目", "发布状态", "隐私状态", "发布时间"], videoRows, 980) : empty("还没有 YouTube 视频数据", "频道授权并同步后，视频数据会按频道落库。"))}</div>`;
   }
 
+  function mediaAssetPosition(asset) {
+    const source = `${asset.storage_key || ""}/${asset.original_filename || ""}`;
+    const cover = source.match(/(?:02|04|06)_标题([123])_16x9(?:_logo)?\.[^/]+$/);
+    if (cover) return { kind: "cover", number: Number(cover[1]), label: `封面${cover[1]}` };
+    const community = source.match(/\d+_社群(\d+)_1x1\.[^/]+$/);
+    if (community) return { kind: "community", number: Number(community[1]), label: `社群${community[1]}` };
+    return { kind: "other", number: 999, label: asset.original_filename || "其他图片" };
+  }
+
+  function mediaFallbackMeta(asset) {
+    const parts = String(asset.storage_key || "").split("/");
+    const rootName = parts.includes("Logo成品") ? "Logo成品" : parts.includes("图片导入") ? "图片导入" : "";
+    const rootIndex = rootName ? parts.indexOf(rootName) : -1;
+    return {
+      chinese_title: rootIndex >= 0 ? parts[rootIndex + 5] || asset.original_filename || "未命名素材" : asset.original_filename || "未命名素材",
+      channel_name: rootIndex >= 0 ? parts[rootIndex + 3] || "未关联频道" : "未关联频道",
+      batch_number: rootIndex >= 0 ? parts[rootIndex + 1] || "未分批" : "未分批",
+      planned_local_time: rootIndex >= 0 ? parts[rootIndex + 4] || "未排期" : "未排期",
+    };
+  }
+
+  function buildMediaGroups(assets, packages) {
+    const packageById = new Map(packages.map(item => [item.package_id, item]));
+    const groups = new Map();
+    assets.filter(asset => asset.asset_type === "image").forEach(asset => {
+      const fallback = mediaFallbackMeta(asset);
+      const meta = packageById.get(asset.operation_package_id) || fallback;
+      const fallbackKey = String(asset.storage_key || "").split("/").slice(0, -1).join("/");
+      const key = asset.operation_package_id || fallbackKey || asset.id;
+      if (!groups.has(key)) groups.set(key, { key, meta, assets: [] });
+      groups.get(key).assets.push({ ...asset, ...mediaAssetPosition(asset), contentUrl: `/api/v3/media-assets/${encodeURIComponent(asset.id)}/content` });
+    });
+    return [...groups.values()].map(group => {
+      group.assets.sort((left, right) => {
+        const kindOrder = { cover: 0, community: 1, other: 2 };
+        return kindOrder[left.kind] - kindOrder[right.kind] || left.number - right.number || String(left.original_filename || "").localeCompare(String(right.original_filename || ""));
+      });
+      group.createdAt = group.assets.reduce((latest, asset) => !latest || new Date(asset.created_at) > new Date(latest) ? asset.created_at : latest, null);
+      group.status = group.assets.every(asset => asset.status === "ready") ? "ready" : group.assets.some(asset => asset.status === "failed") ? "failed" : group.assets[0]?.status;
+      return group;
+    }).sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+  }
+
+  function mediaAssetCard(asset, groupIndex, assetIndex) {
+    return `<article class="media-gallery-item"><button class="media-gallery-thumb" type="button" data-action="open-media-viewer" data-group-index="${groupIndex}" data-asset-index="${assetIndex}" aria-label="查看${esc(asset.label)}大图"><img src="${asset.contentUrl}" alt="${esc(asset.label)}" loading="lazy"></button><button class="media-gallery-name" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="打开图片所在文件夹">${icon("folder-open")}<span>${esc(asset.label)}</span></button></article>`;
+  }
+
+  function mediaGroupCard(group, groupIndex) {
+    const meta = group.meta;
+    const schedule = meta.planned_local_time || meta.target_publish_date || "未排期";
+    return `<article class="media-gallery-group"><div class="media-gallery-meta"><div><span>剧名</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${tag(group.status)}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button></div><div class="media-gallery-assets">${group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")}</div></article>`;
+  }
+
+  function closeMediaViewer() {
+    document.getElementById("mediaViewer")?.remove();
+    state.mediaViewer = null;
+  }
+
+  function renderMediaViewer() {
+    const viewer = state.mediaViewer;
+    if (!viewer) return closeMediaViewer();
+    const group = state.mediaGroups[viewer.groupIndex];
+    const asset = group?.assets[viewer.assetIndex];
+    if (!asset) return closeMediaViewer();
+    document.getElementById("mediaViewer")?.remove();
+    document.body.insertAdjacentHTML("beforeend", `<div class="media-viewer" id="mediaViewer" role="dialog" aria-modal="true" aria-label="图片大图预览"><header><div><strong>${esc(group.meta.chinese_title || "素材预览")}</strong><span>${viewer.assetIndex + 1} / ${group.assets.length} · ${esc(asset.label)}</span></div><button class="media-viewer-close" type="button" data-action="close-media-viewer" aria-label="关闭">${icon("x")}</button></header><div class="media-viewer-stage"><button class="media-viewer-arrow is-left" type="button" data-action="step-media-viewer" data-step="-1" aria-label="上一张">${icon("chevron-left")}</button><img src="${asset.contentUrl}" alt="${esc(asset.label)}原始图"><button class="media-viewer-arrow is-right" type="button" data-action="step-media-viewer" data-step="1" aria-label="下一张">${icon("chevron-right")}</button></div><footer class="media-viewer-strip">${group.assets.map((item, index) => `<article class="${index === viewer.assetIndex ? "is-active" : ""}"><button class="media-viewer-mini" type="button" data-action="select-media-viewer" data-asset-index="${index}"><img src="${item.contentUrl}" alt="${esc(item.label)}"></button><button class="media-viewer-filename" type="button" data-action="reveal-media-asset" data-id="${esc(item.id)}" title="打开所在文件夹">${esc(item.label)}</button></article>`).join("")}</footer></div>`);
+    renderIcons();
+  }
+
   async function showMedia() {
-    const [workspace, batches, runs, assets] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets")]);
+    const [workspace, batches, runs, assets, packages] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets?limit=500"), api("/packages/operations-overview")]);
     state.imageRuns = runs; state.mediaAssets = assets;
     const batchOptions = batches.map(batch => `<option value="${batch.id}">${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
     const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
     const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
-    const rows = assets.map(a => {
-      const parts = String(a.storage_key || "").split("/");
-      const logoIndex = parts.indexOf("Logo成品");
-      const isLogoOutput = logoIndex >= 0 && parts.length > logoIndex + 6;
-      const batch = isLogoOutput ? parts[logoIndex + 1] : "—";
-      const channel = isLogoOutput ? parts[logoIndex + 3] : "未关联频道";
-      const schedule = isLogoOutput ? parts[logoIndex + 4] : "—";
-      const drama = isLogoOutput ? parts[logoIndex + 5] : (a.original_filename || "未命名素材");
-      const coverMatch = String(a.original_filename || "").match(/^(02|04|06)_标题([123])_16x9_logo\.png$/);
-      const assetName = coverMatch ? `封面 ${coverMatch[2]}` : (a.original_filename || a.storage_key);
-      const contentUrl = `/api/v3/media-assets/${encodeURIComponent(a.id)}/content`;
-      const preview = a.asset_type === "image" ? `<a class="media-thumb" href="${contentUrl}" target="_blank" rel="noopener" title="查看大图"><img src="${contentUrl}" alt="${esc(drama)} ${esc(assetName)}" loading="lazy"></a>` : `<span class="media-file-icon">${icon("file")}</span>`;
-      return `<tr><td>${preview}</td><td><span class="cell-main">${esc(drama)} · ${esc(assetName)}</span><span class="cell-sub">${esc(channel)}</span></td><td><span class="cell-main mono">${esc(batch)}</span><span class="cell-sub">${esc(schedule)}</span></td><td>${tag(a.status)}</td><td>${fmtUtc(a.created_at)}</td><td><a class="button button-secondary button-small" href="${contentUrl}" target="_blank" rel="noopener">${icon("image")} 查看大图</a></td></tr>`;
-    });
-    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${assets.length} 项素材元数据 · 点击缩略图或“查看大图”验收成品`, rows.length ? table(["预览", "剧目与封面", "批次与排期", "状态", "创建时间", ""], rows, 980, "media-assets-table") : empty("还没有素材资产", "封面、社区图和文档产物生成后会登记到素材资产表。"))}</div>`;
+    state.mediaGroups = buildMediaGroups(assets, packages);
+    const gallery = state.mediaGroups.map(mediaGroupCard).join("");
+    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${state.mediaGroups.length} 个剧目 · ${assets.filter(asset => asset.asset_type === "image").length} 张可验收图片`, gallery ? `<div class="media-gallery">${gallery}</div>` : empty("还没有素材资产", "封面和社群图生成后会按剧目集中展示。"))}</div>`;
   }
 
   async function showSkills() {
@@ -1101,6 +1158,28 @@
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }
       else if (action === "go-tasks") await loadView("workorders");
       else if (action === "go-image-settings") { state.settingsTab = "images"; await loadView("settings"); }
+      else if (action === "open-media-viewer") {
+        state.mediaViewer = { groupIndex: Number(button.dataset.groupIndex), assetIndex: Number(button.dataset.assetIndex) };
+        renderMediaViewer();
+      }
+      else if (action === "close-media-viewer") closeMediaViewer();
+      else if (action === "step-media-viewer") {
+        const group = state.mediaGroups[state.mediaViewer?.groupIndex];
+        if (group?.assets.length) {
+          state.mediaViewer.assetIndex = (state.mediaViewer.assetIndex + Number(button.dataset.step) + group.assets.length) % group.assets.length;
+          renderMediaViewer();
+        }
+      }
+      else if (action === "select-media-viewer") {
+        if (state.mediaViewer) {
+          state.mediaViewer.assetIndex = Number(button.dataset.assetIndex);
+          renderMediaViewer();
+        }
+      }
+      else if (action === "reveal-media-asset") {
+        const result = await api(`/media-assets/${id}/reveal`, { method: "POST" });
+        notify(`已打开文件夹：${result.folder}`);
+      }
       else if (action === "generate-run-logo") {
         if (button.dataset.busy === "true") return;
         const originalContent = button.innerHTML;
@@ -1313,7 +1392,17 @@
   el("modalBackdrop").addEventListener("click", event => { if (event.target === el("modalBackdrop")) closeModal(); });
   el("drawerBackdrop").addEventListener("click", event => { if (event.target === el("drawerBackdrop")) closeDrawer(); });
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape") { closeModal(); closeDrawer(); el("appShell").classList.remove("mobile-nav-open"); return; }
+    if (event.key === "Escape") { closeMediaViewer(); closeModal(); closeDrawer(); el("appShell").classList.remove("mobile-nav-open"); return; }
+    if (state.mediaViewer && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault();
+      const group = state.mediaGroups[state.mediaViewer.groupIndex];
+      if (group?.assets.length) {
+        const step = event.key === "ArrowLeft" ? -1 : 1;
+        state.mediaViewer.assetIndex = (state.mediaViewer.assetIndex + step + group.assets.length) % group.assets.length;
+        renderMediaViewer();
+      }
+      return;
+    }
     if (event.key !== "Enter") return;
     const libraryFilter = event.target.closest?.("#dramaLibrarySearch, #dramaLibraryBatch");
     const progressFilter = event.target.closest?.("#dramaProgressSearch, #dramaProgressBatch");

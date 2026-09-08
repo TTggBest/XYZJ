@@ -16,6 +16,7 @@ from zhiju.services.image_processing import (
     list_channel_logo_profiles,
     list_processing_batches,
     list_processing_runs,
+    reveal_media_asset_folder,
     save_channel_logo_profile,
     save_workspace,
 )
@@ -95,5 +96,18 @@ async def post_image_import(
 def post_generate_logo(run_id: str, session: Session = Depends(get_db)) -> ImageProcessingRunRead:
     try:
         return generate_logos(session, run_id)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/media-assets/{asset_id}/reveal")
+def post_reveal_media_asset_folder(
+    asset_id: str, session: Session = Depends(get_db)
+) -> dict[str, str]:
+    try:
+        folder = reveal_media_asset_folder(session, asset_id)
+        return {"folder": str(folder)}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
