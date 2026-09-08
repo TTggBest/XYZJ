@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 from pathlib import Path
+from types import SimpleNamespace
 
+from zhiju import permissions
 from zhiju.app import app
 
 
@@ -42,3 +44,14 @@ def test_skills_page_can_manage_draft_versions_and_publish() -> None:
     assert 'data-action="publish-skill-version"' in source
     assert 'id="skillVersionForm"' in source
     assert "`/skills/${skillId}/versions/${versionId}/publish`" in source
+
+
+def test_non_builder_devices_cannot_read_skills(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permissions, "get_settings", lambda: SimpleNamespace(device_role="worker")
+    )
+
+    response = TestClient(app).get("/api/v3/skills")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "仅代码机可以查看 Skills 和系统日志"

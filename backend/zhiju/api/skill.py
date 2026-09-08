@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
+from zhiju.permissions import require_builder_device
 from zhiju.schemas.skill import (
     SkillCreate,
     SkillDetail,
@@ -26,7 +27,9 @@ from zhiju.services.skill import (
 )
 
 
-router = APIRouter(prefix="/v3", tags=["skills"])
+router = APIRouter(
+    prefix="/v3", tags=["skills"], dependencies=[Depends(require_builder_device)]
+)
 
 
 def _raise(exc: Exception) -> HTTPException:

@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
+from zhiju import permissions
 from zhiju.app import app
 from zhiju.models import (
     AuditEvent,
@@ -31,3 +33,14 @@ def test_history_timestamps_keep_microsecond_ordering() -> None:
         YoutubeVideoStatusHistory.changed_at,
     )
     assert all(column.type.fsp == 6 for column in columns)
+
+
+def test_non_builder_devices_cannot_read_system_logs(monkeypatch) -> None:
+    monkeypatch.setattr(
+        permissions, "get_settings", lambda: SimpleNamespace(device_role="studio")
+    )
+
+    client = TestClient(app)
+
+    assert client.get("/api/v3/system-events").status_code == 403
+    assert client.get("/api/v3/audit-events").status_code == 403
