@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -156,6 +157,16 @@ def resolve_media_asset_file(session: Session, asset_id: str) -> tuple[MediaAsse
     if not path.is_file():
         raise FileNotFoundError("素材文件不存在")
     return asset, path
+
+
+def reveal_media_asset_folder(session: Session, asset_id: str) -> Path:
+    _, path = resolve_media_asset_file(session, asset_id)
+    subprocess.Popen(
+        ["/usr/bin/open", str(path.parent)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return path.parent
 
 
 def save_workspace(session: Session, root_path: str) -> ImageWorkspaceRead:
@@ -478,7 +489,7 @@ def import_images(
             unmatched_count += 1
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(data)
-        session.add(ImageProcessingItem(
+        item = ImageProcessingItem(
             run_id=run.id,
             original_filename=original_name,
             stored_path=_relative(root, destination),
@@ -490,7 +501,15 @@ def import_images(
             drama_id=context.drama_id if context else None,
             schedule_id=context.schedule_id if context else None,
             error_message=error,
-        ))
+        )
+        session.add(item)
+        if status == "matched" and match.role and "_社群" in match.role:
+            _register_imported_community_asset(
+                session,
+                item,
+                destination,
+                _relative(root, destination),
+            )
     run.matched_files = matched_count
     run.unmatched_files = unmatched_count
     run.status = "classified" if unmatched_count == 0 else "partially_classified"
@@ -558,6 +577,45 @@ def _register_logo_asset(
         "asset_type": "image",
         "asset_role": "thumbnail",
         "mime_type": "image/png",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "width": width,
+        "height": height,
+        "file_size_bytes": len(content),
+        "status": "ready",
+        "deleted_at": None,
+    }
+    asset = session.scalar(
+        select(MediaAsset).where(
+            MediaAsset.storage_provider == "local",
+            MediaAsset.storage_key == storage_key,
+        )
+    )
+    if asset is None:
+        asset = MediaAsset(storage_provider="local", storage_key=storage_key, **values)
+        session.add(asset)
+    else:
+        for key, value in values.items():
+            setattr(asset, key, value)
+    return asset
+
+
+def _register_imported_community_asset(
+    session: Session,
+    item: ImageProcessingItem,
+    source_path: Path,
+    storage_key: str,
+) -> MediaAsset:
+    content = source_path.read_bytes()
+    with Image.open(source_path) as image:
+        width, height = image.size
+        mime_type = Image.MIME.get(image.format or "") or "image/png"
+    values = {
+        "channel_id": item.channel_id,
+        "operation_package_id": item.package_id,
+        "original_filename": source_path.name,
+        "asset_type": "image",
+        "asset_role": "community_image",
+        "mime_type": mime_type,
         "sha256": hashlib.sha256(content).hexdigest(),
         "width": width,
         "height": height,

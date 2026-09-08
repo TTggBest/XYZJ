@@ -1,6 +1,6 @@
 from hashlib import sha256
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
@@ -8,9 +8,11 @@ from PIL import Image, ImageDraw
 from zhiju.app import app
 from zhiju.models import ImageProcessingItem, MediaAsset
 from zhiju.services.image_processing import (
+    _register_imported_community_asset,
     _register_logo_asset,
     calibrate_template,
     classify_image_filename,
+    reveal_media_asset_folder,
     resolve_workspace_root,
 )
 
@@ -27,6 +29,7 @@ def test_image_processing_routes_are_registered() -> None:
     assert "get" in paths["/api/v3/image-processing/runs"]
     assert "post" in paths["/api/v3/image-processing/runs/{run_id}/generate-logo"]
     assert "get" in paths["/api/v3/media-assets/{asset_id}/content"]
+    assert "post" in paths["/api/v3/media-assets/{asset_id}/reveal"]
     assert client.get("/api/v3/channels/logo-profiles").status_code == 200
 
 
@@ -116,6 +119,44 @@ def test_generated_logo_is_registered_as_media_asset(tmp_path: Path) -> None:
     session.add.assert_called_once_with(asset)
 
 
+def test_imported_community_image_is_registered_as_media_asset(tmp_path: Path) -> None:
+    source_path = tmp_path / "08_社群2_1x1.jpg"
+    Image.new("RGB", (1080, 1080), "blue").save(source_path)
+    session = Mock()
+    session.scalar.return_value = None
+    item = ImageProcessingItem(channel_id="channel-id", package_id="package-id")
+
+    asset = _register_imported_community_asset(
+        session, item, source_path, "用户产物/08_社群2_1x1.jpg"
+    )
+
+    assert isinstance(asset, MediaAsset)
+    assert asset.asset_role == "community_image"
+    assert asset.operation_package_id == "package-id"
+    assert asset.width == 1080
+    assert asset.height == 1080
+    session.add.assert_called_once_with(asset)
+
+
+def test_reveal_media_asset_opens_its_parent_folder(tmp_path: Path) -> None:
+    image_path = tmp_path / "drama" / "02_标题1_16x9_logo.png"
+    image_path.parent.mkdir()
+    image_path.write_bytes(b"image")
+
+    with (
+        patch(
+            "zhiju.services.image_processing.resolve_media_asset_file",
+            return_value=(Mock(), image_path),
+        ),
+        patch("zhiju.services.image_processing.subprocess.Popen") as popen,
+    ):
+        folder = reveal_media_asset_folder(Mock(), "asset-id")
+
+    assert folder == image_path.parent
+    popen.assert_called_once()
+    assert popen.call_args.args[0] == ["/usr/bin/open", str(image_path.parent)]
+
+
 def test_media_page_shows_busy_states_and_prevents_duplicate_actions() -> None:
     source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
 
@@ -125,10 +166,14 @@ def test_media_page_shows_busy_states_and_prevents_duplicate_actions() -> None:
     assert "并登记到素材资产" in source
 
 
-def test_media_page_uses_readable_cover_names_and_real_image_previews() -> None:
+def test_media_page_groups_assets_and_provides_image_viewer() -> None:
     source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
 
-    assert "剧目与封面" in source
-    assert "查看大图" in source
-    assert "media-thumb" in source
+    assert "buildMediaGroups" in source
+    assert "media-gallery-meta" in source
+    assert "批次·档期" in source
+    assert "open-media-viewer" in source
+    assert "step-media-viewer" in source
+    assert "select-media-viewer" in source
+    assert "reveal-media-asset" in source
     assert "/content" in source
