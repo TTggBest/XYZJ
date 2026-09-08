@@ -1,10 +1,14 @@
+from hashlib import sha256
 from pathlib import Path
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from zhiju.app import app
+from zhiju.models import ImageProcessingItem, MediaAsset
 from zhiju.services.image_processing import (
+    _register_logo_asset,
     calibrate_template,
     classify_image_filename,
     resolve_workspace_root,
@@ -91,3 +95,30 @@ def test_template_calibration_finds_left_and_right_logo_regions(tmp_path: Path) 
     assert config["right_logo"]["x"] > 0.6
     assert config["left_logo"]["width"] > 0.15
     assert config["right_logo"]["width"] > 0.2
+
+
+def test_generated_logo_is_registered_as_media_asset(tmp_path: Path) -> None:
+    output_path = tmp_path / "02_标题1_16x9_logo.png"
+    Image.new("RGB", (1280, 720), "green").save(output_path)
+    session = Mock()
+    session.scalar.return_value = None
+    item = ImageProcessingItem(channel_id="channel-id", package_id="package-id")
+
+    asset = _register_logo_asset(session, item, output_path, "用户产物/logo.png")
+
+    assert isinstance(asset, MediaAsset)
+    assert asset.asset_role == "thumbnail"
+    assert asset.operation_package_id == "package-id"
+    assert asset.width == 1280
+    assert asset.height == 720
+    assert asset.sha256 == sha256(output_path.read_bytes()).hexdigest()
+    session.add.assert_called_once_with(asset)
+
+
+def test_media_page_shows_busy_states_and_prevents_duplicate_actions() -> None:
+    source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert "正在上传并分类" in source
+    assert "正在生成…" in source
+    assert source.count('dataset.busy === "true"') >= 2
+    assert "并登记到素材资产" in source
