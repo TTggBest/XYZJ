@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import re
@@ -22,6 +23,7 @@ from zhiju.models import (
     ImageProcessingItem,
     ImageProcessingRun,
     ImageWorkspaceSetting,
+    MediaAsset,
     OperationPackage,
     OperationTask,
     ProductionBatch,
@@ -522,6 +524,44 @@ def _compose_logo(source_path: Path, output_path: Path, profile: ChannelLogoProf
     base.save(output_path, "PNG")
 
 
+def _register_logo_asset(
+    session: Session,
+    item: ImageProcessingItem,
+    output_path: Path,
+    storage_key: str,
+) -> MediaAsset:
+    content = output_path.read_bytes()
+    with Image.open(output_path) as image:
+        width, height = image.size
+    values = {
+        "channel_id": item.channel_id,
+        "operation_package_id": item.package_id,
+        "original_filename": output_path.name,
+        "asset_type": "image",
+        "asset_role": "thumbnail",
+        "mime_type": "image/png",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "width": width,
+        "height": height,
+        "file_size_bytes": len(content),
+        "status": "ready",
+        "deleted_at": None,
+    }
+    asset = session.scalar(
+        select(MediaAsset).where(
+            MediaAsset.storage_provider == "local",
+            MediaAsset.storage_key == storage_key,
+        )
+    )
+    if asset is None:
+        asset = MediaAsset(storage_provider="local", storage_key=storage_key, **values)
+        session.add(asset)
+    else:
+        for key, value in values.items():
+            setattr(asset, key, value)
+    return asset
+
+
 def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
     run = session.get(ImageProcessingRun, run_id)
     if run is None:
@@ -553,6 +593,7 @@ def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
         try:
             _compose_logo(root / item.stored_path, output_path, profile, root)
             item.output_path = _relative(root, output_path)
+            _register_logo_asset(session, item, output_path, item.output_path)
             item.error_message = None
             generated += 1
         except Exception as exc:

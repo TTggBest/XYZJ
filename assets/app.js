@@ -649,7 +649,7 @@
     const [workspace, batches, runs, assets] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets")]);
     state.imageRuns = runs;
     const batchOptions = batches.map(batch => `<option value="${batch.id}">${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
-    const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
+    const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
     const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
     const rows = assets.map(a => `<tr><td><span class="cell-main">${esc(a.original_filename || a.storage_key)}</span><span class="cell-sub mono">${esc(a.storage_key)}</span></td><td>${esc(a.asset_type)}</td><td>${esc(a.asset_role || "—")}</td><td>${esc(a.storage_provider)}</td><td>${tag(a.status)}</td><td>${fmtUtc(a.created_at)}</td></tr>`);
     root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${assets.length} 项素材元数据 · 文件状态以数据库为准`, rows.length ? table(["素材", "类型", "用途", "存储", "状态", "创建时间"], rows, 900) : empty("还没有素材资产", "封面、社区图和文档产物生成后会登记到素材资产表。"))}</div>`;
@@ -1088,7 +1088,24 @@
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }
       else if (action === "go-tasks") await loadView("workorders");
       else if (action === "go-image-settings") { state.settingsTab = "images"; await loadView("settings"); }
-      else if (action === "generate-run-logo") { button.disabled = true; const run = await api(`/image-processing/runs/${id}/generate-logo`, { method: "POST" }); notify(`已生成 ${run.generated_files} 张 Logo 图`); await loadView("media", { preservePosition: true }); }
+      else if (action === "generate-run-logo") {
+        if (button.dataset.busy === "true") return;
+        const originalContent = button.innerHTML;
+        button.dataset.busy = "true";
+        button.disabled = true;
+        button.innerHTML = `<span class="inline-spinner"></span> 正在生成…`;
+        try {
+          const run = await api(`/image-processing/runs/${id}/generate-logo`, { method: "POST" });
+          notify(`已生成 ${run.generated_files} 张 Logo 图，并登记到素材资产`);
+          await loadView("media", { preservePosition: true });
+        } catch (error) {
+          delete button.dataset.busy;
+          button.disabled = false;
+          button.innerHTML = originalContent;
+          renderIcons();
+          throw error;
+        }
+      }
       else if (action === "image-run-detail") {
         const run = state.imageRuns.find(item => item.id === id);
         if (run) {
@@ -1198,12 +1215,30 @@
         notify(typeId ? "短剧类型已更新" : "短剧类型已新增"); closeModal(); await loadView("settings");
       }
       if (form.id === "imageImportForm") {
+        if (form.dataset.busy === "true") return;
         const files = [...form.elements.folder_files.files, ...form.elements.image_files.files];
         if (!files.length) throw new Error("请选择文件夹或图片");
+        const submitButton = form.querySelector('button[type="submit"]');
+        const progress = form.querySelector(".operation-progress");
+        const originalContent = submitButton.innerHTML;
+        form.dataset.busy = "true";
+        submitButton.disabled = true;
+        submitButton.innerHTML = `<span class="inline-spinner"></span> 正在导入…`;
+        progress.textContent = `正在上传并分类 ${files.length} 张图片，完成前请勿重复操作`;
         const payload = new FormData(); payload.append("batch_id", data.batch_id);
         files.forEach(file => payload.append("files", file, file.name));
-        const run = await api("/image-processing/import", { method: "POST", body: payload });
-        notify(`分类完成：匹配 ${run.matched_files}，未匹配 ${run.unmatched_files}`); await loadView("media", { preservePosition: true });
+        try {
+          const run = await api("/image-processing/import", { method: "POST", body: payload });
+          notify(`分类完成：匹配 ${run.matched_files}，未匹配 ${run.unmatched_files}`);
+          await loadView("media", { preservePosition: true });
+        } catch (error) {
+          delete form.dataset.busy;
+          submitButton.disabled = false;
+          submitButton.innerHTML = originalContent;
+          progress.textContent = "导入失败，请根据提示修正后重试";
+          renderIcons();
+          throw error;
+        }
       }
       if (form.matches(".cadence-template-form")) {
         const count = Number(form.dataset.cadenceCount), slots = [];
