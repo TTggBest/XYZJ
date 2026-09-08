@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 from zhiju.app import app
 from zhiju.models import ImageProcessingItem, MediaAsset
 from zhiju.services.image_processing import (
+    _bind_asset_to_package_output,
     _register_imported_community_asset,
     _register_logo_asset,
     calibrate_template,
@@ -28,6 +29,7 @@ def test_image_processing_routes_are_registered() -> None:
     assert "post" in paths["/api/v3/image-processing/import"]
     assert "get" in paths["/api/v3/image-processing/runs"]
     assert "post" in paths["/api/v3/image-processing/runs/{run_id}/generate-logo"]
+    assert "post" in paths["/api/v3/image-processing/assets/reconcile"]
     assert "get" in paths["/api/v3/media-assets/{asset_id}/content"]
     assert "post" in paths["/api/v3/media-assets/{asset_id}/reveal"]
     assert client.get("/api/v3/channels/logo-profiles").status_code == 200
@@ -138,6 +140,32 @@ def test_imported_community_image_is_registered_as_media_asset(tmp_path: Path) -
     session.add.assert_called_once_with(asset)
 
 
+def test_generated_cover_asset_is_bound_to_selected_cover() -> None:
+    session = Mock()
+    cover = Mock(asset_id=None, status="prompt_ready")
+    session.scalar.return_value = cover
+    item = Mock(package_id="package-id", image_role="02_标题1_16x9")
+    asset = Mock(id="asset-id")
+
+    assert _bind_asset_to_package_output(session, item, asset) is True
+    assert cover.asset_id == "asset-id"
+    assert cover.status == "rendered"
+
+
+def test_imported_community_asset_is_bound_to_matching_post() -> None:
+    session = Mock()
+    post = Mock(id="post-id")
+    session.scalar.side_effect = [post, None]
+    item = Mock(package_id="package-id", image_role="08_社群2_1x1")
+    asset = Mock(id="asset-id")
+
+    assert _bind_asset_to_package_output(session, item, asset) is True
+    link = session.add.call_args.args[0]
+    assert link.community_post_id == "post-id"
+    assert link.asset_id == "asset-id"
+    assert link.position_number == 1
+
+
 def test_reveal_media_asset_opens_its_parent_folder(tmp_path: Path) -> None:
     image_path = tmp_path / "drama" / "02_标题1_16x9_logo.png"
     image_path.parent.mkdir()
@@ -177,6 +205,10 @@ def test_media_page_groups_assets_and_provides_image_viewer() -> None:
     assert "select-media-viewer" in source
     assert "reveal-media-asset" in source
     assert "/content" in source
+    assert "package-assets" in source
+    assert "view-media-package" in source
+    assert "reconcile-media-assets" in source
+    assert "社群文案与成品" in source
 
 
 def test_media_page_filters_assets_by_language_and_channel() -> None:

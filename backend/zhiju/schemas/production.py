@@ -434,7 +434,20 @@ class PackageCommunityCell(BaseModel):
     chinese_translation: str | None
     image_prompt: str | None
     planned_time: datetime | None
+    asset_ids: list[str] = Field(default_factory=list)
     selected: bool
+    status: str
+
+
+class PackageMediaAssetCell(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    original_filename: str | None
+    asset_role: str
+    mime_type: str | None
+    width: int | None
+    height: int | None
     status: str
 
 
@@ -483,6 +496,7 @@ class PackageOperationOverview(BaseModel):
     covers: list[CoverRead]
     description: DescriptionRead | None
     community_posts: list[PackageCommunityCell]
+    media_assets: list[PackageMediaAssetCell]
     copy_status: Literal["not_started", "in_progress", "completed"]
     copied_keys: list[str]
     copied_count: int

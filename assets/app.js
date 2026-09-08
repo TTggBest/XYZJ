@@ -30,7 +30,7 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaViewer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaViewer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -554,6 +554,10 @@
   function readCell(labelText, value, className = "") {
     return `<div class="read-cell ${className}"><span class="read-cell-label">${esc(labelText)}</span><div class="read-cell-value">${esc(value || "暂无内容")}</div></div>`;
   }
+  function packageAssetTile(asset, labelText) {
+    if (!asset) return `<div class="package-asset-missing"><span>${esc(labelText)}</span><strong>待出图</strong></div>`;
+    return `<button class="package-asset-link" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="打开图片所在文件夹"><img src="/api/v3/media-assets/${encodeURIComponent(asset.id)}/content" alt="${esc(labelText)}" loading="lazy"><span>${icon("folder-open")} ${esc(labelText)} · 打开文件夹</span></button>`;
+  }
   function applyCopyProgress(progress) {
     const item = state.packageItems.find(row => row.package_id === progress.package_id);
     if (item) Object.assign(item, progress);
@@ -574,6 +578,7 @@
     const tracked = (type, id) => id ? { type, id, copied: copiedKeys.has(`${type}:${id}`) } : null;
     const titleMap = Object.fromEntries((item.titles || []).map(title => [title.variant_number, title]));
     const coverMap = new Map((item.covers || []).map(cover => [`${cover.title_id}:${cover.aspect_ratio}`, cover]));
+    const mediaMap = new Map((item.media_assets || []).map(asset => [asset.id, asset]));
     const titleCells = [1, 2, 3].map(number => {
       const title = titleMap[number];
       return `<div class="title-pair">${copyCell("原标题", item.package_id, `title-${number}`, title?.localized_title, title?.localized_title, "copy-cell-full", tracked("title", title?.id))}${readCell("标题翻译", title?.chinese_translation)}</div>`;
@@ -582,13 +587,16 @@
       const title = titleMap[number];
       const cover45 = title ? coverMap.get(`${title.id}:4:5`) : null;
       const cover169 = title ? coverMap.get(`${title.id}:16:9`) : null;
-      return `<div class="cover-pair"><strong>标题 ${number}<span>${esc(title?.core_phrase || "无核心词")}</span></strong>${copyCell("4:5", item.package_id, `cover-${number}-45`, cover45?.creative_prompt, "", "", tracked("cover", cover45?.id))}${copyCell("16:9", item.package_id, `cover-${number}-169`, cover169?.creative_prompt, "", "", tracked("cover", cover169?.id))}</div>`;
+      return `<div class="cover-pair"><strong>标题 ${number}<span>${esc(title?.core_phrase || "无核心词")}</span></strong>${copyCell("4:5", item.package_id, `cover-${number}-45`, cover45?.creative_prompt, "", "", tracked("cover", cover45?.id))}${copyCell("16:9", item.package_id, `cover-${number}-169`, cover169?.creative_prompt, "", "", tracked("cover", cover169?.id))}${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div>`;
     }).join("");
     const description = item.description;
-    const communityCells = (item.community_posts || []).map(post => `<div class="community-pair"><div class="community-schedule"><span>社群排期 ${post.sequence_number}</span><strong>${post.planned_time ? fmt(post.planned_time) : "待主副档规则"}</strong></div>${copyCell(`社群文案 ${post.sequence_number}`, item.package_id, `community-${post.sequence_number}`, post.localized_text, post.localized_text, "copy-cell-full", tracked("community_text", post.id))}${copyCell(`社群图 ${post.sequence_number}`, item.package_id, `community-image-${post.sequence_number}`, post.image_prompt, "", "", tracked("community_image", post.id))}</div>`).join("");
+    const communityCells = (item.community_posts || []).map(post => {
+      const imageAssets = (post.asset_ids || []).map(assetId => mediaMap.get(assetId)).filter(Boolean);
+      return `<div class="community-pair"><div class="community-schedule"><span>社群排期 ${post.sequence_number}</span><strong>${post.planned_time ? fmt(post.planned_time) : "待主副档规则"}</strong></div>${copyCell(`社群文案 ${post.sequence_number}`, item.package_id, `community-${post.sequence_number}`, post.localized_text, post.localized_text, "copy-cell-full", tracked("community_text", post.id))}${copyCell(`社群图 ${post.sequence_number}`, item.package_id, `community-image-${post.sequence_number}`, post.image_prompt, "", "", tracked("community_image", post.id))}<div class="package-asset-list">${imageAssets.length ? imageAssets.map((asset, assetIndex) => packageAssetTile(asset, `社群${post.sequence_number}${imageAssets.length > 1 ? `-${assetIndex + 1}` : ""}`)).join("") : packageAssetTile(null, `社群${post.sequence_number}`)}</div></div>`;
+    }).join("");
     const videoCell = item.youtube_video_id ? copyCell("Video ID", item.package_id, "video-id", item.youtube_video_id, item.youtube_video_id, "video-copy-cell") : "";
     const incompleteNote = sourceIncomplete ? `<span class="source-incomplete-note" title="${esc(item.source_incomplete_reason || "飞书源数据不完整")}">数据不完整</span>` : "";
-    return `<article class="package-card copy-${esc(item.copy_status || "not_started")} ${sourceIncomplete ? "source-incomplete" : ""}" data-package-id="${item.package_id}" ${sourceIncomplete ? "inert aria-disabled=\"true\"" : ""}><header class="package-card-head"><span class="package-sequence">${index + 1}</span><div class="package-head-meta"><span class="channel-line">${esc(item.channel_name)}</span><span>档期 ${fmt(item.planned_local_time || item.target_publish_date)}</span><strong>${esc(item.chinese_title)}</strong><span class="mono">${esc(item.business_drama_id)}</span><span class="mono">${esc(item.batch_number || "未分批")}</span><span>v${item.package_version}</span></div><div class="package-card-actions">${incompleteNote}${tag(item.package_status)}${videoCell}<button class="icon-button detail-icon-button" title="查看完整详情" aria-label="查看完整详情" data-action="package-page-detail" data-id="${item.package_id}">${icon("maximize-2")}</button></div></header><div class="package-modules"><section class="package-module package-module-title"><h3>标题</h3><div class="title-list">${titleCells}</div></section><section class="package-module package-module-cover"><h3>封面提示词</h3><div class="cover-list">${coverCells}</div></section><section class="package-module package-module-text"><h3>说明与播放列表</h3>${readCell("播放列表", item.playlist_name, "playlist-read-cell")}<div class="description-pair">${copyCell("说明", item.package_id, "description", description?.localized_text, description?.localized_text, "copy-cell-full description-copy-cell", tracked("description", description?.id))}${readCell("说明翻译", description?.chinese_translation)}</div></section><section class="package-module package-module-community"><h3>社群</h3><div class="community-list">${communityCells || `<span class="module-empty">无需社群内容</span>`}</div></section></div></article>`;
+    return `<article class="package-card copy-${esc(item.copy_status || "not_started")} ${sourceIncomplete ? "source-incomplete" : ""}" data-package-id="${item.package_id}" ${sourceIncomplete ? "inert aria-disabled=\"true\"" : ""}><header class="package-card-head"><span class="package-sequence">${index + 1}</span><div class="package-head-meta"><span class="channel-line">${esc(item.channel_name)}</span><span>档期 ${fmt(item.planned_local_time || item.target_publish_date)}</span><strong>${esc(item.chinese_title)}</strong><span class="mono">${esc(item.business_drama_id)}</span><span class="mono">${esc(item.batch_number || "未分批")}</span><span>v${item.package_version}</span></div><div class="package-card-actions">${incompleteNote}${tag(item.package_status)}${videoCell}${(item.media_assets || []).length ? `<button class="button button-secondary button-small" type="button" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看素材 ${(item.media_assets || []).length}</button>` : ""}<button class="icon-button detail-icon-button" title="查看完整详情" aria-label="查看完整详情" data-action="package-page-detail" data-id="${item.package_id}">${icon("maximize-2")}</button></div></header><div class="package-modules"><section class="package-module package-module-title"><h3>标题</h3><div class="title-list">${titleCells}</div></section><section class="package-module package-module-cover"><h3>封面提示词与成品</h3><div class="cover-list">${coverCells}</div></section><section class="package-module package-module-text"><h3>说明与播放列表</h3>${readCell("播放列表", item.playlist_name, "playlist-read-cell")}<div class="description-pair">${copyCell("说明", item.package_id, "description", description?.localized_text, description?.localized_text, "copy-cell-full description-copy-cell", tracked("description", description?.id))}${readCell("说明翻译", description?.chinese_translation)}</div></section><section class="package-module package-module-community"><h3>社群文案与成品</h3><div class="community-list">${communityCells || `<span class="module-empty">无需社群内容</span>`}</div></section></div></article>`;
   }
   async function showPackages() {
     state.copyValues.clear();
@@ -613,14 +621,18 @@
     el("breadcrumbText").textContent = "运营包 / 详情"; el("pageTitle").textContent = item.chinese_title;
     const titleMap = Object.fromEntries((item.titles || []).map(title => [title.variant_number, title]));
     const coverMap = new Map((item.covers || []).map(cover => [`${cover.title_id}:${cover.aspect_ratio}`, cover]));
+    const mediaMap = new Map((item.media_assets || []).map(asset => [asset.id, asset]));
     const copiedKeys = new Set(item.copied_keys || []);
     const tracked = (type, outputId) => outputId ? { type, id: outputId, copied: copiedKeys.has(`${type}:${outputId}`) } : null;
     const titleGroups = [1, 2, 3].map(number => {
       const title = titleMap[number], cover45 = title ? coverMap.get(`${title.id}:4:5`) : null, cover169 = title ? coverMap.get(`${title.id}:16:9`) : null;
-      return `<div class="detail-result-group"><h2>标题 ${number}${title?.core_phrase ? `<span>${esc(title.core_phrase)}</span>` : ""}</h2>${fullOutputField("标题", title?.localized_title, id, `detail-title-${number}`, true, tracked("title", title?.id))}${fullOutputField("标题翻译", title?.chinese_translation, id, `detail-title-translation-${number}`, false)}${fullOutputField("4:5 封面提示词", cover45?.creative_prompt, id, `detail-cover-${number}-45`, true, tracked("cover", cover45?.id))}${fullOutputField("16:9 封面提示词", cover169?.creative_prompt, id, `detail-cover-${number}-169`, true, tracked("cover", cover169?.id))}</div>`;
+      return `<div class="detail-result-group"><h2>标题 ${number}${title?.core_phrase ? `<span>${esc(title.core_phrase)}</span>` : ""}</h2>${fullOutputField("标题", title?.localized_title, id, `detail-title-${number}`, true, tracked("title", title?.id))}${fullOutputField("标题翻译", title?.chinese_translation, id, `detail-title-translation-${number}`, false)}${fullOutputField("4:5 封面提示词", cover45?.creative_prompt, id, `detail-cover-${number}-45`, true, tracked("cover", cover45?.id))}${fullOutputField("16:9 封面提示词", cover169?.creative_prompt, id, `detail-cover-${number}-169`, true, tracked("cover", cover169?.id))}<div class="package-detail-assets">${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div></div>`;
     }).join("");
-    const community = (item.community_posts || []).map(post => `<div class="detail-result-group"><h2>社群 ${post.sequence_number}</h2>${fullOutputField("社群文案", post.localized_text, id, `detail-community-${post.sequence_number}`, true, tracked("community_text", post.id))}${fullOutputField("社群图提示词", post.image_prompt, id, `detail-community-image-${post.sequence_number}`, true, tracked("community_image", post.id))}</div>`).join("");
-    root.innerHTML = `<div class="page-stack"><div class="detail-page-toolbar"><button class="button button-secondary" data-action="back-packages">${icon("arrow-left")} 返回运营包列表</button><div class="toolbar-spacer"></div>${tag(item.package_status)}</div><section class="package-summary"><div><span>频道</span><strong>${esc(item.channel_name)}</strong></div><div><span>Video ID</span><strong class="mono">${esc(item.youtube_video_id || "—")}</strong></div><div><span>档期</span><strong>${fmt(item.planned_local_time || item.target_publish_date)}</strong></div><div><span>播放列表</span><strong>${esc(item.playlist_name || "—")}</strong></div></section>${titleGroups}<div class="detail-result-group"><h2>说明与播放列表</h2>${fullOutputField("播放列表", item.playlist_name, id, "detail-playlist", false)}${fullOutputField("说明", item.description?.localized_text, id, "detail-description", true, tracked("description", item.description?.id))}${fullOutputField("说明翻译", item.description?.chinese_translation, id, "detail-description-translation", false)}${fullOutputField("置顶评论", item.description?.pinned_comment, id, "detail-pinned-comment")}</div>${community || `<div class="section">${empty("无需社群内容", "此运营包没有社群生产要求。")}</div>`}</div>`;
+    const community = (item.community_posts || []).map(post => {
+      const imageAssets = (post.asset_ids || []).map(assetId => mediaMap.get(assetId)).filter(Boolean);
+      return `<div class="detail-result-group"><h2>社群 ${post.sequence_number}</h2>${fullOutputField("社群文案", post.localized_text, id, `detail-community-${post.sequence_number}`, true, tracked("community_text", post.id))}${fullOutputField("社群图提示词", post.image_prompt, id, `detail-community-image-${post.sequence_number}`, true, tracked("community_image", post.id))}<div class="package-detail-assets">${imageAssets.length ? imageAssets.map((asset, assetIndex) => packageAssetTile(asset, `社群${post.sequence_number}${imageAssets.length > 1 ? `-${assetIndex + 1}` : ""}`)).join("") : packageAssetTile(null, `社群${post.sequence_number}`)}</div></div>`;
+    }).join("");
+    root.innerHTML = `<div class="page-stack"><div class="detail-page-toolbar"><button class="button button-secondary" data-action="back-packages">${icon("arrow-left")} 返回运营包列表</button><div class="toolbar-spacer"></div>${(item.media_assets || []).length ? `<button class="button button-secondary" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看全部素材 ${(item.media_assets || []).length}</button>` : ""}${tag(item.package_status)}</div><section class="package-summary"><div><span>频道</span><strong>${esc(item.channel_name)}</strong></div><div><span>Video ID</span><strong class="mono">${esc(item.youtube_video_id || "—")}</strong></div><div><span>档期</span><strong>${fmt(item.planned_local_time || item.target_publish_date)}</strong></div><div><span>播放列表</span><strong>${esc(item.playlist_name || "—")}</strong></div></section>${titleGroups}<div class="detail-result-group"><h2>说明与播放列表</h2>${fullOutputField("播放列表", item.playlist_name, id, "detail-playlist", false)}${fullOutputField("说明", item.description?.localized_text, id, "detail-description", true, tracked("description", item.description?.id))}${fullOutputField("说明翻译", item.description?.chinese_translation, id, "detail-description-translation", false)}${fullOutputField("置顶评论", item.description?.pinned_comment, id, "detail-pinned-comment")}</div>${community || `<div class="section">${empty("无需社群内容", "此运营包没有社群生产要求。")}</div>`}</div>`;
     renderIcons();
   }
 
@@ -700,7 +712,7 @@
   function mediaGroupCard(group, groupIndex) {
     const meta = group.meta;
     const schedule = meta.planned_local_time || meta.target_publish_date || "未排期";
-    return `<article class="media-gallery-group"><div class="media-gallery-meta"><div><span>剧名</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${tag(group.status)}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button></div><div class="media-gallery-assets">${group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")}</div></article>`;
+    return `<article class="media-gallery-group"><div class="media-gallery-meta"><div><span>剧名</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${tag(group.status)}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><div class="row-actions">${meta.package_id ? `<button class="button button-secondary button-small" type="button" data-action="view-media-package" data-id="${esc(meta.package_id)}">查看运营包</button>` : ""}<button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button></div></div><div class="media-gallery-assets">${group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")}</div></article>`;
   }
 
   function renderMediaGallery() {
@@ -710,7 +722,8 @@
     const summary = el("mediaGallerySummary");
     if (!languageSelect || !channelSelect || !content || !summary) return;
 
-    const languageGroups = state.mediaGroups.filter(group => !state.mediaLanguage || group.meta.language_code === state.mediaLanguage);
+    const focusedGroups = state.mediaGroups.filter(group => !state.mediaPackageId || group.meta.package_id === state.mediaPackageId);
+    const languageGroups = focusedGroups.filter(group => !state.mediaLanguage || group.meta.language_code === state.mediaLanguage);
     const channels = [...new Map(languageGroups.map(group => {
       const key = group.meta.channel_id || group.meta.channel_name;
       return [key, { key, name: group.meta.channel_name || "未关联频道" }];
@@ -721,6 +734,12 @@
     state.visibleMediaGroups = languageGroups.filter(group => !state.mediaChannel || (group.meta.channel_id || group.meta.channel_name) === state.mediaChannel);
     const imageCount = state.visibleMediaGroups.reduce((total, group) => total + group.assets.length, 0);
     summary.textContent = `${state.visibleMediaGroups.length} 个剧目 · ${imageCount} 张可验收图片`;
+    const focus = el("mediaPackageFocus");
+    const focusMeta = state.visibleMediaGroups[0]?.meta || focusedGroups[0]?.meta;
+    if (focus) {
+      focus.innerHTML = state.mediaPackageId ? `<div><strong>正在查看运营包素材：${esc(focusMeta?.chinese_title || state.mediaPackageId)}</strong><span>封面和社群图已集中到同一剧目下</span></div><button class="button button-secondary button-small" type="button" data-action="show-all-media">查看全部素材</button>` : "";
+      focus.hidden = !state.mediaPackageId;
+    }
     content.innerHTML = state.visibleMediaGroups.length
       ? `<div class="media-gallery">${state.visibleMediaGroups.map(mediaGroupCard).join("")}</div>`
       : empty("没有符合条件的素材", "请调整语言或频道筛选条件。");
@@ -752,8 +771,8 @@
     state.mediaGroups = buildMediaGroups(assets, packages, channels);
     const languages = [...new Set(state.mediaGroups.map(group => group.meta.language_code).filter(Boolean))].sort((left, right) => languageLabel(left).localeCompare(languageLabel(right), "zh-CN"));
     if (state.mediaLanguage && !languages.includes(state.mediaLanguage)) state.mediaLanguage = "";
-    const filters = `<div class="media-gallery-filters"><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option>${languages.map(code => `<option value="${esc(code)}" ${code === state.mediaLanguage ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}</select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label></div>`;
-    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", "", `<div class="media-gallery-summary" id="mediaGallerySummary"></div><div id="mediaGalleryContent"></div>`, filters)}</div>`;
+    const filters = `<div class="media-gallery-filters"><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option>${languages.map(code => `<option value="${esc(code)}" ${code === state.mediaLanguage ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}</select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label><button class="button button-secondary" type="button" data-action="reconcile-media-assets">${icon("refresh-cw")} 校准素材关联</button></div>`;
+    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", "", `<div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary"></div><div id="mediaGalleryContent"></div>`, filters)}</div>`;
     renderMediaGallery();
   }
 
@@ -953,7 +972,11 @@
   document.addEventListener("click", async event => {
     const closeModalButton = event.target.closest("[data-close-modal]"); if (closeModalButton) return closeModal();
     const closeDrawerButton = event.target.closest("[data-close-drawer]"); if (closeDrawerButton) return closeDrawer();
-    const nav = event.target.closest("[data-view]"); if (nav) return loadView(nav.dataset.view);
+    const nav = event.target.closest("[data-view]");
+    if (nav) {
+      if (nav.dataset.view === "media") state.mediaPackageId = "";
+      return loadView(nav.dataset.view);
+    }
     const settingsTab = event.target.closest("[data-settings-tab]");
     if (settingsTab) { state.settingsTab = settingsTab.dataset.settingsTab; return loadView("settings"); }
     const tab = event.target.closest("[data-log-tab]");
@@ -1130,6 +1153,12 @@
       }
       else if (action === "work-detail") await workDetail(id);
       else if (action === "package-detail" || action === "package-page-detail") await showPackagePageDetail(id);
+      else if (action === "package-assets") {
+        state.mediaPackageId = id;
+        state.mediaLanguage = "";
+        state.mediaChannel = "";
+        await loadView("media");
+      }
       else if (action === "back-packages") await loadView("packages");
       else if (action === "copy-package-field") {
         const value = state.copyValues.get(button.dataset.copyKey);
@@ -1211,6 +1240,29 @@
       else if (action === "reveal-media-asset") {
         const result = await api(`/media-assets/${id}/reveal`, { method: "POST" });
         notify(`已打开文件夹：${result.folder}`);
+      }
+      else if (action === "view-media-package") await showPackagePageDetail(id);
+      else if (action === "show-all-media") {
+        state.mediaPackageId = "";
+        renderMediaGallery();
+      }
+      else if (action === "reconcile-media-assets") {
+        if (button.dataset.busy === "true") return;
+        const originalContent = button.innerHTML;
+        button.dataset.busy = "true";
+        button.disabled = true;
+        button.innerHTML = `<span class="inline-spinner inline-spinner-dark"></span> 正在校准…`;
+        try {
+          const result = await api("/image-processing/assets/reconcile", { method: "POST" });
+          notify(`素材关联完成：新增 ${result.registered_assets}，绑定 ${result.bound_assets}，缺失文件 ${result.missing_files}`);
+          await loadView("media", { preservePosition: true });
+        } catch (error) {
+          delete button.dataset.busy;
+          button.disabled = false;
+          button.innerHTML = originalContent;
+          renderIcons();
+          throw error;
+        }
       }
       else if (action === "generate-run-logo") {
         if (button.dataset.busy === "true") return;
