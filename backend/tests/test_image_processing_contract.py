@@ -26,6 +26,7 @@ def test_image_processing_routes_are_registered() -> None:
     assert "post" in paths["/api/v3/image-processing/import"]
     assert "get" in paths["/api/v3/image-processing/runs"]
     assert "post" in paths["/api/v3/image-processing/runs/{run_id}/generate-logo"]
+    assert "get" in paths["/api/v3/media-assets/{asset_id}/content"]
     assert client.get("/api/v3/channels/logo-profiles").status_code == 200
 
 
@@ -122,3 +123,12 @@ def test_media_page_shows_busy_states_and_prevents_duplicate_actions() -> None:
     assert "正在生成…" in source
     assert source.count('dataset.busy === "true"') >= 2
     assert "并登记到素材资产" in source
+
+
+def test_media_page_uses_readable_cover_names_and_real_image_previews() -> None:
+    source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert "剧目与封面" in source
+    assert "查看大图" in source
+    assert "media-thumb" in source
+    assert "/content" in source

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
@@ -51,6 +52,7 @@ from zhiju.services.channel import (
     upsert_channel_initialization_draft,
 )
 from zhiju.services.identity import ConflictError
+from zhiju.services.image_processing import resolve_media_asset_file
 
 
 router = APIRouter(prefix="/v3", tags=["channel-center"])
@@ -333,6 +335,23 @@ def get_media_asset_detail(
         return get_media_asset(session, asset_id)
     except NotFoundError as exc:
         raise _http_error(exc) from exc
+
+
+@router.get("/media-assets/{asset_id}/content", response_class=FileResponse)
+def get_media_asset_content(
+    asset_id: str, session: Session = Depends(get_db)
+) -> FileResponse:
+    try:
+        asset, path = resolve_media_asset_file(session, asset_id)
+        return FileResponse(
+            path,
+            media_type=asset.mime_type or "application/octet-stream",
+            headers={"Cache-Control": "private, no-cache"},
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.patch("/media-assets/{asset_id}", response_model=MediaAssetRead)

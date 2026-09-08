@@ -647,12 +647,25 @@
 
   async function showMedia() {
     const [workspace, batches, runs, assets] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs"), api("/media-assets")]);
-    state.imageRuns = runs;
+    state.imageRuns = runs; state.mediaAssets = assets;
     const batchOptions = batches.map(batch => `<option value="${batch.id}">${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
     const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
     const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
-    const rows = assets.map(a => `<tr><td><span class="cell-main">${esc(a.original_filename || a.storage_key)}</span><span class="cell-sub mono">${esc(a.storage_key)}</span></td><td>${esc(a.asset_type)}</td><td>${esc(a.asset_role || "—")}</td><td>${esc(a.storage_provider)}</td><td>${tag(a.status)}</td><td>${fmtUtc(a.created_at)}</td></tr>`);
-    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${assets.length} 项素材元数据 · 文件状态以数据库为准`, rows.length ? table(["素材", "类型", "用途", "存储", "状态", "创建时间"], rows, 900) : empty("还没有素材资产", "封面、社区图和文档产物生成后会登记到素材资产表。"))}</div>`;
+    const rows = assets.map(a => {
+      const parts = String(a.storage_key || "").split("/");
+      const logoIndex = parts.indexOf("Logo成品");
+      const isLogoOutput = logoIndex >= 0 && parts.length > logoIndex + 6;
+      const batch = isLogoOutput ? parts[logoIndex + 1] : "—";
+      const channel = isLogoOutput ? parts[logoIndex + 3] : "未关联频道";
+      const schedule = isLogoOutput ? parts[logoIndex + 4] : "—";
+      const drama = isLogoOutput ? parts[logoIndex + 5] : (a.original_filename || "未命名素材");
+      const coverMatch = String(a.original_filename || "").match(/^(02|04|06)_标题([123])_16x9_logo\.png$/);
+      const assetName = coverMatch ? `封面 ${coverMatch[2]}` : (a.original_filename || a.storage_key);
+      const contentUrl = `/api/v3/media-assets/${encodeURIComponent(a.id)}/content`;
+      const preview = a.asset_type === "image" ? `<a class="media-thumb" href="${contentUrl}" target="_blank" rel="noopener" title="查看大图"><img src="${contentUrl}" alt="${esc(drama)} ${esc(assetName)}" loading="lazy"></a>` : `<span class="media-file-icon">${icon("file")}</span>`;
+      return `<tr><td>${preview}</td><td><span class="cell-main">${esc(drama)} · ${esc(assetName)}</span><span class="cell-sub">${esc(channel)}</span></td><td><span class="cell-main mono">${esc(batch)}</span><span class="cell-sub">${esc(schedule)}</span></td><td>${tag(a.status)}</td><td>${fmtUtc(a.created_at)}</td><td><a class="button button-secondary button-small" href="${contentUrl}" target="_blank" rel="noopener">${icon("image")} 查看大图</a></td></tr>`;
+    });
+    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", `${assets.length} 项素材元数据 · 点击缩略图或“查看大图”验收成品`, rows.length ? table(["预览", "剧目与封面", "批次与排期", "状态", "创建时间", ""], rows, 980, "media-assets-table") : empty("还没有素材资产", "封面、社区图和文档产物生成后会登记到素材资产表。"))}</div>`;
   }
 
   async function showSkills() {
