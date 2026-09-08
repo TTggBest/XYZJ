@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
+from zhiju.permissions import require_builder_device
 from zhiju.schemas.history import (
     AuditEventRead,
     EntityTimelineItem,
@@ -26,7 +27,11 @@ from zhiju.services.history import (
 router = APIRouter(prefix="/v3", tags=["history"])
 
 
-@router.get("/system-events", response_model=list[SystemEventRead])
+@router.get(
+    "/system-events",
+    response_model=list[SystemEventRead],
+    dependencies=[Depends(require_builder_device)],
+)
 def get_system_events(
     entity_type: str | None = None,
     entity_id: str | None = None,
@@ -49,7 +54,11 @@ def get_system_events(
     )
 
 
-@router.get("/audit-events", response_model=list[AuditEventRead])
+@router.get(
+    "/audit-events",
+    response_model=list[AuditEventRead],
+    dependencies=[Depends(require_builder_device)],
+)
 def get_audit_events(
     entity_type: str | None = None,
     entity_id: str | None = None,
@@ -121,4 +130,3 @@ def get_video_history(
         return list_video_status_history(session, video_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-

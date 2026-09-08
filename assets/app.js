@@ -30,7 +30,8 @@
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
-  const state = { view: "dashboard", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -157,7 +158,7 @@
 
   async function showDashboard() {
     const [channels, tasks, workorders, events] = await Promise.all([
-      api("/channels/overview"), api(`/tasks/overview${query({ task_date: state.date })}`), api("/work-orders/overview"), api("/system-events?limit=8")
+      api("/channels/overview"), api(`/tasks/overview${query({ task_date: state.date })}`), api("/work-orders/overview"), state.deviceRole === "builder" ? api("/system-events?limit=8") : Promise.resolve([])
     ]);
     Object.assign(state, { channels, tasks, workorders, events });
     const todayOrders = workorders.filter(item => item.production_date === state.date);
@@ -173,7 +174,7 @@
       </div>
       <div class="dashboard-grid">
         ${section("今日生产进度", `${state.date} · 搜索、标题、封面、说明、社群、合成`, rows.length ? table(["剧目", "频道", "节点", "进度", "状态", ""], rows, 850) : empty("今日还没有生产工单", "工单开始生产后，六个生产节点会在这里显示。", "go-workorders", "进入工单"), `<button class="button button-secondary button-small" data-action="go-workorders">查看全部 ${icon("arrow-right")}</button>`)}
-        ${section("系统动态", "最近 8 条数据库状态事件", activity)}
+        ${state.deviceRole === "builder" ? section("系统动态", "最近 8 条数据库状态事件", activity) : ""}
       </div>
     </div>`;
   }
@@ -944,6 +945,7 @@
     });
   }
   async function loadView(view = state.view, options = {}) {
+    if (state.deviceRole && state.deviceRole !== "builder" && BUILDER_ONLY_VIEWS.has(view)) view = "dashboard";
     const preservePosition = Boolean(options.preservePosition && view === state.view);
     const position = preservePosition ? captureViewPosition() : null;
     state.view = view;
@@ -972,16 +974,19 @@
     if (state.realtimeSource) state.realtimeSource.close();
     state.realtimeSource = null;
   }
+  function applyDeviceRole(deviceRole) {
+    state.deviceRole = deviceRole || "worker";
+    document.querySelectorAll("[data-builder-only]").forEach(item => { item.hidden = state.deviceRole !== "builder"; });
+  }
   async function connectRealtime() {
     if (document.visibilityState !== "visible" || state.realtimeConnecting || state.realtimeSource) return;
     state.realtimeConnecting = true;
     try {
       const config = await api("/realtime/config");
       if (document.visibilityState !== "visible") return;
+      applyDeviceRole(config.device_role);
       if (!config.enabled || !config.stream_url) return;
-      const settingsNav = document.querySelector('[data-view="settings"]');
-      if (settingsNav) settingsNav.hidden = config.device_role !== "builder";
-      if (config.device_role !== "builder" && state.view === "settings") await loadView("dashboard");
+      if (config.device_role !== "builder" && BUILDER_ONLY_VIEWS.has(state.view)) await loadView("dashboard");
       closeRealtime();
       const source = new EventSource(config.stream_url);
       let reconnecting = false;
@@ -1536,8 +1541,7 @@
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return closeRealtime();
     checkHealth();
-    loadView(state.view, { preservePosition: true });
-    connectRealtime();
+    connectRealtime().then(() => loadView(state.view, { preservePosition: true }));
   });
   window.addEventListener("pagehide", closeRealtime);
   window.addEventListener("message", async event => {
@@ -1551,5 +1555,5 @@
   });
 
   if (localStorage.getItem("zhiju.nav.collapsed") === "1" && window.innerWidth > 760) el("appShell").classList.add("is-collapsed");
-  checkHealth(); loadView("dashboard"); connectRealtime(); renderIcons();
+  checkHealth(); connectRealtime().finally(() => loadView("dashboard")); renderIcons();
 })();
