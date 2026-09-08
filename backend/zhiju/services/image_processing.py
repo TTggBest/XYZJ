@@ -47,8 +47,6 @@ ROLE_SUFFIXES = {
     "2": "04_标题2_16x9",
     "3_4_5": "05_标题3_4x5",
     "3": "06_标题3_16x9",
-    "": "07_社群1_1x1",
-    "_2": "08_社群2_1x1",
 }
 FULL_ROLE_NAMES = {
     "01_title1_4x5": "01_标题1_4x5",
@@ -59,6 +57,8 @@ FULL_ROLE_NAMES = {
     "06_title3_16x9": "06_标题3_16x9",
     "07_community1_1x1": "07_社群1_1x1",
     "08_community2_1x1": "08_社群2_1x1",
+    "07_社群1_1x1": "07_社群1_1x1",
+    "08_社群2_1x1": "08_社群2_1x1",
     **{value: value for value in ROLE_SUFFIXES.values()},
 }
 
@@ -207,6 +207,14 @@ def classify_image_filename(filename: str, identifiers: Iterable[str]) -> Filena
             matches.append((identifier, FULL_ROLE_NAMES[full_suffix], "full_task_id"))
         elif suffix in ROLE_SUFFIXES:
             matches.append((identifier, ROLE_SUFFIXES[suffix], "compact_name"))
+        elif suffix == "":
+            matches.append((identifier, "07_社群1_1x1", "compact_name"))
+        else:
+            community_match = re.fullmatch(r"-([2-9]|[1-9]\d+)", suffix)
+            if community_match:
+                community_number = int(community_match.group(1))
+                role_number = community_number + 6
+                matches.append((identifier, f"{role_number:02d}_社群{community_number}_1x1", "compact_name"))
     unique = {(identifier, role, method) for identifier, role, method in matches}
     if len(unique) == 1:
         identifier, role, method = unique.pop()
