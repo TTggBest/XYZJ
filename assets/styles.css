@@ -462,6 +462,11 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .operation-progress { min-height: 18px; grid-column: 1 / -1; color: var(--green-dark); font-size: 12px; }
 .operation-progress:empty { display: none; }
 .inline-spinner { width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid rgba(255,255,255,.45); border-top-color: currentColor; border-radius: 50%; animation: spin .7s linear infinite; }
+.media-assets-table td { vertical-align: middle; }
+.media-thumb { width: 112px; height: 63px; display: block; overflow: hidden; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 5px; }
+.media-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.media-thumb:hover { border-color: var(--green); box-shadow: 0 0 0 3px rgba(8,123,84,.09); }
+.media-file-icon { width: 42px; height: 42px; display: grid; place-items: center; color: var(--muted); background: var(--surface-soft); border-radius: 5px; }
 .workspace-required { min-height: 118px; display: flex; align-items: center; gap: 13px; padding: 18px; }
 .workspace-required > span { width: 42px; height: 42px; display: grid; place-items: center; color: var(--green-dark); background: var(--green-soft); border-radius: 6px; }
 .workspace-required > span svg { width: 20px; height: 20px; }

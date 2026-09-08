@@ -140,6 +140,24 @@ def get_workspace(session: Session) -> ImageWorkspaceRead | None:
     return _workspace_read(setting) if setting else None
 
 
+def resolve_media_asset_file(session: Session, asset_id: str) -> tuple[MediaAsset, Path]:
+    asset = session.get(MediaAsset, asset_id)
+    if asset is None or asset.deleted_at is not None:
+        raise FileNotFoundError("素材资产不存在")
+    if asset.storage_provider != "local":
+        raise ValueError("当前只支持预览本地或共享根目录中的素材")
+    setting = _workspace_setting(session)
+    root, _, _ = _workspace_paths(setting)
+    path = (root / asset.storage_key).resolve()
+    try:
+        path.relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError("素材路径不在已配置的根目录中") from exc
+    if not path.is_file():
+        raise FileNotFoundError("素材文件不存在")
+    return asset, path
+
+
 def save_workspace(session: Session, root_path: str) -> ImageWorkspaceRead:
     root_path = root_path.strip()
     setting = session.get(ImageWorkspaceSetting, WORKSPACE_SETTING_ID)
