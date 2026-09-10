@@ -565,6 +565,7 @@ def test_media_page_shows_batch_coverage_video_id_and_missing_image_navigation()
     assert "missing_roles" in source
     assert 'data-action="show-missing-media"' in source
     assert 'data-action="show-media-package-missing"' in source
+    assert 'data-action="open-missing-prompts"' in source
     assert 'id="mediaStatusFilter"' in source
     assert "nextIncompleteGroup" in source
     assert "run.batch_id === state.mediaBatchId" in source

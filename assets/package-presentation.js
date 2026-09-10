@@ -130,6 +130,22 @@
     }).filter(Boolean);
   }
 
+  function resolveMissingImageTargets(roles) {
+    const seen = new Set();
+    return (roles || []).map(value => {
+      const role = textOr(value, "");
+      const cover = /^封面([1-3])$/.exec(role);
+      const community = /^社群([1-9]\d*)$/.exec(role);
+      if (cover) return { role, kind: "cover", sequence: Number(cover[1]) };
+      if (community) return { role, kind: "community", sequence: Number(community[1]) };
+      return null;
+    }).filter(target => {
+      if (!target || seen.has(target.role)) return false;
+      seen.add(target.role);
+      return true;
+    });
+  }
+
   function summarizePackageProgress(items, total) {
     const generatedItems = (items || []).filter(item => item.source_complete === true);
     const imagesCompletedItems = generatedItems.filter(packageImageClicksComplete);
@@ -160,5 +176,5 @@
     }).join("")}</span>`;
   }
 
-  return { buildPackagePresentation, summarizePackageProgress, renderPackageProgressSummary, listPackageInspectionTargets };
+  return { buildPackagePresentation, summarizePackageProgress, renderPackageProgressSummary, listPackageInspectionTargets, resolveMissingImageTargets };
 });

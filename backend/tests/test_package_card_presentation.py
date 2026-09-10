@@ -93,6 +93,27 @@ process.stdout.write(JSON.stringify(presentation.listPackageInspectionTargets(it
     return json.loads(result.stdout)
 
 
+def missing_image_targets(roles: list[str]) -> list[dict]:
+    script = """
+const presentation = require(process.argv[1]);
+const roles = JSON.parse(process.argv[2]);
+process.stdout.write(JSON.stringify(presentation.resolveMissingImageTargets(roles)));
+"""
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(ROOT / "assets" / "package-presentation.js"),
+            json.dumps(roles, ensure_ascii=False),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
 def test_package_card_keeps_operational_nickname_and_distinct_original_channel_name() -> None:
     result = render_presentation(
         {
@@ -386,6 +407,13 @@ def test_completed_progress_badge_has_no_action_when_every_package_is_complete()
     assert 'data-action="inspect-package-progress" data-stage="images"' in incomplete
     assert 'data-action="inspect-package-progress" data-stage="completed"' in incomplete
     assert 'data-action="inspect-package-progress"' not in complete
+
+
+def test_missing_image_roles_map_to_their_exact_package_prompt_sections() -> None:
+    assert missing_image_targets(["封面2", "社群1", "封面2", "未知图片"]) == [
+        {"role": "封面2", "kind": "cover", "sequence": 2},
+        {"role": "社群1", "kind": "community", "sequence": 1},
+    ]
 
 
 def test_progress_inspection_scrolls_and_highlights_without_writing_data() -> None:

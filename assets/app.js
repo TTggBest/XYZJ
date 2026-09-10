@@ -33,7 +33,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -692,16 +692,29 @@
     const results = `<div id="packageListResults">${filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。")}</div>`;
     root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryMarkup, results, tools, true)}</div>`;
   }
-  function fullOutputField(title, value, packageId, field, copyable = true, progress = null) {
+  function fullOutputField(title, value, packageId, field, copyable = true, progress = null, emptyText = "暂无内容") {
     const key = copyable ? copyKey(packageId, field, value) : "";
-    const content = `<div class="full-output-head"><h3>${esc(title)}</h3>${copyable && key ? `<span class="copy-hint">${icon("copy")}</span>` : ""}</div><div class="full-output-body">${esc(value || "暂无内容")}</div>`;
+    const content = `<div class="full-output-head"><h3>${esc(title)}</h3>${copyable && key ? `<span class="copy-hint">${icon("copy")}</span>` : ""}</div><div class="full-output-body">${esc(value || emptyText)}</div>`;
     const tracked = progress?.type && progress?.id;
     return copyable ? `<button class="full-output full-output-copy ${progress?.copied ? "is-copy-complete" : ""}" type="button" data-action="copy-package-field" data-copy-key="${esc(key)}" ${tracked ? `data-package-id="${esc(packageId)}" data-output-type="${esc(progress.type)}" data-output-id="${esc(progress.id)}"` : ""} ${key ? "" : "disabled"}>${content}</button>` : `<section class="full-output">${content}</section>`;
   }
-  async function showPackagePageDetail(id) {
+  function focusMissingPackagePrompt(role, behavior = "smooth") {
+    const target = document.querySelector(`[data-missing-role="${CSS.escape(role)}"]`);
+    if (!target) return;
+    if (state.packageInspectionHighlightTimer) clearTimeout(state.packageInspectionHighlightTimer);
+    document.querySelectorAll(".is-missing-prompt-target").forEach(node => node.classList.remove("is-missing-prompt-target"));
+    target.classList.add("is-missing-prompt-target");
+    target.scrollIntoView({ behavior, block: "center" });
+    state.packageInspectionHighlightTimer = setTimeout(() => {
+      target.classList.remove("is-missing-prompt-target");
+      state.packageInspectionHighlightTimer = null;
+    }, 2400);
+  }
+  async function showPackagePageDetail(id, missingRoles = []) {
     let item = state.packageItems.find(row => row.package_id === id);
     if (!item) item = (await api("/packages/operations-overview")).find(row => row.package_id === id);
     if (!item) throw new Error("运营包不存在");
+    const missingTargets = window.ZhijuPackagePresentation.resolveMissingImageTargets(missingRoles);
     state.copyValues.clear();
     el("breadcrumbText").textContent = "运营包 / 详情"; el("pageTitle").textContent = item.chinese_title;
     const titleMap = Object.fromEntries((item.titles || []).map(title => [title.variant_number, title]));
@@ -711,14 +724,18 @@
     const tracked = (type, outputId) => outputId ? { type, id: outputId, copied: copiedKeys.has(`${type}:${outputId}`) } : null;
     const titleGroups = [1, 2, 3].map(number => {
       const title = titleMap[number], cover45 = title ? coverMap.get(`${title.id}:4:5`) : null, cover169 = title ? coverMap.get(`${title.id}:16:9`) : null;
-      return `<div class="detail-result-group"><h2>标题 ${number}${title?.core_phrase ? `<span>${esc(title.core_phrase)}</span>` : ""}</h2>${fullOutputField("标题", title?.localized_title, id, `detail-title-${number}`, true, tracked("title", title?.id))}${fullOutputField("标题翻译", title?.chinese_translation, id, `detail-title-translation-${number}`, false)}${fullOutputField("4:5 封面提示词", cover45?.creative_prompt, id, `detail-cover-${number}-45`, true, tracked("cover", cover45?.id))}${fullOutputField("16:9 封面提示词", cover169?.creative_prompt, id, `detail-cover-${number}-169`, true, tracked("cover", cover169?.id))}<div class="package-detail-assets">${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div></div>`;
+      return `<div class="detail-result-group"><h2>标题 ${number}${title?.core_phrase ? `<span>${esc(title.core_phrase)}</span>` : ""}</h2>${fullOutputField("标题", title?.localized_title, id, `detail-title-${number}`, true, tracked("title", title?.id))}${fullOutputField("标题翻译", title?.chinese_translation, id, `detail-title-translation-${number}`, false)}<div class="package-image-prompt-target" data-missing-role="封面${number}">${fullOutputField("4:5 封面提示词", cover45?.creative_prompt, id, `detail-cover-${number}-45`, true, tracked("cover", cover45?.id), "出图词未生成")}${fullOutputField("16:9 封面提示词", cover169?.creative_prompt, id, `detail-cover-${number}-169`, true, tracked("cover", cover169?.id), "出图词未生成")}<div class="package-detail-assets">${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div></div></div>`;
     }).join("");
     const community = (item.community_posts || []).map(post => {
       const imageAssets = (post.asset_ids || []).map(assetId => mediaMap.get(assetId)).filter(Boolean);
-      return `<div class="detail-result-group"><h2>社群 ${post.sequence_number}</h2>${fullOutputField("社群文案", post.localized_text, id, `detail-community-${post.sequence_number}`, true, tracked("community_text", post.id))}${fullOutputField("社群图提示词", post.image_prompt, id, `detail-community-image-${post.sequence_number}`, true, tracked("community_image", post.id))}<div class="package-detail-assets">${imageAssets.length ? imageAssets.map((asset, assetIndex) => packageAssetTile(asset, `社群${post.sequence_number}${imageAssets.length > 1 ? `-${assetIndex + 1}` : ""}`)).join("") : packageAssetTile(null, `社群${post.sequence_number}`)}</div></div>`;
+      return `<div class="detail-result-group"><h2>社群 ${post.sequence_number}</h2>${fullOutputField("社群文案", post.localized_text, id, `detail-community-${post.sequence_number}`, true, tracked("community_text", post.id))}<div class="package-image-prompt-target" data-missing-role="社群${post.sequence_number}">${fullOutputField("社群图提示词", post.image_prompt, id, `detail-community-image-${post.sequence_number}`, true, tracked("community_image", post.id), "出图词未生成")}<div class="package-detail-assets">${imageAssets.length ? imageAssets.map((asset, assetIndex) => packageAssetTile(asset, `社群${post.sequence_number}${imageAssets.length > 1 ? `-${assetIndex + 1}` : ""}`)).join("") : packageAssetTile(null, `社群${post.sequence_number}`)}</div></div></div>`;
     }).join("");
-    root.innerHTML = `<div class="page-stack"><div class="detail-page-toolbar"><button class="button button-secondary" data-action="back-packages">${icon("arrow-left")} 返回运营包列表</button><div class="toolbar-spacer"></div>${(item.media_assets || []).length ? `<button class="button button-secondary" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看全部素材 ${(item.media_assets || []).length}</button>` : ""}${tag(item.package_status)}</div><section class="package-summary"><div><span>频道</span><strong>${esc(item.channel_name)}</strong></div><div><span>Video ID</span><strong class="mono">${esc(item.youtube_video_id || "—")}</strong></div><div><span>档期</span><strong>${fmt(item.planned_local_time || item.target_publish_date)}</strong></div><div><span>播放列表</span><strong>${esc(item.playlist_name || "—")}</strong></div></section>${titleGroups}<div class="detail-result-group"><h2>说明与播放列表</h2>${fullOutputField("播放列表", item.playlist_name, id, "detail-playlist", false)}${fullOutputField("说明", item.description?.localized_text, id, "detail-description", true, tracked("description", item.description?.id))}${fullOutputField("说明翻译", item.description?.chinese_translation, id, "detail-description-translation", false)}${fullOutputField("置顶评论", item.description?.pinned_comment, id, "detail-pinned-comment")}</div>${community || `<div class="section">${empty("无需社群内容", "此运营包没有社群生产要求。")}</div>`}</div>`;
+    const returnAction = state.packageDetailOrigin?.view === "media" ? "back-media-assets" : "back-packages";
+    const returnLabel = state.packageDetailOrigin?.view === "media" ? "返回素材列表" : "返回运营包列表";
+    const missingBanner = missingTargets.length ? `<section class="package-missing-linkage"><div><strong>当前缺图</strong><span>点击缺图项可定位对应出图词</span></div><div class="package-missing-linkage-actions">${missingTargets.map(target => `<button class="media-missing-status" type="button" data-action="focus-missing-prompt" data-role="${esc(target.role)}">${esc(target.role)}</button>`).join("")}</div></section>` : "";
+    root.innerHTML = `<div class="page-stack"><div class="detail-page-toolbar"><button class="button button-secondary" data-action="${returnAction}">${icon("arrow-left")} ${returnLabel}</button><div class="toolbar-spacer"></div>${(item.media_assets || []).length ? `<button class="button button-secondary" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看全部素材 ${(item.media_assets || []).length}</button>` : ""}${tag(item.package_status)}</div>${missingBanner}<section class="package-summary"><div><span>频道</span><strong>${esc(item.channel_name)}</strong></div><div><span>Video ID</span><strong class="mono">${esc(item.youtube_video_id || "—")}</strong></div><div><span>档期</span><strong>${fmt(item.planned_local_time || item.target_publish_date)}</strong></div><div><span>播放列表</span><strong>${esc(item.playlist_name || "—")}</strong></div></section>${titleGroups}<div class="detail-result-group"><h2>说明与播放列表</h2>${fullOutputField("播放列表", item.playlist_name, id, "detail-playlist", false)}${fullOutputField("说明", item.description?.localized_text, id, "detail-description", true, tracked("description", item.description?.id))}${fullOutputField("说明翻译", item.description?.chinese_translation, id, "detail-description-translation", false)}${fullOutputField("置顶评论", item.description?.pinned_comment, id, "detail-pinned-comment")}</div>${community || `<div class="section">${empty("无需社群内容", "此运营包没有社群生产要求。")}</div>`}</div>`;
     renderIcons();
+    if (missingTargets[0]) requestAnimationFrame(() => focusMissingPackagePrompt(missingTargets[0].role, "auto"));
   }
 
   async function loadDemoStatus() {
@@ -821,7 +838,7 @@
     const coverageStatus = group.complete === true
       ? `<span class="tag is-green">图片齐全 · ${meta.present_count}/${meta.expected_count}</span>`
       : group.complete === false
-        ? `<button class="media-missing-status" type="button" data-action="show-media-package-missing" data-id="${esc(meta.package_id)}">缺图 · ${meta.present_count}/${meta.expected_count}</button>`
+        ? `<span class="media-missing-actions"><button class="media-missing-status" type="button" data-action="show-media-package-missing" data-id="${esc(meta.package_id)}">缺图 · ${meta.present_count}/${meta.expected_count}</button>${meta.package_id ? `<button class="media-missing-link" type="button" data-action="open-missing-prompts" data-id="${esc(meta.package_id)}" aria-label="查看${esc(group.missingRoles.join("、"))}的出图词" title="查看缺图出图词">${icon("arrow-right")}</button>` : ""}</span>`
         : tag(group.status);
     const assetsMarkup = group.assets.length
       ? group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")
@@ -1424,7 +1441,10 @@
         renderPackageListResults();
       }
       else if (action === "work-detail") await workDetail(id);
-      else if (action === "package-detail" || action === "package-page-detail") await showPackagePageDetail(id);
+      else if (action === "package-detail" || action === "package-page-detail") {
+        state.packageDetailOrigin = null;
+        await showPackagePageDetail(id);
+      }
       else if (action === "package-assets") {
         state.mediaPackageId = id;
         state.mediaLanguage = "";
@@ -1433,6 +1453,18 @@
         await loadView("media");
       }
       else if (action === "back-packages") await loadView("packages");
+      else if (action === "back-media-assets") {
+        const origin = state.packageDetailOrigin;
+        state.packageDetailOrigin = null;
+        await loadView("media");
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: origin?.scrollY || 0, behavior: "auto" });
+          const row = origin?.packageId ? document.querySelector(`[data-media-package-id="${CSS.escape(origin.packageId)}"]`) : null;
+          row?.classList.add("is-missing-target");
+          setTimeout(() => row?.classList.remove("is-missing-target"), 1800);
+        });
+      }
+      else if (action === "focus-missing-prompt") focusMissingPackagePrompt(button.dataset.role);
       else if (action === "copy-package-field") {
         const value = state.copyValues.get(button.dataset.copyKey);
         if (!value) return;
@@ -1521,7 +1553,15 @@
         const result = await api(`/media-assets/${id}/reveal`, { method: "POST" });
         notify(`已打开文件夹：${result.folder}`);
       }
-      else if (action === "view-media-package") await showPackagePageDetail(id);
+      else if (action === "view-media-package") {
+        state.packageDetailOrigin = { view: "media", packageId: id, scrollY: window.scrollY };
+        await showPackagePageDetail(id);
+      }
+      else if (action === "open-missing-prompts") {
+        const group = state.mediaGroups.find(item => item.meta.package_id === id);
+        state.packageDetailOrigin = { view: "media", packageId: id, scrollY: window.scrollY };
+        await showPackagePageDetail(id, group?.missingRoles || []);
+      }
       else if (action === "show-all-media") {
         state.mediaPackageId = "";
         state.mediaPage = 1;

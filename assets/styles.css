@@ -547,11 +547,21 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .media-batch-progress span { color: var(--muted); font-size: 10px; }
 .media-batch-progress strong { font-size: 14px; }
 .media-batch-status, .media-missing-status { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.media-missing-actions { display: inline-flex; align-items: center; gap: 5px; }
+.media-missing-link { width: 27px; height: 27px; display: inline-grid; place-items: center; padding: 0; color: var(--red); background: #fff; border: 1px solid #efc2be; border-radius: 50%; cursor: pointer; }
+.media-missing-link:hover { color: #fff; background: var(--red); border-color: var(--red); }
+.media-missing-link svg { width: 14px; height: 14px; }
 .media-batch-status { min-height: 32px; margin-left: auto; padding: 6px 12px; }
 .media-batch-status.is-complete { color: var(--green-dark); background: var(--green-soft); border: 1px solid #bfe0d0; }
 button.media-batch-status.is-incomplete, .media-missing-status { color: var(--red); background: var(--red-soft); border: 1px solid #efc2be; }
 button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { border-color: var(--red); box-shadow: 0 0 0 3px rgba(179,59,53,.08); }
 .media-missing-status { min-height: 25px; padding: 4px 8px; }
+.package-missing-linkage { display: flex; align-items: center; gap: 18px; padding: 12px 14px; color: #7f2925; background: var(--red-soft); border: 1px solid #efc2be; border-radius: var(--radius); }
+.package-missing-linkage > div:first-child { display: grid; gap: 2px; }
+.package-missing-linkage > div:first-child span { font-size: 11px; }
+.package-missing-linkage-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.package-image-prompt-target { padding: 4px; border-radius: 8px; transition: background .18s ease, box-shadow .18s ease; }
+.package-image-prompt-target.is-missing-prompt-target { background: #fff5f3; box-shadow: 0 0 0 3px rgba(179,59,53,.42); }
 .media-gallery-summary { padding: 10px 15px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--line); }
 .loading-inline { min-height: 150px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .media-package-focus { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 15px; color: var(--green-dark); background: #edf8f2; border-bottom: 1px solid #c9e4d6; }
