@@ -451,6 +451,14 @@ class PackageMediaAssetCell(BaseModel):
     status: str
 
 
+class PackagePlaylistCell(BaseModel):
+    id: str
+    local_name: str
+    chinese_name: str | None
+    status: str
+    selected: bool
+
+
 class PackageCopyMark(BaseModel):
     output_type: Literal["title", "cover", "description", "community_text", "community_image"]
     output_id: str = Field(min_length=36, max_length=36)
@@ -492,6 +500,7 @@ class PackageOperationOverview(BaseModel):
     playlist_id: str | None
     playlist_name: str | None
     playlist_url: str | None
+    playlists: list[PackagePlaylistCell]
     titles: list[TitleRead]
     covers: list[CoverRead]
     description: DescriptionRead | None

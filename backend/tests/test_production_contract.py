@@ -59,6 +59,7 @@ def test_package_operations_overview_exposes_copyable_modules() -> None:
         "video_url",
         "planned_local_time",
         "playlist_name",
+        "playlists",
         "titles",
         "covers",
         "description",

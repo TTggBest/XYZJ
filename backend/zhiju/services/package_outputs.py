@@ -607,6 +607,7 @@ def list_package_operation_overview(
     package_ids = [package.id for package, *_ in rows]
     if not package_ids:
         return []
+    channel_ids = {package.channel_id for package, *_ in rows}
 
     title_rows = list(session.scalars(
         select(PackageTitle)
@@ -633,6 +634,14 @@ def list_package_operation_overview(
         .join(ChannelPlaylist, ChannelPlaylist.id == PackagePlaylistAssignment.playlist_id)
         .where(PackagePlaylistAssignment.package_id.in_(package_ids))
         .order_by(PackagePlaylistAssignment.rank_number)
+    ))
+    channel_playlist_rows = list(session.scalars(
+        select(ChannelPlaylist)
+        .where(
+            ChannelPlaylist.channel_id.in_(channel_ids),
+            ChannelPlaylist.status != "deleted",
+        )
+        .order_by(ChannelPlaylist.channel_id, ChannelPlaylist.sort_order, ChannelPlaylist.created_at)
     ))
     copy_rows = list(session.scalars(
         select(PackageOutputCopyState).where(PackageOutputCopyState.package_id.in_(package_ids))
@@ -680,6 +689,9 @@ def list_package_operation_overview(
         current = playlists.get(assignment.package_id)
         if current is None or assignment.status == "selected":
             playlists[assignment.package_id] = (assignment, playlist)
+    playlists_by_channel: dict[str, list[ChannelPlaylist]] = defaultdict(list)
+    for playlist in channel_playlist_rows:
+        playlists_by_channel[playlist.channel_id].append(playlist)
     copied_by_package: dict[str, set[str]] = defaultdict(set)
     for row in copy_rows:
         copied_by_package[row.package_id].add(_copy_key(row.output_type, row.output_id))
@@ -747,6 +759,16 @@ def list_package_operation_overview(
             "playlist_id": playlist.id if playlist else None,
             "playlist_name": playlist.local_name if playlist else None,
             "playlist_url": playlist.url if playlist else None,
+            "playlists": [
+                {
+                    "id": candidate.id,
+                    "local_name": candidate.local_name,
+                    "chinese_name": candidate.chinese_name,
+                    "status": candidate.status,
+                    "selected": candidate.id == (playlist.id if playlist else None),
+                }
+                for candidate in playlists_by_channel.get(channel.id, [])
+            ],
             "titles": package_titles,
             "covers": package_covers,
             "description": package_description,

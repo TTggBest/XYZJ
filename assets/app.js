@@ -2,6 +2,7 @@
   "use strict";
 
   const API = "/api/v3";
+  const { localDate, resetDateToToday, shouldShowScrollTop } = window.ZhijuRuntimeViewState;
   const MEDIA_GROUPS_PER_PAGE = 20;
   const NODE_TYPES = ["search", "title", "cover", "description", "community", "merge"];
   const NODE_LABELS = { search: "搜索", title: "标题", cover: "封面", description: "说明", community: "社群", merge: "合成" };
@@ -36,10 +37,6 @@
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
-  function localDate() {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  }
   function esc(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
   }
@@ -96,6 +93,9 @@
     toast.textContent = message;
     el("toastStack").appendChild(toast);
     setTimeout(() => toast.remove(), 3200);
+  }
+  function updateScrollTopButton() {
+    el("scrollTopButton").hidden = !shouldShowScrollTop(window.scrollY, window.innerHeight);
   }
   function loading() { root.innerHTML = `<div class="loading"><div><div class="spinner"></div><p>正在读取数据库</p></div></div>`; }
   function empty(title, description, action = "", actionLabel = "") {
@@ -592,13 +592,19 @@
       return `<div class="cover-pair"><strong>标题 ${number}<span>${esc(title?.core_phrase || "无核心词")}</span></strong>${copyCell("4:5", item.package_id, `cover-${number}-45`, cover45?.creative_prompt, "", "", tracked("cover", cover45?.id))}${copyCell("16:9", item.package_id, `cover-${number}-169`, cover169?.creative_prompt, "", "", tracked("cover", cover169?.id))}${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div>`;
     }).join("");
     const description = item.description;
+    const presentation = window.ZhijuPackagePresentation.buildPackagePresentation(item);
     const communityCells = (item.community_posts || []).map(post => {
       const imageAssets = (post.asset_ids || []).map(assetId => mediaMap.get(assetId)).filter(Boolean);
       return `<div class="community-pair"><div class="community-schedule"><span>社群排期 ${post.sequence_number}</span><strong>${post.planned_time ? fmt(post.planned_time) : "待主副档规则"}</strong></div>${copyCell(`社群文案 ${post.sequence_number}`, item.package_id, `community-${post.sequence_number}`, post.localized_text, post.localized_text, "copy-cell-full", tracked("community_text", post.id))}${copyCell(`社群图 ${post.sequence_number}`, item.package_id, `community-image-${post.sequence_number}`, post.image_prompt, "", "", tracked("community_image", post.id))}<div class="package-asset-list">${imageAssets.length ? imageAssets.map((asset, assetIndex) => packageAssetTile(asset, `社群${post.sequence_number}${imageAssets.length > 1 ? `-${assetIndex + 1}` : ""}`)).join("") : packageAssetTile(null, `社群${post.sequence_number}`)}</div></div>`;
     }).join("");
     const videoCell = item.youtube_video_id ? copyCell("Video ID", item.package_id, "video-id", item.youtube_video_id, item.youtube_video_id, "video-copy-cell") : "";
     const incompleteNote = sourceIncomplete ? `<span class="source-incomplete-note" title="${esc(item.source_incomplete_reason || "飞书源数据不完整")}">数据不完整</span>` : "";
-    return `<article class="package-card copy-${esc(item.copy_status || "not_started")} ${sourceIncomplete ? "source-incomplete" : ""}" data-package-id="${item.package_id}" ${sourceIncomplete ? "inert aria-disabled=\"true\"" : ""}><header class="package-card-head"><span class="package-sequence">${index + 1}</span><div class="package-head-meta"><span class="channel-line">${esc(item.channel_name)}</span><span>档期 ${fmt(item.planned_local_time || item.target_publish_date)}</span><strong>${esc(item.chinese_title)}</strong><span class="mono">${esc(item.business_drama_id)}</span><span class="mono">${esc(item.batch_number || "未分批")}</span><span>v${item.package_version}</span></div><div class="package-card-actions">${incompleteNote}${tag(item.package_status)}${videoCell}${(item.media_assets || []).length ? `<button class="button button-secondary button-small" type="button" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看素材 ${(item.media_assets || []).length}</button>` : ""}<button class="icon-button detail-icon-button" title="查看完整详情" aria-label="查看完整详情" data-action="package-page-detail" data-id="${item.package_id}">${icon("maximize-2")}</button></div></header><div class="package-modules"><section class="package-module package-module-title"><h3>标题</h3><div class="title-list">${titleCells}</div></section><section class="package-module package-module-cover"><h3>封面提示词与成品</h3><div class="cover-list">${coverCells}</div></section><section class="package-module package-module-text"><h3>说明与播放列表</h3>${readCell("播放列表", item.playlist_name, "playlist-read-cell")}<div class="description-pair">${copyCell("说明", item.package_id, "description", description?.localized_text, description?.localized_text, "copy-cell-full description-copy-cell", tracked("description", description?.id))}${readCell("说明翻译", description?.chinese_translation)}</div></section><section class="package-module package-module-community"><h3>社群文案与成品</h3><div class="community-list">${communityCells || `<span class="module-empty">无需社群内容</span>`}</div></section></div></article>`;
+    const channelOriginal = presentation.channel_secondary ? `<span class="channel-secondary">${esc(presentation.channel_secondary)}</span>` : "";
+    const channelIdentity = `<div class="package-channel-identity" title="${esc(presentation.channel_title)}"><span class="channel-label">频道</span><span class="channel-primary">${esc(presentation.channel_primary)}</span>${channelOriginal}</div>`;
+    const descriptionCell = copyCell("频道语言说明", item.package_id, "description", description?.localized_text, presentation.localized_description, "copy-cell-full description-copy-cell", tracked("description", description?.id));
+    const playlistRows = presentation.playlists.map((playlist, playlistIndex) => `<div class="package-playlist-row ${playlist.selected ? "is-selected" : ""}"><span class="playlist-order">${playlistIndex + 1}</span><span class="playlist-names"><strong>${esc(playlist.name)}</strong>${playlist.chinese_name && playlist.chinese_name !== playlist.name ? `<small>中文：${esc(playlist.chinese_name)}</small>` : ""}</span>${playlist.selected ? `<span class="playlist-selected">本剧已选</span>` : ""}</div>`).join("");
+    const playlistList = `<div class="package-playlist-list"><div class="package-playlist-head"><strong>频道播放列表</strong><span>${presentation.playlists.length} 个</span></div>${playlistRows || `<span class="module-empty">暂无播放列表</span>`}</div>`;
+    return `<article class="package-card copy-${esc(item.copy_status || "not_started")} ${sourceIncomplete ? "source-incomplete" : ""}" data-package-id="${item.package_id}" ${sourceIncomplete ? "inert aria-disabled=\"true\"" : ""}><header class="package-card-head"><span class="package-sequence">${index + 1}</span><div class="package-head-meta">${channelIdentity}<span>档期 ${fmt(item.planned_local_time || item.target_publish_date)}</span><strong>${esc(item.chinese_title)}</strong><span class="mono">${esc(item.business_drama_id)}</span><span class="mono">${esc(item.batch_number || "未分批")}</span><span class="package-version" title="同一工单重新生成或修订时版本号递增">${esc(presentation.version_label)}</span></div><div class="package-card-actions">${incompleteNote}${tag(item.package_status)}${videoCell}${(item.media_assets || []).length ? `<button class="button button-secondary button-small" type="button" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看素材 ${(item.media_assets || []).length}</button>` : ""}<button class="icon-button detail-icon-button" title="查看完整详情" aria-label="查看完整详情" data-action="package-page-detail" data-id="${item.package_id}">${icon("maximize-2")}</button></div></header><div class="package-modules"><section class="package-module package-module-title"><h3>标题</h3><div class="title-list">${titleCells}</div></section><section class="package-module package-module-cover"><h3>封面提示词与成品</h3><div class="cover-list">${coverCells}</div></section><section class="package-module package-module-text"><h3>发布说明与播放列表</h3><div class="description-pair">${descriptionCell}${readCell("中文对照", presentation.chinese_description, "description-translation-cell")}</div>${playlistList}</section><section class="package-module package-module-community"><h3>社群文案与成品</h3><div class="community-list">${communityCells || `<span class="module-empty">无需社群内容</span>`}</div></section></div></article>`;
   }
   async function showPackages() {
     state.copyValues.clear();
@@ -607,7 +613,7 @@
     const search = state.packageSearch.trim().toLowerCase();
     const filtered = items.filter(item => (!state.packageChannel || item.channel_id === state.packageChannel) && (!search || `${item.chinese_title} ${item.business_drama_id} ${item.batch_number || ""} ${item.channel_name}`.toLowerCase().includes(search)));
     const tools = `<div class="toolbar"><div class="field"><label>生产日期</label><input class="input" type="date" id="packageDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-packages">${icon("refresh-cw")} 一键同步飞书</button><div class="field"><label>频道</label><select class="select" id="packageChannel"><option value="">全部频道</option>${channels.map(([id, name]) => `<option value="${id}" ${state.packageChannel === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></div><div class="field"><label>状态</label><select class="select" id="packageStatus"><option value="">全部状态</option>${["review_pending", "changes_requested", "approved", "delivered"].map(status => `<option value="${status}" ${state.packageStatus === status ? "selected" : ""}>${label(status)}</option>`).join("")}</select></div><div class="field search-field"><label>搜索</label><input class="input" id="packageSearch" value="${esc(state.packageSearch)}" placeholder="剧名、剧目 ID、批次、频道"></div></div>`;
-    root.innerHTML = `<div class="page-stack">${section("运营包操作列表", `${filtered.length} 个运营包 · 点击带复制提示的内容即可复制`, filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。"), tools)}</div>`;
+    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", `${filtered.length} 个运营包 · 点击带复制提示的内容即可复制`, filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。"), tools)}</div>`;
   }
   function fullOutputField(title, value, packageId, field, copyable = true, progress = null) {
     const key = copyable ? copyKey(packageId, field, value) : "";
@@ -970,7 +976,6 @@
     const position = preservePosition ? captureViewPosition() : null;
     state.view = view;
     await loadDemoStatus();
-    if (["schedules", "workorders", "packages"].includes(view) && state.demo.active && state.demo.batch && !state.dateManuallySet) state.date = state.demo.batch.start_date;
     const meta = VIEW_META[view] || VIEW_META.dashboard;
     el("breadcrumbText").textContent = meta[0]; el("pageTitle").textContent = meta[1];
     el("appShell").classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
@@ -983,6 +988,7 @@
       if (["dashboard", "schedules", "workorders", "packages"].includes(view)) injectDemoBar();
       renderIcons();
       restoreViewPosition(position);
+      updateScrollTopButton();
     } catch (error) { root.innerHTML = `<div class="section">${empty("数据读取失败", error.message)}</div>`; renderIcons(); notify(error.message, true); }
   }
 
@@ -1271,7 +1277,7 @@
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
       else if (action === "skill-detail") await skillDetail(id);
-      else if (action === "view-demo-workorders") { state.date = state.demo?.batch?.start_date || localDate(); state.dateManuallySet = false; await loadView("workorders"); }
+      else if (action === "view-demo-workorders") { state.date = state.demo?.batch?.start_date || localDate(); state.dateManuallySet = true; await loadView("workorders"); }
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }
       else if (action === "go-tasks") await loadView("workorders");
       else if (action === "go-image-settings") { state.settingsTab = "images"; await loadView("settings"); }
@@ -1366,6 +1372,7 @@
         button.disabled = true;
         const environment = button.dataset.environment;
         await api("/settings/runtime/environment", { method: "PUT", body: JSON.stringify({ environment }) });
+        resetDateToToday(state);
         notify(environment === "production" ? "已切换到生产数据库" : "已切换到开发数据库");
         await checkHealth();
         await loadView("settings");
@@ -1541,6 +1548,9 @@
   });
 
   el("sidebarToggle").addEventListener("click", () => { el("appShell").classList.toggle("is-collapsed"); localStorage.setItem("zhiju.nav.collapsed", el("appShell").classList.contains("is-collapsed") ? "1" : "0"); });
+  el("scrollTopButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
+  window.addEventListener("scroll", updateScrollTopButton, { passive: true });
+  window.addEventListener("resize", updateScrollTopButton);
   el("mobileMenu").addEventListener("click", () => el("appShell").classList.toggle("mobile-nav-open"));
   el("refreshView").addEventListener("click", async () => { await checkHealth(); await loadView(state.view, { preservePosition: true }); });
   el("modalBackdrop").addEventListener("click", event => { if (event.target === el("modalBackdrop")) closeModal(); });
@@ -1582,5 +1592,6 @@
   });
 
   if (localStorage.getItem("zhiju.nav.collapsed") === "1" && window.innerWidth > 760) el("appShell").classList.add("is-collapsed");
+  updateScrollTopButton();
   checkHealth(); connectRealtime().finally(() => loadView("dashboard")); renderIcons();
 })();
