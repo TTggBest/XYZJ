@@ -107,12 +107,24 @@ def cell_text(value: object) -> str:
         parts = []
         for item in value:
             if isinstance(item, dict):
-                parts.append(str(item.get("link") or item.get("text") or ""))
+                cell_position = item.get("cellPosition")
+                sheet_id = (
+                    cell_position.get("sheetId", "")
+                    if isinstance(cell_position, dict)
+                    else ""
+                )
+                parts.append(str(item.get("link") or sheet_id or item.get("text") or ""))
             else:
                 parts.append(str(item))
         return "\n".join(part.strip() for part in parts if part.strip()).strip()
     if isinstance(value, dict):
-        return str(value.get("link") or value.get("text") or "").strip()
+        cell_position = value.get("cellPosition")
+        sheet_id = (
+            cell_position.get("sheetId", "")
+            if isinstance(cell_position, dict)
+            else ""
+        )
+        return str(value.get("link") or sheet_id or value.get("text") or "").strip()
     return str(value).strip()
 
 
@@ -229,7 +241,11 @@ def parse_feishu_schedule_flag(
 
 
 def feishu_sheet_id_from_url(value: str) -> str:
-    return (parse_qs(urlparse(value.strip()).query).get("sheet") or [""])[0].strip()
+    normalized = value.strip()
+    linked_sheet_id = (parse_qs(urlparse(normalized).query).get("sheet") or [""])[0].strip()
+    if linked_sheet_id:
+        return linked_sheet_id
+    return normalized if re.fullmatch(r"[A-Za-z0-9_-]+", normalized) else ""
 
 
 def _unique_channel_for_directory(
