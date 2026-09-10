@@ -71,6 +71,28 @@ process.stdout.write(presentation.renderPackageProgressSummary(summary, Number(p
     return result.stdout
 
 
+def inspection_targets(items: list[dict], stage: str) -> list[dict]:
+    script = """
+const presentation = require(process.argv[1]);
+const items = JSON.parse(process.argv[2]);
+process.stdout.write(JSON.stringify(presentation.listPackageInspectionTargets(items, process.argv[3])));
+"""
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(ROOT / "assets" / "package-presentation.js"),
+            json.dumps(items, ensure_ascii=False),
+            stage,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
 def test_package_card_keeps_operational_nickname_and_distinct_original_channel_name() -> None:
     result = render_presentation(
         {
@@ -283,3 +305,94 @@ def test_package_filters_render_as_one_compact_responsive_toolbar() -> None:
     assert ".package-filter-item:focus-within" in styles
     assert "grid-template-areas" in styles
     assert '"search search" "date status" "channel channel" "sync sync"' in styles
+
+
+def test_progress_inspection_finds_first_missing_cell_for_each_incomplete_package() -> None:
+    complete_covers = [
+        {
+            "id": f"cover-{variant}-{ratio}",
+            "title_id": f"title-{variant}",
+            "aspect_ratio": ratio,
+            "creative_prompt": "prompt",
+            "asset_id": f"logo-{variant}" if ratio == "16:9" else None,
+        }
+        for variant in (1, 2, 3)
+        for ratio in ("4:5", "16:9")
+    ]
+    titles = [{"id": f"title-{variant}", "variant_number": variant} for variant in (1, 2, 3)]
+    image_keys = [f"cover:{cover['id']}" for cover in complete_covers]
+    ready_assets = [{"id": f"logo-{variant}", "asset_role": "thumbnail", "status": "ready"} for variant in (1, 2, 3)]
+    items = [
+        {"package_id": "not-generated", "source_complete": False},
+        {
+            "package_id": "missing-cover-click",
+            "source_complete": True,
+            "titles": titles,
+            "covers": complete_covers,
+            "community_count": 0,
+            "copied_keys": image_keys[:-1],
+            "copy_status": "in_progress",
+            "media_assets": ready_assets,
+        },
+        {
+            "package_id": "missing-copy",
+            "source_complete": True,
+            "titles": titles,
+            "covers": complete_covers,
+            "community_count": 0,
+            "copied_keys": image_keys,
+            "copy_status": "in_progress",
+            "description": {"id": "description-1", "localized_text": "description"},
+            "media_assets": ready_assets,
+        },
+        {
+            "package_id": "missing-logo",
+            "source_complete": True,
+            "titles": titles,
+            "covers": complete_covers,
+            "community_count": 0,
+            "copied_keys": image_keys,
+            "copy_status": "completed",
+            "media_assets": ready_assets[:-1],
+        },
+    ]
+
+    assert inspection_targets(items, "generated") == [
+        {"package_id": "not-generated", "kind": "card"}
+    ]
+    assert inspection_targets(items, "images") == [
+        {"package_id": "not-generated", "kind": "card"},
+        {"package_id": "missing-cover-click", "kind": "output", "output_type": "cover", "output_id": "cover-3-16:9"},
+    ]
+    assert inspection_targets(items, "completed") == [
+        {"package_id": "not-generated", "kind": "card"},
+        {"package_id": "missing-cover-click", "kind": "output", "output_type": "cover", "output_id": "cover-3-16:9"},
+        {"package_id": "missing-copy", "kind": "output", "output_type": "title", "output_id": "title-1"},
+        {"package_id": "missing-logo", "kind": "logo"},
+    ]
+
+
+def test_completed_progress_badge_has_no_action_when_every_package_is_complete() -> None:
+    incomplete = render_summary(
+        {"total": 3, "generated": 2, "images_completed": 1, "completed": 0},
+        current=3,
+    )
+    complete = render_summary(
+        {"total": 3, "generated": 3, "images_completed": 3, "completed": 3},
+        current=3,
+    )
+
+    assert 'data-action="inspect-package-progress" data-stage="generated"' in incomplete
+    assert 'data-action="inspect-package-progress" data-stage="images"' in incomplete
+    assert 'data-action="inspect-package-progress" data-stage="completed"' in incomplete
+    assert 'data-action="inspect-package-progress"' not in complete
+
+
+def test_progress_inspection_scrolls_and_highlights_without_writing_data() -> None:
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+    styles = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'action === "inspect-package-progress"' in app_source
+    assert "listPackageInspectionTargets" in app_source
+    assert "scrollIntoView({ behavior: \"smooth\", block: \"center\" })" in app_source
+    assert ".is-inspection-target" in styles
