@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
@@ -9,16 +9,20 @@ from zhiju.schemas.image_processing import (
     ImageProcessingRunRead,
     ImageWorkspaceRead,
     ImageWorkspaceWrite,
+    MediaAssetContextRead,
 )
 from zhiju.services.image_processing import (
     generate_logos,
     get_workspace,
     import_images,
+    list_media_asset_contexts,
     list_channel_logo_profiles,
     list_processing_batches,
     list_processing_runs,
     reconcile_processing_assets,
     reveal_media_asset_folder,
+    render_media_asset_thumbnail,
+    resolve_media_asset_file,
     save_channel_logo_profile,
     save_workspace,
 )
@@ -108,6 +112,31 @@ def post_reconcile_processing_assets(
 ) -> ImageAssetReconcileRead:
     try:
         return reconcile_processing_assets(session)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/media-assets/contexts", response_model=list[MediaAssetContextRead])
+def get_media_asset_contexts(
+    session: Session = Depends(get_db),
+) -> list[MediaAssetContextRead]:
+    return list_media_asset_contexts(session)
+
+
+@router.get("/media-assets/{asset_id}/thumbnail")
+def get_media_asset_thumbnail(
+    asset_id: str, session: Session = Depends(get_db)
+) -> Response:
+    try:
+        _, path = resolve_media_asset_file(session, asset_id)
+        content, media_type = render_media_asset_thumbnail(path)
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (OSError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

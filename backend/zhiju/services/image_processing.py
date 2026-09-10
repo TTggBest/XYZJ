@@ -47,6 +47,7 @@ from zhiju.schemas.image_processing import (
 WORKSPACE_SETTING_ID = "image-workspace"
 PERSISTENT_DIR = "系统素材"
 OUTPUT_DIR = "用户产物"
+THUMBNAIL_MAX_EDGE = 480
 LOGO_ROLES = {"02_标题1_16x9", "04_标题2_16x9", "06_标题3_16x9"}
 ROLE_SUFFIXES = {
     "1_4_5": "01_标题1_4x5",
@@ -162,6 +163,76 @@ def resolve_media_asset_file(session: Session, asset_id: str) -> tuple[MediaAsse
     if not path.is_file():
         raise FileNotFoundError("素材文件不存在")
     return asset, path
+
+
+def render_media_asset_thumbnail(path: Path) -> tuple[bytes, str]:
+    with Image.open(path) as source:
+        thumbnail = source.convert("RGB")
+        thumbnail.thumbnail(
+            (THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE),
+            Image.Resampling.LANCZOS,
+        )
+        output = io.BytesIO()
+        thumbnail.save(output, format="WEBP", quality=78, method=4)
+    return output.getvalue(), "image/webp"
+
+
+def list_media_asset_contexts(session: Session) -> list[dict[str, object]]:
+    rows = session.execute(
+        select(
+            OperationPackage.id,
+            Channel.id,
+            Channel.original_name,
+            Channel.operational_name,
+            Channel.default_language,
+            Drama.chinese_title,
+            ProductionBatch.batch_number,
+            WorkOrder.target_publish_date,
+            ChannelScheduleEntry.planned_local_time,
+        )
+        .join(MediaAsset, MediaAsset.operation_package_id == OperationPackage.id)
+        .join(WorkOrder, WorkOrder.id == OperationPackage.work_order_id)
+        .join(Channel, Channel.id == OperationPackage.channel_id)
+        .join(Drama, Drama.id == OperationPackage.drama_id)
+        .outerjoin(
+            ProductionBatch,
+            ProductionBatch.id
+            == func.coalesce(OperationPackage.batch_id, WorkOrder.batch_id),
+        )
+        .outerjoin(
+            ChannelScheduleEntry,
+            ChannelScheduleEntry.id
+            == func.coalesce(OperationPackage.schedule_id, WorkOrder.schedule_id),
+        )
+        .where(
+            MediaAsset.asset_type == "image",
+            MediaAsset.deleted_at.is_(None),
+        )
+        .distinct()
+    ).all()
+    return [
+        {
+            "package_id": package_id,
+            "channel_id": channel_id,
+            "channel_name": operational_name or original_name,
+            "language_code": language_code or "",
+            "chinese_title": chinese_title,
+            "batch_number": batch_number,
+            "target_publish_date": target_publish_date,
+            "planned_local_time": planned_local_time,
+        }
+        for (
+            package_id,
+            channel_id,
+            original_name,
+            operational_name,
+            language_code,
+            chinese_title,
+            batch_number,
+            target_publish_date,
+            planned_local_time,
+        ) in rows
+    ]
 
 
 def reveal_media_asset_folder(session: Session, asset_id: str) -> Path:

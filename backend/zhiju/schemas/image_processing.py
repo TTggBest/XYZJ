@@ -81,3 +81,14 @@ class ImageAssetReconcileRead(BaseModel):
     bound_assets: int
     missing_files: int
     unbound_assets: int
+
+
+class MediaAssetContextRead(BaseModel):
+    package_id: str
+    channel_id: str
+    channel_name: str
+    language_code: str
+    chinese_title: str
+    batch_number: str | None
+    target_publish_date: date
+    planned_local_time: datetime | None

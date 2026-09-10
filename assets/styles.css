@@ -480,6 +480,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .media-gallery-filters .select { min-width: 160px; }
 .media-gallery-filters label:last-child .select { min-width: 240px; }
 .media-gallery-summary { padding: 10px 15px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--line); }
+.loading-inline { min-height: 150px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .media-package-focus { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 15px; color: var(--green-dark); background: #edf8f2; border-bottom: 1px solid #c9e4d6; }
 .media-package-focus[hidden] { display: none; }
 .media-package-focus div { min-width: 0; display: grid; gap: 3px; }
