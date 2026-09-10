@@ -608,12 +608,18 @@
   }
   async function showPackages() {
     state.copyValues.clear();
-    const items = await api(`/packages/operations-overview${query({ production_date: state.date, status: state.packageStatus || null })}`); state.packageItems = items;
+    const [items, workorders] = await Promise.all([
+      api(`/packages/operations-overview${query({ production_date: state.date })}`),
+      api(`/work-orders${query({ production_date: state.date })}`),
+    ]);
+    state.packageItems = items;
     const channels = [...new Map(items.map(item => [item.channel_id, item.channel_name])).entries()];
     const search = state.packageSearch.trim().toLowerCase();
-    const filtered = items.filter(item => (!state.packageChannel || item.channel_id === state.packageChannel) && (!search || `${item.chinese_title} ${item.business_drama_id} ${item.batch_number || ""} ${item.channel_name}`.toLowerCase().includes(search)));
+    const filtered = items.filter(item => (!state.packageChannel || item.channel_id === state.packageChannel) && (!state.packageStatus || item.package_status === state.packageStatus) && (!search || `${item.chinese_title} ${item.business_drama_id} ${item.batch_number || ""} ${item.channel_name}`.toLowerCase().includes(search)));
+    const summary = window.ZhijuPackagePresentation.summarizePackageProgress(items, workorders.length);
+    const summaryText = `一共 ${summary.total} · 已生成 ${summary.generated} · 已出图 ${summary.images_completed} · 已完成 ${summary.completed} · 当前显示 ${filtered.length}`;
     const tools = `<div class="toolbar"><div class="field"><label>生产日期</label><input class="input" type="date" id="packageDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-packages">${icon("refresh-cw")} 一键同步飞书</button><div class="field"><label>频道</label><select class="select" id="packageChannel"><option value="">全部频道</option>${channels.map(([id, name]) => `<option value="${id}" ${state.packageChannel === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></div><div class="field"><label>状态</label><select class="select" id="packageStatus"><option value="">全部状态</option>${["review_pending", "changes_requested", "approved", "delivered"].map(status => `<option value="${status}" ${state.packageStatus === status ? "selected" : ""}>${label(status)}</option>`).join("")}</select></div><div class="field search-field"><label>搜索</label><input class="input" id="packageSearch" value="${esc(state.packageSearch)}" placeholder="剧名、剧目 ID、批次、频道"></div></div>`;
-    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", `${filtered.length} 个运营包 · 点击带复制提示的内容即可复制`, filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。"), tools)}</div>`;
+    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryText, filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。"), tools)}</div>`;
   }
   function fullOutputField(title, value, packageId, field, copyable = true, progress = null) {
     const key = copyable ? copyKey(packageId, field, value) : "";
