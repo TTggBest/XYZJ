@@ -83,5 +83,16 @@
     };
   }
 
-  return { buildPackagePresentation, summarizePackageProgress };
+  function renderPackageProgressSummary(summary, current) {
+    const values = [
+      ["一共", summary.total, "is-total"],
+      ["已生成", summary.generated, "is-generated"],
+      ["已出图", summary.images_completed, "is-images"],
+      ["已完成", summary.completed, "is-completed"],
+      ["当前显示", current, "is-visible"],
+    ];
+    return `<span class="package-progress-summary" id="packageProgressSummary" role="status" aria-label="运营包进度统计">${values.map(([label, value, className]) => `<span class="package-progress-stat ${className}"><span>${label}</span><strong>${Number(value || 0)}</strong></span>`).join("")}</span>`;
+  }
+
+  return { buildPackagePresentation, summarizePackageProgress, renderPackageProgressSummary };
 });

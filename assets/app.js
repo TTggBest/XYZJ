@@ -33,7 +33,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -101,8 +101,8 @@
   function empty(title, description, action = "", actionLabel = "") {
     return `<div class="empty-state"><div><div class="empty-icon">${icon("database")}</div><h3>${esc(title)}</h3><p>${esc(description)}</p>${action ? `<button class="button button-primary" data-action="${action}">${icon("plus")} ${esc(actionLabel)}</button>` : ""}</div></div>`;
   }
-  function section(title, subtitle, body, actions = "") {
-    return `<section class="section"><header class="section-head"><div class="section-title"><h2>${esc(title)}</h2>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</div>${actions}</header>${body}</section>`;
+  function section(title, subtitle, body, actions = "", subtitleIsHtml = false) {
+    return `<section class="section"><header class="section-head"><div class="section-title"><h2>${esc(title)}</h2>${subtitle ? `<p>${subtitleIsHtml ? subtitle : esc(subtitle)}</p>` : ""}</div>${actions}</header>${body}</section>`;
   }
   function table(headers, rows, minWidth = 760, wrapClass = "") {
     return `<div class="table-wrap ${wrapClass}"><table class="data-table" style="min-width:${minWidth}px"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
@@ -574,6 +574,31 @@
       node.classList.toggle("is-copy-complete", copied.has(`${node.dataset.outputType}:${node.dataset.outputId}`));
     });
   }
+  function filteredPackageItems() {
+    const search = state.packageSearch.trim().toLowerCase();
+    return state.packageItems.filter(item => (!state.packageChannel || item.channel_id === state.packageChannel) && (!state.packageStatus || item.package_status === state.packageStatus) && (!search || `${item.chinese_title} ${item.business_drama_id} ${item.batch_number || ""} ${item.channel_name}`.toLowerCase().includes(search)));
+  }
+  function packageProgressSummaryMarkup(current) {
+    const summary = window.ZhijuPackagePresentation.summarizePackageProgress(state.packageItems, state.packageWorkOrderTotal);
+    return `<span class="package-progress-row">${window.ZhijuPackagePresentation.renderPackageProgressSummary(summary, current)}<button class="package-summary-refresh" type="button" data-action="refresh-package-summary" title="从数据库刷新统计">${icon("refresh-cw")}<span>刷新统计</span></button></span>`;
+  }
+  function renderPackageProgressSummary() {
+    const current = el("packageProgressSummary");
+    if (!current) return;
+    const summary = window.ZhijuPackagePresentation.summarizePackageProgress(state.packageItems, state.packageWorkOrderTotal);
+    current.outerHTML = window.ZhijuPackagePresentation.renderPackageProgressSummary(summary, filteredPackageItems().length);
+  }
+  function renderPackageListResults() {
+    const container = el("packageListResults");
+    if (!container) return;
+    const filtered = filteredPackageItems();
+    state.copyValues.clear();
+    container.innerHTML = filtered.length
+      ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>`
+      : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。");
+    renderPackageProgressSummary();
+    renderIcons();
+  }
   function packageCard(item, index) {
     const sourceIncomplete = item.source_complete === false;
     const copiedKeys = new Set(item.copied_keys || []);
@@ -613,13 +638,14 @@
       api(`/work-orders${query({ production_date: state.date })}`),
     ]);
     state.packageItems = items;
+    state.packageWorkOrderTotal = workorders.length;
     const channels = [...new Map(items.map(item => [item.channel_id, item.channel_name])).entries()];
-    const search = state.packageSearch.trim().toLowerCase();
-    const filtered = items.filter(item => (!state.packageChannel || item.channel_id === state.packageChannel) && (!state.packageStatus || item.package_status === state.packageStatus) && (!search || `${item.chinese_title} ${item.business_drama_id} ${item.batch_number || ""} ${item.channel_name}`.toLowerCase().includes(search)));
-    const summary = window.ZhijuPackagePresentation.summarizePackageProgress(items, workorders.length);
-    const summaryText = `一共 ${summary.total} · 已生成 ${summary.generated} · 已出图 ${summary.images_completed} · 已完成 ${summary.completed} · 当前显示 ${filtered.length}`;
-    const tools = `<div class="toolbar"><div class="field"><label>生产日期</label><input class="input" type="date" id="packageDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-packages">${icon("refresh-cw")} 一键同步飞书</button><div class="field"><label>频道</label><select class="select" id="packageChannel"><option value="">全部频道</option>${channels.map(([id, name]) => `<option value="${id}" ${state.packageChannel === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></div><div class="field"><label>状态</label><select class="select" id="packageStatus"><option value="">全部状态</option>${["review_pending", "changes_requested", "approved", "delivered"].map(status => `<option value="${status}" ${state.packageStatus === status ? "selected" : ""}>${label(status)}</option>`).join("")}</select></div><div class="field search-field"><label>搜索</label><input class="input" id="packageSearch" value="${esc(state.packageSearch)}" placeholder="剧名、剧目 ID、批次、频道"></div></div>`;
-    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryText, filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。"), tools)}</div>`;
+    const filtered = filteredPackageItems();
+    const summaryMarkup = packageProgressSummaryMarkup(filtered.length);
+    const clearSearch = `<button class="package-search-clear" type="button" data-action="clear-package-search" title="清空搜索" aria-label="清空搜索" ${state.packageSearch ? "" : "hidden"}>${icon("x")}</button>`;
+    const tools = `<div class="package-filter-bar" role="search"><div class="package-filter-item package-filter-search"><div class="package-search-control">${icon("search")}<input class="input" id="packageSearch" aria-label="搜索" value="${esc(state.packageSearch)}" placeholder="搜索剧名、剧目 ID、批次或频道">${clearSearch}</div></div><label class="package-filter-item package-filter-date"><span class="package-filter-label">${icon("calendar-days")} 生产日期</span><input class="input" type="date" id="packageDate" value="${state.date}"></label><label class="package-filter-item package-filter-channel"><span class="package-filter-label">${icon("radio-tower")} 频道</span><select class="select" id="packageChannel"><option value="">全部频道</option>${channels.map(([id, name]) => `<option value="${id}" ${state.packageChannel === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></label><label class="package-filter-item package-filter-status"><span class="package-filter-label">${icon("list-filter")} 状态</span><select class="select" id="packageStatus"><option value="">全部状态</option>${["review_pending", "changes_requested", "approved", "delivered"].map(status => `<option value="${status}" ${state.packageStatus === status ? "selected" : ""}>${label(status)}</option>`).join("")}</select></label><button class="button button-primary package-filter-sync" data-action="sync-feishu-packages">${icon("refresh-cw")}<span>一键同步飞书</span></button></div>`;
+    const results = `<div id="packageListResults">${filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。")}</div>`;
+    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryMarkup, results, tools, true)}</div>`;
   }
   function fullOutputField(title, value, packageId, field, copyable = true, progress = null) {
     const key = copyable ? copyKey(packageId, field, value) : "";
@@ -1218,6 +1244,18 @@
         notify(`飞书运营包同步完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`);
         await loadView("packages", { preservePosition: true });
       }
+      else if (action === "refresh-package-summary") {
+        button.disabled = true;
+        await loadView("packages", { preservePosition: true });
+        notify("统计数据已刷新");
+      }
+      else if (action === "clear-package-search") {
+        state.packageSearch = "";
+        const input = el("packageSearch");
+        if (input) input.value = "";
+        button.hidden = true;
+        renderPackageListResults();
+      }
       else if (action === "work-detail") await workDetail(id);
       else if (action === "package-detail" || action === "package-page-detail") await showPackagePageDetail(id);
       else if (action === "package-assets") {
@@ -1238,6 +1276,7 @@
             body: JSON.stringify({ output_type: button.dataset.outputType, output_id: button.dataset.outputId })
           });
           applyCopyProgress(copyProgress);
+          renderPackageProgressSummary();
         } else {
           button.classList.add("is-copied");
           setTimeout(() => button.classList.remove("is-copied"), 900);
@@ -1415,10 +1454,17 @@
     if (event.target.id === "scheduleChannelFilter") { state.scheduleChannelId = event.target.value; state.scheduleFullPage = 1; await loadView("schedules"); }
     if (event.target.id === "packageChannel") { state.packageChannel = event.target.value; await loadView("packages"); }
     if (event.target.id === "packageStatus") { state.packageStatus = event.target.value; await loadView("packages"); }
-    if (event.target.id === "packageSearch") { state.packageSearch = event.target.value; await loadView("packages"); }
     if (event.target.id === "mediaLanguageFilter") { state.mediaLanguage = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
     if (event.target.id === "mediaChannelFilter") { state.mediaChannel = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
     if (event.target.id === "scheduleChannel" && event.target.value) { try { await loadChannelScheduling(event.target.value); } catch (error) { notify(error.message, true); } }
+  });
+  document.addEventListener("input", event => {
+    if (event.target.id === "packageSearch") {
+      state.packageSearch = event.target.value;
+      const clearButton = document.querySelector('[data-action="clear-package-search"]');
+      if (clearButton) clearButton.hidden = !state.packageSearch;
+      renderPackageListResults();
+    }
   });
   document.addEventListener("submit", async event => {
     event.preventDefault(); const form = event.target; const data = formData(form);

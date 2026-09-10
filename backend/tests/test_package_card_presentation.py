@@ -49,6 +49,28 @@ process.stdout.write(JSON.stringify(presentation.summarizePackageProgress(items,
     return json.loads(result.stdout)
 
 
+def render_summary(summary: dict, current: int) -> str:
+    script = """
+const presentation = require(process.argv[1]);
+const summary = JSON.parse(process.argv[2]);
+process.stdout.write(presentation.renderPackageProgressSummary(summary, Number(process.argv[3])));
+"""
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            script,
+            str(ROOT / "assets" / "package-presentation.js"),
+            json.dumps(summary, ensure_ascii=False),
+            str(current),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
 def test_package_card_keeps_operational_nickname_and_distinct_original_channel_name() -> None:
     result = render_presentation(
         {
@@ -197,3 +219,67 @@ def test_package_summary_requires_all_six_cover_clicks_and_required_community_cl
     }
 
     assert summarize_packages([item], total=1)["images_completed"] == 0
+
+
+def test_package_summary_renders_distinct_semantic_badges() -> None:
+    markup = render_summary(
+        {"total": 53, "generated": 51, "images_completed": 27, "completed": 6},
+        current=42,
+    )
+
+    assert 'id="packageProgressSummary"' in markup
+    assert 'class="package-progress-stat is-total"' in markup
+    assert 'class="package-progress-stat is-generated"' in markup
+    assert 'class="package-progress-stat is-images"' in markup
+    assert 'class="package-progress-stat is-completed"' in markup
+    assert 'class="package-progress-stat is-visible"' in markup
+    assert "<span>一共</span><strong>53</strong>" in markup
+    assert "<span>已完成</span><strong>6</strong>" in markup
+    assert "<span>当前显示</span><strong>42</strong>" in markup
+
+
+def test_package_list_refreshes_summary_after_copy_and_on_demand() -> None:
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert "state.packageWorkOrderTotal = workorders.length" in app_source
+    assert "renderPackageProgressSummary();" in app_source
+    assert 'action === "refresh-package-summary"' in app_source
+    assert 'data-action="clear-package-search"' in app_source
+
+
+def test_package_search_filters_loaded_rows_without_refetching_the_database() -> None:
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert "function renderPackageListResults()" in app_source
+    assert 'document.addEventListener("input", event =>' in app_source
+    assert 'if (event.target.id === "packageSearch")' in app_source
+    assert "renderPackageListResults();" in app_source
+    assert 'if (event.target.id === "packageSearch") { state.packageSearch = event.target.value; await loadView("packages"); }' not in app_source
+
+
+def test_package_summary_and_search_have_scoped_visual_styles() -> None:
+    styles = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert ".package-progress-stat.is-total" in styles
+    assert ".package-progress-stat.is-generated" in styles
+    assert ".package-progress-stat.is-images" in styles
+    assert ".package-progress-stat.is-completed" in styles
+    assert ".package-progress-stat.is-visible" in styles
+    assert ".package-search-control:focus-within" in styles
+
+
+def test_package_filters_render_as_one_compact_responsive_toolbar() -> None:
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+    styles = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'class="package-filter-bar" role="search"' in app_source
+    assert 'class="package-filter-item package-filter-search"' in app_source
+    assert 'class="package-filter-item package-filter-date"' in app_source
+    assert 'class="package-filter-item package-filter-channel"' in app_source
+    assert 'class="package-filter-item package-filter-status"' in app_source
+    assert 'class="button button-primary package-filter-sync"' in app_source
+    assert app_source.index('id="packageSearch"') < app_source.index('id="packageDate"')
+    assert ".package-filter-bar" in styles
+    assert ".package-filter-item:focus-within" in styles
+    assert "grid-template-areas" in styles
+    assert '"search search" "date status" "channel channel" "sync sync"' in styles
