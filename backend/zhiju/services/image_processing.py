@@ -91,8 +91,11 @@ class PackageContext:
     drama_code: str
     drama_number: int
     video_id: str | None
+    source_row_number: int | None
+    community_count: int
     schedule_id: str | None
     target_publish_date: str
+    planned_local_time: datetime | None
     slot_type: str | None
     slot_number: int | None
 
@@ -185,13 +188,18 @@ def list_media_asset_contexts(session: Session) -> list[dict[str, object]]:
             Channel.original_name,
             Channel.operational_name,
             Channel.default_language,
+            Drama.id,
+            Drama.drama_code,
             Drama.chinese_title,
+            OperationTask.source_video_id,
+            OperationTask.source_row_number,
             ProductionBatch.batch_number,
             WorkOrder.target_publish_date,
             ChannelScheduleEntry.planned_local_time,
         )
         .join(MediaAsset, MediaAsset.operation_package_id == OperationPackage.id)
         .join(WorkOrder, WorkOrder.id == OperationPackage.work_order_id)
+        .join(OperationTask, OperationTask.id == WorkOrder.task_id)
         .join(Channel, Channel.id == OperationPackage.channel_id)
         .join(Drama, Drama.id == OperationPackage.drama_id)
         .outerjoin(
@@ -216,7 +224,11 @@ def list_media_asset_contexts(session: Session) -> list[dict[str, object]]:
             "channel_id": channel_id,
             "channel_name": operational_name or original_name,
             "language_code": language_code or "",
+            "drama_id": drama_id,
+            "drama_code": drama_code,
             "chinese_title": chinese_title,
+            "video_id": video_id,
+            "source_row_number": source_row_number,
             "batch_number": batch_number,
             "target_publish_date": target_publish_date,
             "planned_local_time": planned_local_time,
@@ -227,7 +239,11 @@ def list_media_asset_contexts(session: Session) -> list[dict[str, object]]:
             original_name,
             operational_name,
             language_code,
+            drama_id,
+            drama_code,
             chinese_title,
+            video_id,
+            source_row_number,
             batch_number,
             target_publish_date,
             planned_local_time,
@@ -462,6 +478,73 @@ def list_processing_batches(session: Session) -> list[ImageProcessingBatchRead]:
     ]
 
 
+def _media_asset_display_role(asset: MediaAsset) -> str | None:
+    source = f"{asset.storage_key or ''}/{asset.original_filename or ''}"
+    cover = re.search(r"(?:02|04|06)_标题([123])_16x9(?:_logo)?\.[^/]+$", source)
+    if cover:
+        return f"封面{cover.group(1)}"
+    community = re.search(r"\d+_社群(\d+)_1x1\.[^/]+$", source)
+    if community:
+        return f"社群{community.group(1)}"
+    return None
+
+
+def list_batch_media_coverage(
+    session: Session, batch_id: str
+) -> list[dict[str, object]]:
+    batch = session.get(ProductionBatch, batch_id)
+    if batch is None:
+        raise ValueError("生产批次不存在")
+    contexts = _package_contexts(session, batch_id)
+    package_ids = [context.package_id for context in contexts]
+    assets_by_package: dict[str, list[MediaAsset]] = {package_id: [] for package_id in package_ids}
+    if package_ids:
+        assets = session.scalars(
+            select(MediaAsset).where(
+                MediaAsset.operation_package_id.in_(package_ids),
+                MediaAsset.asset_type == "image",
+                MediaAsset.deleted_at.is_(None),
+            )
+        )
+        for asset in assets:
+            assets_by_package[asset.operation_package_id].append(asset)
+
+    rows: list[dict[str, object]] = []
+    for context in contexts:
+        expected_roles = ["封面1", "封面2", "封面3"] + [
+            f"社群{number}" for number in range(1, context.community_count + 1)
+        ]
+        present_role_set = {
+            role
+            for asset in assets_by_package[context.package_id]
+            if (role := _media_asset_display_role(asset)) in expected_roles
+        }
+        present_roles = [role for role in expected_roles if role in present_role_set]
+        missing_roles = [role for role in expected_roles if role not in present_role_set]
+        rows.append({
+            "package_id": context.package_id,
+            "channel_id": context.channel_id,
+            "channel_name": context.channel_name,
+            "language_code": context.language,
+            "chinese_title": context.drama_title,
+            "drama_id": context.drama_id,
+            "drama_code": context.drama_code,
+            "video_id": context.video_id,
+            "source_row_number": context.source_row_number,
+            "batch_number": batch.batch_number,
+            "target_publish_date": context.target_publish_date,
+            "planned_local_time": context.planned_local_time,
+            "community_count": context.community_count,
+            "expected_roles": expected_roles,
+            "present_roles": present_roles,
+            "missing_roles": missing_roles,
+            "expected_count": len(expected_roles),
+            "present_count": len(present_roles),
+            "complete": not missing_roles,
+        })
+    return rows
+
+
 def _package_contexts(session: Session, batch_id: str) -> list[PackageContext]:
     rows = session.execute(
         select(
@@ -497,9 +580,12 @@ def _package_contexts(session: Session, batch_id: str) -> list[PackageContext]:
             drama_title=drama.chinese_title,
             drama_code=drama.drama_code,
             drama_number=drama.drama_number,
-            video_id=task.source_video_id,
+            video_id=task.source_video_id or (schedule.source_video_id if schedule else None),
+            source_row_number=task.source_row_number,
+            community_count=order.community_count,
             schedule_id=schedule.id if schedule else None,
             target_publish_date=str(order.target_publish_date),
+            planned_local_time=schedule.planned_local_time if schedule else None,
             slot_type=slot.slot_type if slot else None,
             slot_number=slot.slot_number if slot else None,
         ))

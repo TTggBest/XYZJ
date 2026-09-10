@@ -33,7 +33,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -768,6 +768,15 @@
     const channelById = new Map(channels.map(item => [item.channel_id, item]));
     const channelByName = new Map(channels.flatMap(item => [item.original_name, item.operational_name, item.display_name].filter(Boolean).map(name => [name, item])));
     const groups = new Map();
+    packages.forEach(item => {
+      if (!item.package_id) return;
+      const channel = channelById.get(item.channel_id) || channelByName.get(item.channel_name);
+      groups.set(item.package_id, {
+        key: item.package_id,
+        meta: { ...item, language_code: item.language_code || channel?.default_language || "" },
+        assets: [],
+      });
+    });
     assets.filter(asset => asset.asset_type === "image").forEach(asset => {
       const fallback = mediaFallbackMeta(asset);
       const packageMeta = packageById.get(asset.operation_package_id);
@@ -785,9 +794,19 @@
         return kindOrder[left.kind] - kindOrder[right.kind] || left.number - right.number || String(left.original_filename || "").localeCompare(String(right.original_filename || ""));
       });
       group.createdAt = group.assets.reduce((latest, asset) => !latest || new Date(asset.created_at) > new Date(latest) ? asset.created_at : latest, null);
-      group.status = group.assets.every(asset => asset.status === "ready") ? "ready" : group.assets.some(asset => asset.status === "failed") ? "failed" : group.assets[0]?.status;
+      const hasCoverage = Array.isArray(group.meta.expected_roles);
+      group.complete = hasCoverage ? Boolean(group.meta.complete) : null;
+      group.missingRoles = hasCoverage ? group.meta.missing_roles || [] : [];
+      group.status = hasCoverage
+        ? group.complete ? "ready" : "missing"
+        : group.assets.every(asset => asset.status === "ready") ? "ready" : group.assets.some(asset => asset.status === "failed") ? "failed" : group.assets[0]?.status;
       return group;
-    }).sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+    }).sort((left, right) => {
+      const leftRow = Number(left.meta.source_row_number || 0);
+      const rightRow = Number(right.meta.source_row_number || 0);
+      if (leftRow && rightRow) return leftRow - rightRow;
+      return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+    });
   }
 
   function mediaAssetCard(asset, groupIndex, assetIndex) {
@@ -798,7 +817,60 @@
   function mediaGroupCard(group, groupIndex) {
     const meta = group.meta;
     const schedule = meta.planned_local_time || meta.target_publish_date || "未排期";
-    return `<article class="media-gallery-group"><div class="media-gallery-meta"><div><span>剧名</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${tag(group.status)}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><div class="row-actions">${meta.package_id ? `<button class="button button-secondary button-small" type="button" data-action="view-media-package" data-id="${esc(meta.package_id)}">查看运营包</button>` : ""}<button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button></div></div><div class="media-gallery-assets">${group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")}</div></article>`;
+    const coverageClass = group.complete === true ? " is-complete" : group.complete === false ? " is-incomplete" : "";
+    const coverageStatus = group.complete === true
+      ? `<span class="tag is-green">图片齐全 · ${meta.present_count}/${meta.expected_count}</span>`
+      : group.complete === false
+        ? `<button class="media-missing-status" type="button" data-action="show-media-package-missing" data-id="${esc(meta.package_id)}">缺图 · ${meta.present_count}/${meta.expected_count}</button>`
+        : tag(group.status);
+    const assetsMarkup = group.assets.length
+      ? group.assets.map((asset, assetIndex) => mediaAssetCard(asset, groupIndex, assetIndex)).join("")
+      : `<div class="media-gallery-empty">尚未导入图片 · 缺少 ${esc(group.missingRoles.join("、") || "全部图片")}</div>`;
+    const lookupId = meta.video_id || meta.drama_code || meta.drama_id || "未登记";
+    const lookupLabel = meta.video_id ? "Video ID" : "剧 ID";
+    return `<article class="media-gallery-group${coverageClass}" data-media-package-id="${esc(meta.package_id || "")}"><div class="media-gallery-meta"><div><span>剧名 · 剧 ID</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong><small class="media-video-id">${lookupLabel} · ${esc(lookupId)}</small></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${coverageStatus}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><div class="row-actions">${meta.package_id ? `<button class="button button-secondary button-small" type="button" data-action="view-media-package" data-id="${esc(meta.package_id)}">查看运营包</button>` : ""}${group.assets[0] ? `<button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button>` : ""}</div></div><div class="media-gallery-assets">${assetsMarkup}</div></article>`;
+  }
+
+  function renderMediaBatchProgress() {
+    const target = el("mediaBatchProgress");
+    if (!target) return;
+    if (!state.mediaBatchId) {
+      target.hidden = true;
+      target.innerHTML = "";
+      return;
+    }
+    const batch = state.imageBatches.find(item => item.id === state.mediaBatchId);
+    const groups = state.mediaGroups.filter(group => group.complete !== null);
+    const completed = groups.filter(group => group.complete).length;
+    const incomplete = groups.length - completed;
+    const missingImages = groups.reduce((total, group) => total + group.missingRoles.length, 0);
+    const expectedPackages = Number(batch?.package_count || groups.length);
+    const allComplete = groups.length === expectedPackages && incomplete === 0;
+    const status = allComplete
+      ? `<span class="media-batch-status is-complete">全部完成</span>`
+      : `<button class="media-batch-status is-incomplete" type="button" data-action="show-missing-media">待补 ${incomplete} 个运营包 · ${missingImages} 张图</button>`;
+    target.hidden = false;
+    target.innerHTML = `<div><span>当前批次</span><strong>${esc(batch?.batch_number || "未命名批次")}</strong></div><div><span>工单</span><strong>${expectedPackages}</strong></div><div><span>图片齐全</span><strong>${completed}</strong></div><div><span>未完成</span><strong>${incomplete}</strong></div>${status}`;
+  }
+
+  function jumpToMissingMediaGroup(packageId = "") {
+    const targetGroup = packageId
+      ? state.mediaGroups.find(group => group.meta.package_id === packageId && group.complete === false)
+      : state.mediaGroups.find(group => group.complete === false);
+    if (!targetGroup) return;
+    state.mediaPackageId = "";
+    state.mediaLanguage = "";
+    state.mediaChannel = "";
+    const targetIndex = state.mediaGroups.indexOf(targetGroup);
+    state.mediaPage = Math.floor(targetIndex / MEDIA_GROUPS_PER_PAGE) + 1;
+    renderMediaGallery();
+    requestAnimationFrame(() => {
+      const row = document.querySelector(`[data-media-package-id="${CSS.escape(targetGroup.meta.package_id)}"]`);
+      row?.scrollIntoView({ block: "center", behavior: "smooth" });
+      row?.classList.add("is-missing-target");
+      setTimeout(() => row?.classList.remove("is-missing-target"), 1800);
+    });
+    notify(`${targetGroup.meta.video_id || targetGroup.meta.drama_code || targetGroup.meta.chinese_title} 缺少：${targetGroup.missingRoles.join("、")}`, true);
   }
 
   function renderMediaGallery() {
@@ -824,6 +896,7 @@
     state.visibleMediaGroups = page.items;
     const imageCount = filteredGroups.reduce((total, group) => total + group.assets.length, 0);
     summary.textContent = `${filteredGroups.length} 个剧目 · ${imageCount} 张可验收图片 · 第 ${page.page}/${page.totalPages} 页`;
+    renderMediaBatchProgress();
     const focus = el("mediaPackageFocus");
     const focusMeta = state.visibleMediaGroups[0]?.meta || focusedGroups[0]?.meta;
     if (focus) {
@@ -837,6 +910,23 @@
       ? `<button class="button button-secondary button-small" type="button" data-action="media-page" data-page="${page.page - 1}" ${page.page === 1 ? "disabled" : ""}>上一页</button><span>第 ${page.page} / ${page.totalPages} 页</span><button class="button button-secondary button-small" type="button" data-action="media-page" data-page="${page.page + 1}" ${page.page === page.totalPages ? "disabled" : ""}>下一页</button>`
       : "";
     renderIcons();
+  }
+
+  async function loadMediaGalleryAssets() {
+    const [assets, packages] = await Promise.all([
+      api(`/media-assets${query({ limit: 500, batch_id: state.mediaBatchId })}`),
+      state.mediaBatchId
+        ? api(`/image-processing/batches/${encodeURIComponent(state.mediaBatchId)}/asset-coverage`)
+        : Promise.resolve(state.mediaContexts),
+    ]);
+    state.mediaAssets = assets;
+    state.mediaCoverage = state.mediaBatchId ? packages : [];
+    state.mediaGroups = buildMediaGroups(assets, packages, state.channels);
+    state.mediaPage = 1;
+    const languages = [...new Set(state.mediaGroups.map(group => group.meta.language_code).filter(Boolean))].sort((left, right) => languageLabel(left).localeCompare(languageLabel(right), "zh-CN"));
+    if (state.mediaLanguage && !languages.includes(state.mediaLanguage)) state.mediaLanguage = "";
+    el("mediaLanguageFilter").innerHTML = `<option value="">全部语言</option>${languages.map(code => `<option value="${esc(code)}" ${code === state.mediaLanguage ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}`;
+    renderMediaGallery();
   }
 
   function closeMediaViewer() {
@@ -888,21 +978,20 @@
   async function showMedia() {
     const [workspace, batches, runs] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs")]);
     state.imageRuns = runs;
-    const batchOptions = batches.map(batch => `<option value="${batch.id}">${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
-    const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
+    state.imageBatches = batches;
+    if (state.mediaBatchId && !batches.some(batch => batch.id === state.mediaBatchId)) state.mediaBatchId = "";
+    const batchOptions = batches.map(batch => `<option value="${batch.id}" ${batch.id === state.mediaBatchId ? "selected" : ""}>${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
+    const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" id="mediaBatchFilter" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
     const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
     const filters = `<div class="media-gallery-filters"><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option></select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label><button class="button button-secondary" type="button" data-action="reconcile-media-assets">${icon("refresh-cw")} 校准素材关联</button></div>`;
-    root.innerHTML = `<div class="page-stack">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${section("素材资产", "", `<div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary">正在读取素材…</div><div id="mediaGalleryContent"><div class="loading-inline">素材列表加载中</div></div><div class="pagination" id="mediaGalleryPagination"></div>`, filters)}</div>`;
+    const mediaAssetsSection = section("素材资产", "", `<div class="media-batch-progress" id="mediaBatchProgress" hidden></div><div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary">正在读取素材…</div><div id="mediaGalleryContent"><div class="loading-inline">素材列表加载中</div></div><div class="pagination" id="mediaGalleryPagination"></div>`, filters).replace('<section class="section">', '<section class="section media-assets-section">');
+    root.innerHTML = `<div class="page-stack media-page">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${mediaAssetsSection}</div>`;
     renderIcons();
     try {
-      const [assets, contexts, channels] = await Promise.all([api("/media-assets?limit=500"), api("/media-assets/contexts"), api("/channels/overview")]);
-      state.mediaAssets = assets;
-      state.mediaGroups = buildMediaGroups(assets, contexts, channels);
-      state.mediaPage = 1;
-      const languages = [...new Set(state.mediaGroups.map(group => group.meta.language_code).filter(Boolean))].sort((left, right) => languageLabel(left).localeCompare(languageLabel(right), "zh-CN"));
-      if (state.mediaLanguage && !languages.includes(state.mediaLanguage)) state.mediaLanguage = "";
-      el("mediaLanguageFilter").innerHTML = `<option value="">全部语言</option>${languages.map(code => `<option value="${esc(code)}" ${code === state.mediaLanguage ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}`;
-      renderMediaGallery();
+      const [contexts, channels] = await Promise.all([api("/media-assets/contexts"), api("/channels/overview")]);
+      state.mediaContexts = contexts;
+      state.channels = channels;
+      await loadMediaGalleryAssets();
     } catch (error) {
       el("mediaGallerySummary").textContent = "素材列表读取失败";
       el("mediaGalleryContent").innerHTML = empty("素材读取失败", error.message);
@@ -1406,6 +1495,8 @@
         state.mediaPage = 1;
         renderMediaGallery();
       }
+      else if (action === "show-missing-media") jumpToMissingMediaGroup();
+      else if (action === "show-media-package-missing") jumpToMissingMediaGroup(id);
       else if (action === "media-page") {
         state.mediaPage = Number(button.dataset.page);
         renderMediaGallery();
@@ -1500,6 +1591,13 @@
     if (event.target.id === "scheduleChannelFilter") { state.scheduleChannelId = event.target.value; state.scheduleFullPage = 1; await loadView("schedules"); }
     if (event.target.id === "packageChannel") { state.packageChannel = event.target.value; await loadView("packages"); }
     if (event.target.id === "packageStatus") { state.packageStatus = event.target.value; await loadView("packages"); }
+    if (event.target.id === "mediaBatchFilter") {
+      state.mediaBatchId = event.target.value;
+      state.mediaPackageId = "";
+      el("mediaGallerySummary").textContent = "正在读取所选批次素材…";
+      el("mediaGalleryContent").innerHTML = `<div class="loading-inline">素材列表加载中</div>`;
+      try { await loadMediaGalleryAssets(); } catch (error) { notify(error.message, true); }
+    }
     if (event.target.id === "mediaLanguageFilter") { state.mediaLanguage = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
     if (event.target.id === "mediaChannelFilter") { state.mediaChannel = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
     if (event.target.id === "scheduleChannel" && event.target.value) { try { await loadChannelScheduling(event.target.value); } catch (error) { notify(error.message, true); } }

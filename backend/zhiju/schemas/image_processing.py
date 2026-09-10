@@ -89,6 +89,20 @@ class MediaAssetContextRead(BaseModel):
     channel_name: str
     language_code: str
     chinese_title: str
+    drama_id: str
+    drama_code: str
+    video_id: str | None
+    source_row_number: int | None
     batch_number: str | None
     target_publish_date: date
     planned_local_time: datetime | None
+
+
+class MediaAssetCoverageRead(MediaAssetContextRead):
+    community_count: int
+    expected_roles: list[str]
+    present_roles: list[str]
+    missing_roles: list[str]
+    expected_count: int
+    present_count: int
+    complete: bool

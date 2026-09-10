@@ -35,6 +35,7 @@ def test_image_processing_routes_are_registered() -> None:
     assert "get" in paths["/api/v3/channels/logo-profiles"]
     assert "put" in paths["/api/v3/channels/{channel_id}/logo-profile"]
     assert "get" in paths["/api/v3/image-processing/batches"]
+    assert "get" in paths["/api/v3/image-processing/batches/{batch_id}/asset-coverage"]
     assert "post" in paths["/api/v3/image-processing/import"]
     assert "get" in paths["/api/v3/image-processing/runs"]
     assert "post" in paths["/api/v3/image-processing/runs/{run_id}/generate-logo"]
@@ -88,6 +89,8 @@ def test_media_asset_contexts_return_only_packages_with_images_and_small_fields(
             source="manual",
             status="completed",
             idempotency_key=f"media-context-task-{suffix}",
+            source_video_id=f"video-{suffix}",
+            source_row_number=7,
         )
         session.add(task)
         session.flush()
@@ -146,11 +149,150 @@ def test_media_asset_contexts_return_only_packages_with_images_and_small_fields(
             "channel_id": channel.id,
             "channel_name": channel.operational_name,
             "language_code": "en",
+            "drama_id": drama.id,
+            "drama_code": drama.drama_code,
             "chinese_title": drama.chinese_title,
+            "video_id": task.source_video_id,
+            "source_row_number": 7,
             "batch_number": batch.batch_number,
             "target_publish_date": date(2026, 9, 12),
             "planned_local_time": None,
         }
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_batch_asset_coverage_includes_complete_incomplete_and_empty_packages() -> None:
+    list_coverage = getattr(image_processing, "list_batch_media_coverage", None)
+    assert callable(list_coverage), "selected batch needs package-level image coverage"
+
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        channel = models.Channel(
+            youtube_channel_id=f"UC-COVERAGE-{suffix}",
+            original_name=f"覆盖频道-{suffix}",
+            operational_name=f"覆盖昵称-{suffix}",
+            default_language="es",
+            timezone="Asia/Shanghai",
+            status="active",
+        )
+        batch = models.ProductionBatch(
+            batch_number=f"FS-COVERAGE-{suffix}",
+            production_date=date(2026, 9, 10),
+            source="native",
+            status="active",
+        )
+        session.add_all([channel, batch])
+        session.flush()
+
+        package_rows = []
+        for number, community_count in enumerate((1, 2, 1), start=1):
+            drama = models.Drama(
+                drama_number=-(int(suffix[:7], 16) + number),
+                drama_code=f"COVERAGE-{suffix}-{number}",
+                chinese_title=f"覆盖剧目-{suffix}-{number}",
+                normalized_title=f"覆盖剧目-{suffix}-{number}".casefold(),
+                source_type="manual",
+                status="active",
+            )
+            session.add(drama)
+            session.flush()
+            task = models.OperationTask(
+                batch_id=batch.id,
+                channel_id=channel.id,
+                drama_id=drama.id,
+                task_date=date(2026, 9, 10),
+                target_publish_date=date(2026, 9, 12),
+                community_count=community_count,
+                source="manual",
+                status="completed",
+                idempotency_key=f"coverage-task-{suffix}-{number}",
+                source_video_id=f"video-{suffix}-{number}",
+            )
+            session.add(task)
+            session.flush()
+            order = models.WorkOrder(
+                task_id=task.id,
+                batch_id=batch.id,
+                channel_id=channel.id,
+                drama_id=drama.id,
+                production_date=date(2026, 9, 10),
+                target_publish_date=date(2026, 9, 12),
+                community_count=community_count,
+                status="completed",
+            )
+            session.add(order)
+            session.flush()
+            package = models.OperationPackage(
+                work_order_id=order.id,
+                batch_id=batch.id,
+                channel_id=channel.id,
+                drama_id=drama.id,
+                version_number=1,
+                status="approved",
+            )
+            session.add(package)
+            session.flush()
+            package_rows.append((package, task))
+
+        roles_by_package = {
+            package_rows[0][0].id: (
+                "02_标题1_16x9_logo.png",
+                "04_标题2_16x9_logo.png",
+                "06_标题3_16x9_logo.png",
+                "07_社群1_1x1.png",
+            ),
+            package_rows[1][0].id: (
+                "02_标题1_16x9_logo.png",
+                "06_标题3_16x9_logo.png",
+                "07_社群1_1x1.png",
+            ),
+        }
+        asset_number = 0
+        for package_id, filenames in roles_by_package.items():
+            for filename in filenames:
+                asset_number += 1
+                session.add(models.MediaAsset(
+                    channel_id=channel.id,
+                    operation_package_id=package_id,
+                    storage_provider="local",
+                    storage_key=f"用户产物/{suffix}/{package_id}/{filename}",
+                    original_filename=filename,
+                    asset_type="image",
+                    asset_role="thumbnail",
+                    mime_type="image/png",
+                    sha256=f"{asset_number:x}" * 64,
+                    width=1280,
+                    height=720,
+                    file_size_bytes=100,
+                    status="ready",
+                ))
+        session.commit()
+
+        rows = list_coverage(session, batch.id)
+        by_video = {row["video_id"]: row for row in rows}
+
+        assert len(rows) == 3
+        complete = by_video[package_rows[0][1].source_video_id]
+        assert complete["complete"] is True
+        assert complete["expected_count"] == 4
+        assert complete["present_count"] == 4
+        assert complete["missing_roles"] == []
+
+        incomplete = by_video[package_rows[1][1].source_video_id]
+        assert incomplete["complete"] is False
+        assert incomplete["expected_count"] == 5
+        assert incomplete["present_count"] == 3
+        assert incomplete["missing_roles"] == ["封面2", "社群2"]
+
+        empty_package = by_video[package_rows[2][1].source_video_id]
+        assert empty_package["present_count"] == 0
+        assert empty_package["missing_roles"] == ["封面1", "封面2", "封面3", "社群1"]
     finally:
         session.close()
         transaction.rollback()
@@ -375,6 +517,30 @@ def test_media_page_filters_assets_by_language_and_channel() -> None:
     assert "全部语言" in source
     assert "全部频道" in source
     assert "visibleMediaGroups" in source
+
+
+def test_media_page_filters_assets_by_selected_production_batch() -> None:
+    source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="mediaBatchFilter"' in source
+    assert "batch_id: state.mediaBatchId" in source
+    assert 'event.target.id === "mediaBatchFilter"' in source
+
+
+def test_media_page_shows_batch_coverage_video_id_and_missing_image_navigation() -> None:
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "assets" / "app.js").read_text(encoding="utf-8")
+    styles = (root / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert "asset-coverage" in source
+    assert 'id="mediaBatchProgress"' in source
+    assert "Video ID" in source
+    assert "missing_roles" in source
+    assert 'data-action="show-missing-media"' in source
+    assert 'data-action="show-media-package-missing"' in source
+    assert ".media-gallery-group.is-complete" in styles
+    assert ".media-gallery-group.is-incomplete" in styles
+    assert ".media-page .media-assets-section > .section-head" in styles
 
 
 def test_media_viewer_hides_thumbnail_strip_until_bottom_interaction() -> None:

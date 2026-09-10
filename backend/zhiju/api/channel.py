@@ -304,6 +304,7 @@ def post_media_asset(payload: MediaAssetCreate, session: Session = Depends(get_d
 
 @router.get("/media-assets", response_model=list[MediaAssetRead])
 def get_media_assets(
+    batch_id: str | None = None,
     channel_id: str | None = None,
     operation_package_id: str | None = None,
     asset_type: str | None = None,
@@ -316,6 +317,7 @@ def get_media_assets(
 ) -> list[MediaAssetRead]:
     return list_media_assets(
         session,
+        batch_id=batch_id,
         channel_id=channel_id,
         operation_package_id=operation_package_id,
         asset_type=asset_type,

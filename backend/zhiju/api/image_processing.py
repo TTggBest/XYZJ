@@ -10,12 +10,14 @@ from zhiju.schemas.image_processing import (
     ImageWorkspaceRead,
     ImageWorkspaceWrite,
     MediaAssetContextRead,
+    MediaAssetCoverageRead,
 )
 from zhiju.services.image_processing import (
     generate_logos,
     get_workspace,
     import_images,
     list_media_asset_contexts,
+    list_batch_media_coverage,
     list_channel_logo_profiles,
     list_processing_batches,
     list_processing_runs,
@@ -78,6 +80,19 @@ async def put_logo_profile(
 @router.get("/image-processing/batches", response_model=list[ImageProcessingBatchRead])
 def get_processing_batches(session: Session = Depends(get_db)) -> list[ImageProcessingBatchRead]:
     return list_processing_batches(session)
+
+
+@router.get(
+    "/image-processing/batches/{batch_id}/asset-coverage",
+    response_model=list[MediaAssetCoverageRead],
+)
+def get_batch_asset_coverage(
+    batch_id: str, session: Session = Depends(get_db)
+) -> list[MediaAssetCoverageRead]:
+    try:
+        return list_batch_media_coverage(session, batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/image-processing/runs", response_model=list[ImageProcessingRunRead])

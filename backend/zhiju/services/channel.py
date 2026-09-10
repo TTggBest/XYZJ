@@ -26,6 +26,7 @@ from zhiju.models import (
     CommunityPostAsset,
     MediaAsset,
     OperationPackage,
+    WorkOrder,
     PackageCoverVariant,
     YoutubeAnalyticsBreakdown,
     YoutubeChannelDailyMetric,
@@ -1013,6 +1014,7 @@ def _media_asset(session: Session, asset_id: str, *, lock: bool = False) -> Medi
 def list_media_assets(
     session: Session,
     *,
+    batch_id: str | None = None,
     channel_id: str | None = None,
     operation_package_id: str | None = None,
     asset_type: str | None = None,
@@ -1023,6 +1025,18 @@ def list_media_assets(
     limit: int = 200,
 ) -> list[MediaAsset]:
     statement = select(MediaAsset)
+    if batch_id is not None:
+        statement = (
+            statement.join(
+                OperationPackage,
+                OperationPackage.id == MediaAsset.operation_package_id,
+            )
+            .join(WorkOrder, WorkOrder.id == OperationPackage.work_order_id)
+            .where(
+                func.coalesce(OperationPackage.batch_id, WorkOrder.batch_id)
+                == batch_id
+            )
+        )
     if not include_deleted:
         statement = statement.where(MediaAsset.deleted_at.is_(None))
     for column, value in (
