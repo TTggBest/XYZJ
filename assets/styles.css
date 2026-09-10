@@ -108,6 +108,42 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 
 .package-list { display: grid; gap: 11px; padding: 12px; }
 .package-list-page > .section > .section-head { position: sticky; top: 78px; z-index: 20; background: rgba(255,255,255,.97); box-shadow: 0 1px 0 var(--line); backdrop-filter: blur(10px); }
+.package-list-page .section-title > p { margin-top: 7px; }
+.package-progress-row, .package-progress-summary { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.package-progress-stat { min-height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid transparent; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.package-progress-stat span { font-size: 10px; font-weight: 650; }
+.package-progress-stat strong { font-size: 13px; line-height: 1; }
+.package-progress-stat.is-total { color: #405a6b; background: #eef4f7; border-color: #d4e1e8; }
+.package-progress-stat.is-generated { color: #23699a; background: #e9f4fb; border-color: #c8e1f0; }
+.package-progress-stat.is-images { color: #9a5b08; background: #fff3df; border-color: #f2d7aa; }
+.package-progress-stat.is-completed { color: #08704d; background: #e7f6ef; border-color: #c4e7d7; }
+.package-progress-stat.is-visible { color: #6f4d96; background: #f3eef9; border-color: #ded0ed; }
+.package-summary-refresh { min-height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 999px; font-size: 10px; font-weight: 650; }
+.package-summary-refresh:hover { color: var(--green-dark); background: var(--green-soft); border-color: #c9e8da; }
+.package-summary-refresh:focus-visible { outline: 2px solid rgba(8,123,84,.24); outline-offset: 1px; }
+.package-summary-refresh svg { width: 13px; height: 13px; }
+.package-filter-bar { width: min(1120px, 100%); display: grid; grid-template-columns: minmax(240px, 1.5fr) 155px minmax(180px, 1fr) 145px auto; grid-template-areas: "search date channel status sync"; align-items: stretch; gap: 8px; padding: 8px; background: #f3f6f4; border: 1px solid #e0e7e3; border-radius: 10px; }
+.package-filter-item { min-width: 0; min-height: 54px; display: grid; align-content: center; gap: 2px; padding: 6px 10px; background: #fff; border: 1px solid #d9e2dd; border-radius: 8px; transition: border-color .15s ease, box-shadow .15s ease; }
+.package-filter-item:hover { border-color: #bccbc3; }
+.package-filter-item:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(8,123,84,.09); }
+.package-filter-search { grid-area: search; padding: 0 10px; }
+.package-filter-date { grid-area: date; }
+.package-filter-channel { grid-area: channel; }
+.package-filter-status { grid-area: status; }
+.package-filter-label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 9px; font-weight: 700; line-height: 1.2; }
+.package-filter-label svg { width: 11px; height: 11px; }
+.package-filter-item > .input, .package-filter-item > .select { height: 25px; padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; font-size: 12px; font-weight: 650; }
+.package-filter-item > .input:focus, .package-filter-item > .select:focus { box-shadow: none; }
+.package-filter-sync { grid-area: sync; min-height: 54px; padding-right: 15px; padding-left: 15px; border-radius: 8px; }
+.package-search-control { position: relative; display: flex; align-items: center; }
+.package-search-control > svg { position: absolute; top: 50%; left: 12px; width: 16px; height: 16px; color: var(--muted-2); transform: translateY(-50%); pointer-events: none; }
+.package-search-control .input { height: 52px; padding: 0 36px 0 39px; background: transparent; border: 0; border-radius: 0; box-shadow: none; font-size: 13px; }
+.package-search-control .input::placeholder { color: #929d98; }
+.package-search-control:focus-within .input { box-shadow: none; }
+.package-search-control:focus-within > svg { color: var(--green); }
+.package-search-clear { position: absolute; top: 50%; right: 8px; width: 26px; height: 26px; display: grid; place-items: center; padding: 0; color: var(--muted); background: #edf2ef; border: 0; border-radius: 50%; transform: translateY(-50%); }
+.package-search-clear:hover { color: var(--text); background: #e0e8e4; }
+.package-search-clear svg { width: 14px; height: 14px; }
 .package-card { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .package-card.copy-in_progress { border-color: #d8a900; box-shadow: inset 0 0 0 1px #f0ce55; }
 .package-card.copy-completed { border-color: #239567; box-shadow: inset 0 0 0 1px #70c5a0; }
@@ -553,6 +589,10 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .workspace-required strong { font-size: 13px; }
 .workspace-required p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
 
+@media (max-width: 1500px) {
+  .package-list-page > .section > .section-head { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+  .package-filter-bar { width: 100%; grid-template-columns: 155px minmax(180px, 1fr) 145px; grid-template-areas: "search search sync" "date channel status"; }
+}
 @media (max-width: 1080px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid { grid-template-columns: 1fr; }
@@ -604,7 +644,9 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
   .demo-banner-actions { margin-left: 0; }
   .demo-banner-actions .button { flex: 1; }
   .package-card-head { align-items: center; flex-wrap: wrap; }
-  .package-list-page > .section > .section-head { top: 68px; }
+  .package-list-page > .section > .section-head { top: 68px; display: flex; }
+  .package-filter-bar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "search search" "date status" "channel channel" "sync sync"; }
+  .package-filter-sync { min-height: 46px; }
   .package-head-meta { flex: 1 1 100%; flex-wrap: wrap; white-space: normal; }
   .package-card-actions { justify-content: flex-start; }
   .package-modules { grid-template-columns: 1fr; }
