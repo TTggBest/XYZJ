@@ -1,12 +1,21 @@
 from hashlib import sha256
+from datetime import date
+from io import BytesIO
 from pathlib import Path
+import subprocess
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
 from zhiju.app import app
+from sqlalchemy.orm import Session
+
+from zhiju import models
+from zhiju.database import database_router
 from zhiju.models import ImageProcessingItem, MediaAsset
+from zhiju.services import image_processing
 from zhiju.services.image_processing import (
     _bind_asset_to_package_output,
     _register_imported_community_asset,
@@ -31,8 +40,155 @@ def test_image_processing_routes_are_registered() -> None:
     assert "post" in paths["/api/v3/image-processing/runs/{run_id}/generate-logo"]
     assert "post" in paths["/api/v3/image-processing/assets/reconcile"]
     assert "get" in paths["/api/v3/media-assets/{asset_id}/content"]
+    assert "get" in paths["/api/v3/media-assets/{asset_id}/thumbnail"]
+    assert "get" in paths["/api/v3/media-assets/contexts"]
     assert "post" in paths["/api/v3/media-assets/{asset_id}/reveal"]
     assert client.get("/api/v3/channels/logo-profiles").status_code == 200
+
+
+def test_media_asset_contexts_return_only_packages_with_images_and_small_fields() -> None:
+    list_contexts = getattr(image_processing, "list_media_asset_contexts", None)
+    assert callable(list_contexts), "media page needs a dedicated lightweight context query"
+
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        channel = models.Channel(
+            youtube_channel_id=f"UC-MEDIA-{suffix}",
+            original_name=f"素材频道-{suffix}",
+            operational_name=f"素材昵称-{suffix}",
+            default_language="en",
+            timezone="Asia/Shanghai",
+            status="active",
+        )
+        drama = models.Drama(
+            drama_number=-int(suffix[:8], 16),
+            drama_code=f"MEDIA-{suffix}",
+            chinese_title=f"素材剧目-{suffix}",
+            normalized_title=f"素材剧目-{suffix}".casefold(),
+            source_type="manual",
+            status="active",
+        )
+        batch = models.ProductionBatch(
+            batch_number=f"FS-MEDIA-{suffix}",
+            production_date=date(2026, 9, 10),
+            source="native",
+            status="active",
+        )
+        session.add_all([channel, drama, batch])
+        session.flush()
+        task = models.OperationTask(
+            batch_id=batch.id,
+            channel_id=channel.id,
+            drama_id=drama.id,
+            task_date=date(2026, 9, 10),
+            target_publish_date=date(2026, 9, 12),
+            source="manual",
+            status="completed",
+            idempotency_key=f"media-context-task-{suffix}",
+        )
+        session.add(task)
+        session.flush()
+        work_order = models.WorkOrder(
+            task_id=task.id,
+            batch_id=batch.id,
+            channel_id=channel.id,
+            drama_id=drama.id,
+            production_date=date(2026, 9, 10),
+            target_publish_date=date(2026, 9, 12),
+            status="completed",
+        )
+        session.add(work_order)
+        session.flush()
+        with_asset = models.OperationPackage(
+            work_order_id=work_order.id,
+            batch_id=batch.id,
+            channel_id=channel.id,
+            drama_id=drama.id,
+            version_number=1,
+            status="approved",
+        )
+        without_asset = models.OperationPackage(
+            work_order_id=work_order.id,
+            batch_id=batch.id,
+            channel_id=channel.id,
+            drama_id=drama.id,
+            version_number=2,
+            status="approved",
+        )
+        session.add_all([with_asset, without_asset])
+        session.flush()
+        session.add(models.MediaAsset(
+            channel_id=channel.id,
+            operation_package_id=with_asset.id,
+            storage_provider="local",
+            storage_key=f"用户产物/{suffix}/cover.webp",
+            original_filename="cover.webp",
+            asset_type="image",
+            asset_role="thumbnail",
+            mime_type="image/webp",
+            sha256="a" * 64,
+            width=1280,
+            height=720,
+            file_size_bytes=100,
+            status="ready",
+        ))
+        session.commit()
+
+        rows = list_contexts(session)
+        row = next(item for item in rows if item["package_id"] == with_asset.id)
+
+        assert not any(item["package_id"] == without_asset.id for item in rows)
+        assert row == {
+            "package_id": with_asset.id,
+            "channel_id": channel.id,
+            "channel_name": channel.operational_name,
+            "language_code": "en",
+            "chinese_title": drama.chinese_title,
+            "batch_number": batch.batch_number,
+            "target_publish_date": date(2026, 9, 12),
+            "planned_local_time": None,
+        }
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_media_asset_thumbnail_is_small_webp(tmp_path: Path) -> None:
+    render_thumbnail = getattr(image_processing, "render_media_asset_thumbnail", None)
+    assert callable(render_thumbnail), "media list needs a small thumbnail renderer"
+    source = tmp_path / "large.png"
+    Image.new("RGB", (1600, 900), "blue").save(source)
+
+    content, media_type = render_thumbnail(source)
+
+    assert media_type == "image/webp"
+    with Image.open(BytesIO(content)) as thumbnail:
+        assert thumbnail.format == "WEBP"
+        assert max(thumbnail.size) == 480
+
+
+def test_media_gallery_paginates_twenty_groups_per_page() -> None:
+    root = Path(__file__).resolve().parents[2]
+    script = root / "assets" / "media-gallery.js"
+    program = (
+        "const gallery=require(process.argv[1]);"
+        "const result=gallery.paginateGroups(Array.from({length:45},(_,i)=>i+1),2,20);"
+        "process.stdout.write(JSON.stringify(result));"
+    )
+
+    completed = subprocess.run(
+        ["node", "-e", program, str(script)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == '{"items":[21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40],"page":2,"totalPages":3,"total":45}'
 
 
 def test_workspace_root_uses_device_shared_root_for_relative_setting(tmp_path: Path) -> None:
