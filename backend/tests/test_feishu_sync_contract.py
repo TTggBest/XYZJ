@@ -71,6 +71,18 @@ def test_feishu_rich_link_is_normalized_before_video_id_extraction() -> None:
     assert video_id_from_url(cell_text(value)) == "IQ7Cw_wpiqE"
 
 
+def test_feishu_internal_sheet_link_uses_cell_position_sheet_id() -> None:
+    value = [{
+        "type": "url",
+        "text": "🧁Little Family Secrets-英语-女频-萌宝家庭",
+        "link": "",
+        "cellPosition": {"sheetId": "2bBHNK"},
+    }]
+
+    assert cell_text(value) == "2bBHNK"
+    assert feishu_sync.feishu_sheet_id_from_url(cell_text(value)) == "2bBHNK"
+
+
 def test_business_identifier_prefers_video_id_and_falls_back_to_drama_number() -> None:
     assert business_drama_identifier("IQ7Cw_wpiqE", 108) == "IQ7Cw_wpiqE"
     assert business_drama_identifier("", 108) == "108"

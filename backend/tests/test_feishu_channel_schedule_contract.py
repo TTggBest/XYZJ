@@ -257,7 +257,7 @@ def test_prepare_channel_schedule_rows_resolves_directory_channel_alias_drama_an
             directory_rows=[{
                 "频道名": channel.original_name,
                 "频道昵称": channel.operational_name,
-                "链接": "https://example.feishu.cn/wiki/token?sheet=sheet-a",
+                "链接": "sheet-a",
                 "__source_row_number": "2",
             }],
             sheet_rows=[(
