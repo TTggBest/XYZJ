@@ -111,6 +111,9 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .package-list-page .section-title > p { margin-top: 7px; }
 .package-progress-row, .package-progress-summary { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .package-progress-stat { min-height: 26px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid transparent; border-radius: 999px; font-variant-numeric: tabular-nums; }
+button.package-progress-stat { font: inherit; cursor: pointer; transition: filter .15s ease, transform .15s ease, box-shadow .15s ease; }
+button.package-progress-stat:hover { filter: saturate(1.15); transform: translateY(-1px); box-shadow: 0 3px 9px rgba(30, 54, 44, .1); }
+button.package-progress-stat:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .package-progress-stat span { font-size: 10px; font-weight: 650; }
 .package-progress-stat strong { font-size: 13px; line-height: 1; }
 .package-progress-stat.is-total { color: #405a6b; background: #eef4f7; border-color: #d4e1e8; }
@@ -145,6 +148,8 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .package-search-clear:hover { color: var(--text); background: #e0e8e4; }
 .package-search-clear svg { width: 14px; height: 14px; }
 .package-card { overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.package-card.is-inspection-card { box-shadow: 0 0 0 2px rgba(8,123,84,.18); }
+.is-inspection-target { position: relative; z-index: 2; outline: 3px solid #ef9f19 !important; outline-offset: 2px; box-shadow: 0 0 0 7px rgba(239,159,25,.2) !important; }
 .package-card.copy-in_progress { border-color: #d8a900; box-shadow: inset 0 0 0 1px #f0ce55; }
 .package-card.copy-completed { border-color: #239567; box-shadow: inset 0 0 0 1px #70c5a0; }
 .package-card.copy-in_progress .package-card-head { background: #fff9df; }

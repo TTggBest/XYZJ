@@ -33,7 +33,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], mediaGroups: [], visibleMediaGroups: [], mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -599,6 +599,50 @@
     renderPackageProgressSummary();
     renderIcons();
   }
+  function resetPackageInspection() {
+    state.packageInspectionLastIndex = { generated: -1, images: -1, completed: -1 };
+  }
+  function revealPackageInspectionTarget(stage) {
+    const targets = window.ZhijuPackagePresentation.listPackageInspectionTargets(state.packageItems, stage);
+    if (!targets.length) return;
+    const lastIndex = state.packageInspectionLastIndex[stage] ?? -1;
+    const ordered = targets.map(target => ({
+      ...target,
+      itemIndex: state.packageItems.findIndex(item => item.package_id === target.package_id),
+    }));
+    const target = ordered.find(item => item.itemIndex > lastIndex) || ordered[0];
+    state.packageInspectionLastIndex[stage] = target.itemIndex;
+    const visibleIds = new Set(filteredPackageItems().map(item => item.package_id));
+    if (!visibleIds.has(target.package_id)) {
+      state.packageChannel = "";
+      state.packageStatus = "";
+      state.packageSearch = "";
+      const channel = el("packageChannel"), status = el("packageStatus"), search = el("packageSearch"), clear = document.querySelector('[data-action="clear-package-search"]');
+      if (channel) channel.value = "";
+      if (status) status.value = "";
+      if (search) search.value = "";
+      if (clear) clear.hidden = true;
+      renderPackageListResults();
+    }
+    if (state.packageInspectionHighlightTimer) clearTimeout(state.packageInspectionHighlightTimer);
+    document.querySelectorAll(".is-inspection-target").forEach(node => node.classList.remove("is-inspection-target"));
+    document.querySelectorAll(".is-inspection-card").forEach(node => node.classList.remove("is-inspection-card"));
+    const card = document.querySelector(`.package-card[data-package-id="${CSS.escape(target.package_id)}"]`);
+    if (!card) return;
+    let node = card;
+    if (target.kind === "output") node = card.querySelector(`[data-output-type="${CSS.escape(target.output_type)}"][data-output-id="${CSS.escape(target.output_id)}"]`) || card;
+    if (target.kind === "cover_module") node = card.querySelector(".package-module-cover") || card;
+    if (target.kind === "community_module") node = card.querySelector(".package-module-community") || card;
+    if (target.kind === "logo") node = card.querySelector(".package-module-cover .package-asset-missing") || card;
+    card.classList.add("is-inspection-card");
+    node.classList.add("is-inspection-target");
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    state.packageInspectionHighlightTimer = setTimeout(() => {
+      card.classList.remove("is-inspection-card");
+      node.classList.remove("is-inspection-target");
+      state.packageInspectionHighlightTimer = null;
+    }, 1800);
+  }
   function packageCard(item, index) {
     const sourceIncomplete = item.source_complete === false;
     const copiedKeys = new Set(item.copied_keys || []);
@@ -639,6 +683,7 @@
     ]);
     state.packageItems = items;
     state.packageWorkOrderTotal = workorders.length;
+    resetPackageInspection();
     const channels = [...new Map(items.map(item => [item.channel_id, item.channel_name])).entries()];
     const filtered = filteredPackageItems();
     const summaryMarkup = packageProgressSummaryMarkup(filtered.length);
@@ -1249,6 +1294,7 @@
         await loadView("packages", { preservePosition: true });
         notify("统计数据已刷新");
       }
+      else if (action === "inspect-package-progress") revealPackageInspectionTarget(button.dataset.stage);
       else if (action === "clear-package-search") {
         state.packageSearch = "";
         const input = el("packageSearch");
@@ -1461,6 +1507,7 @@
   document.addEventListener("input", event => {
     if (event.target.id === "packageSearch") {
       state.packageSearch = event.target.value;
+      resetPackageInspection();
       const clearButton = document.querySelector('[data-action="clear-package-search"]');
       if (clearButton) clearButton.hidden = !state.packageSearch;
       renderPackageListResults();
