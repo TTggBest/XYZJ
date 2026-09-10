@@ -33,7 +33,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
 
@@ -856,17 +856,28 @@
   function jumpToMissingMediaGroup(packageId = "") {
     const targetGroup = packageId
       ? state.mediaGroups.find(group => group.meta.package_id === packageId && group.complete === false)
-      : state.mediaGroups.find(group => group.complete === false);
+      : window.ZhijuMediaGallery.nextIncompleteGroup(state.mediaGroups, state.mediaMissingPackageId);
     if (!targetGroup) return;
     state.mediaPackageId = "";
     state.mediaLanguage = "";
     state.mediaChannel = "";
-    const targetIndex = state.mediaGroups.indexOf(targetGroup);
+    state.mediaStatus = "incomplete";
+    state.mediaMissingPackageId = targetGroup.meta.package_id;
+    const filteredGroups = window.ZhijuMediaGallery.filterGroups(state.mediaGroups, { status: state.mediaStatus });
+    const targetIndex = filteredGroups.indexOf(targetGroup);
     state.mediaPage = Math.floor(targetIndex / MEDIA_GROUPS_PER_PAGE) + 1;
     renderMediaGallery();
     requestAnimationFrame(() => {
       const row = document.querySelector(`[data-media-package-id="${CSS.escape(targetGroup.meta.package_id)}"]`);
-      row?.scrollIntoView({ block: "center", behavior: "smooth" });
+      const scroller = el("mediaGalleryContent");
+      if (row && scroller) {
+        const rowBox = row.getBoundingClientRect();
+        const scrollerBox = scroller.getBoundingClientRect();
+        scroller.scrollTo({
+          top: scroller.scrollTop + rowBox.top - scrollerBox.top - Math.max(0, (scroller.clientHeight - rowBox.height) / 2),
+          behavior: "smooth",
+        });
+      }
       row?.classList.add("is-missing-target");
       setTimeout(() => row?.classList.remove("is-missing-target"), 1800);
     });
@@ -876,10 +887,11 @@
   function renderMediaGallery() {
     const languageSelect = el("mediaLanguageFilter");
     const channelSelect = el("mediaChannelFilter");
+    const statusSelect = el("mediaStatusFilter");
     const content = el("mediaGalleryContent");
     const summary = el("mediaGallerySummary");
     const pagination = el("mediaGalleryPagination");
-    if (!languageSelect || !channelSelect || !content || !summary || !pagination) return;
+    if (!languageSelect || !channelSelect || !statusSelect || !content || !summary || !pagination) return;
 
     const focusedGroups = state.mediaGroups.filter(group => !state.mediaPackageId || group.meta.package_id === state.mediaPackageId);
     const languageGroups = focusedGroups.filter(group => !state.mediaLanguage || group.meta.language_code === state.mediaLanguage);
@@ -890,7 +902,11 @@
     if (state.mediaChannel && !channels.some(channel => channel.key === state.mediaChannel)) state.mediaChannel = "";
     channelSelect.innerHTML = `<option value="">全部频道</option>${channels.map(channel => `<option value="${esc(channel.key)}" ${channel.key === state.mediaChannel ? "selected" : ""}>${esc(channel.name)}</option>`).join("")}`;
 
-    const filteredGroups = languageGroups.filter(group => !state.mediaChannel || (group.meta.channel_id || group.meta.channel_name) === state.mediaChannel);
+    const filteredGroups = window.ZhijuMediaGallery.filterGroups(languageGroups, {
+      channel: state.mediaChannel,
+      status: state.mediaStatus,
+    });
+    statusSelect.value = state.mediaStatus;
     const page = window.ZhijuMediaGallery.paginateGroups(filteredGroups, state.mediaPage, MEDIA_GROUPS_PER_PAGE);
     state.mediaPage = page.page;
     state.visibleMediaGroups = page.items;
@@ -905,7 +921,7 @@
     }
     content.innerHTML = state.visibleMediaGroups.length
       ? `<div class="media-gallery">${state.visibleMediaGroups.map(mediaGroupCard).join("")}</div>`
-      : empty("没有符合条件的素材", "请调整语言或频道筛选条件。");
+      : empty("没有符合条件的素材", "请调整语言、频道或状态筛选条件。");
     pagination.innerHTML = page.totalPages > 1
       ? `<button class="button button-secondary button-small" type="button" data-action="media-page" data-page="${page.page - 1}" ${page.page === 1 ? "disabled" : ""}>上一页</button><span>第 ${page.page} / ${page.totalPages} 页</span><button class="button button-secondary button-small" type="button" data-action="media-page" data-page="${page.page + 1}" ${page.page === page.totalPages ? "disabled" : ""}>下一页</button>`
       : "";
@@ -975,6 +991,21 @@
     bindMediaViewerStrip();
   }
 
+  function renderMediaRunHistory() {
+    const target = el("mediaRunHistory");
+    const subtitle = el("mediaRunHistorySubtitle");
+    if (!target || !subtitle) return;
+    const runs = state.mediaBatchId
+      ? state.imageRuns.filter(run => run.batch_id === state.mediaBatchId)
+      : state.imageRuns;
+    subtitle.textContent = state.mediaBatchId ? `${runs.length} 次当前批次导入记录` : `${runs.length} 次全部批次导入记录`;
+    const rows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
+    target.innerHTML = rows.length
+      ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], rows, 920)
+      : empty("当前批次还没有处理记录", "导入所选批次的图片后，记录会显示在这里。");
+    renderIcons();
+  }
+
   async function showMedia() {
     const [workspace, batches, runs] = await Promise.all([api("/settings/image-workspace"), api("/image-processing/batches"), api("/image-processing/runs")]);
     state.imageRuns = runs;
@@ -982,11 +1013,12 @@
     if (state.mediaBatchId && !batches.some(batch => batch.id === state.mediaBatchId)) state.mediaBatchId = "";
     const batchOptions = batches.map(batch => `<option value="${batch.id}" ${batch.id === state.mediaBatchId ? "selected" : ""}>${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
     const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" id="mediaBatchFilter" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
-    const runRows = runs.map(run => `<tr><td><span class="cell-main mono">${esc(run.batch_number)}</span><span class="cell-sub">${fmtUtc(run.created_at)}</span></td><td>${tag(run.status)}</td><td>${run.total_files}</td><td>${run.matched_files}</td><td>${run.unmatched_files}</td><td>${run.generated_files}</td><td><div class="row-actions">${run.matched_files ? `<button class="button button-primary button-small" data-action="generate-run-logo" data-id="${run.id}">${icon("stamp")} 生成 Logo 图</button>` : ""}<button class="icon-button" title="查看处理明细" aria-label="查看处理明细" data-action="image-run-detail" data-id="${run.id}">${icon("list-tree")}</button></div></td></tr>`);
-    const filters = `<div class="media-gallery-filters"><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option></select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label><button class="button button-secondary" type="button" data-action="reconcile-media-assets">${icon("refresh-cw")} 校准素材关联</button></div>`;
-    const mediaAssetsSection = section("素材资产", "", `<div class="media-batch-progress" id="mediaBatchProgress" hidden></div><div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary">正在读取素材…</div><div id="mediaGalleryContent"><div class="loading-inline">素材列表加载中</div></div><div class="pagination" id="mediaGalleryPagination"></div>`, filters).replace('<section class="section">', '<section class="section media-assets-section">');
-    root.innerHTML = `<div class="page-stack media-page">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${section("处理历史", `${runs.length} 次导入记录`, runRows.length ? table(["批次", "状态", "导入", "已匹配", "未匹配", "Logo 成品", ""], runRows, 920) : empty("还没有处理记录", "选择生产批次和图片后开始导入。"))}${mediaAssetsSection}</div>`;
+    const filters = `<div class="media-gallery-filters"><label><span>状态</span><select class="select" id="mediaStatusFilter"><option value="">全部状态</option><option value="complete" ${state.mediaStatus === "complete" ? "selected" : ""}>图片齐全</option><option value="incomplete" ${state.mediaStatus === "incomplete" ? "selected" : ""}>缺图</option></select></label><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option></select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label><button class="button button-secondary" type="button" data-action="reconcile-media-assets">${icon("refresh-cw")} 校准素材关联</button></div>`;
+    const mediaAssetsSection = `<section class="section media-assets-section"><div class="media-assets-fixed-panel"><header class="section-head"><div class="section-title"><h2>素材资产</h2></div>${filters}</header><div class="media-batch-progress" id="mediaBatchProgress" hidden></div><div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary">正在读取素材…</div></div><div id="mediaGalleryContent" tabindex="0" aria-label="素材图片列表"><div class="loading-inline">素材列表加载中</div></div><div class="pagination" id="mediaGalleryPagination"></div></section>`;
+    const runHistory = section("处理历史", '<span id="mediaRunHistorySubtitle"></span>', '<div id="mediaRunHistory"></div>', "", true);
+    root.innerHTML = `<div class="page-stack media-page">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${runHistory}${mediaAssetsSection}</div>`;
     renderIcons();
+    renderMediaRunHistory();
     try {
       const [contexts, channels] = await Promise.all([api("/media-assets/contexts"), api("/channels/overview")]);
       state.mediaContexts = contexts;
@@ -1594,12 +1626,19 @@
     if (event.target.id === "mediaBatchFilter") {
       state.mediaBatchId = event.target.value;
       state.mediaPackageId = "";
+      state.mediaLanguage = "";
+      state.mediaChannel = "";
+      state.mediaStatus = "";
+      state.mediaMissingPackageId = "";
+      state.mediaPage = 1;
+      renderMediaRunHistory();
       el("mediaGallerySummary").textContent = "正在读取所选批次素材…";
       el("mediaGalleryContent").innerHTML = `<div class="loading-inline">素材列表加载中</div>`;
       try { await loadMediaGalleryAssets(); } catch (error) { notify(error.message, true); }
     }
     if (event.target.id === "mediaLanguageFilter") { state.mediaLanguage = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
     if (event.target.id === "mediaChannelFilter") { state.mediaChannel = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
+    if (event.target.id === "mediaStatusFilter") { state.mediaStatus = event.target.value; state.mediaPage = 1; renderMediaGallery(); }
     if (event.target.id === "scheduleChannel" && event.target.value) { try { await loadChannelScheduling(event.target.value); } catch (error) { notify(error.message, true); } }
   });
   document.addEventListener("input", event => {

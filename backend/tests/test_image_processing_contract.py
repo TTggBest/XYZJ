@@ -333,6 +333,33 @@ def test_media_gallery_paginates_twenty_groups_per_page() -> None:
     assert completed.stdout == '{"items":[21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40],"page":2,"totalPages":3,"total":45}'
 
 
+def test_media_gallery_filters_status_and_cycles_incomplete_groups() -> None:
+    root = Path(__file__).resolve().parents[2]
+    script = root / "assets" / "media-gallery.js"
+    program = (
+        "const gallery=require(process.argv[1]);"
+        "const groups=["
+        "{complete:true,meta:{package_id:'ready',language_code:'es',channel_id:'a'}},"
+        "{complete:false,meta:{package_id:'missing-1',language_code:'es',channel_id:'a'}},"
+        "{complete:false,meta:{package_id:'missing-2',language_code:'es',channel_id:'b'}}];"
+        "const filtered=gallery.filterGroups(groups,{status:'incomplete'}).map(x=>x.meta.package_id);"
+        "const first=gallery.nextIncompleteGroup(groups);"
+        "const second=gallery.nextIncompleteGroup(groups,first.meta.package_id);"
+        "const wrapped=gallery.nextIncompleteGroup(groups,second.meta.package_id);"
+        "process.stdout.write(JSON.stringify({filtered,first:first.meta.package_id,second:second.meta.package_id,wrapped:wrapped.meta.package_id}));"
+    )
+
+    completed = subprocess.run(
+        ["node", "-e", program, str(script)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout == '{"filtered":["missing-1","missing-2"],"first":"missing-1","second":"missing-2","wrapped":"missing-1"}'
+
+
 def test_workspace_root_uses_device_shared_root_for_relative_setting(tmp_path: Path) -> None:
     assert resolve_workspace_root("images", tmp_path) == (tmp_path / "images").resolve()
     assert resolve_workspace_root(str(tmp_path / "absolute"), None) == (tmp_path / "absolute").resolve()
@@ -538,9 +565,13 @@ def test_media_page_shows_batch_coverage_video_id_and_missing_image_navigation()
     assert "missing_roles" in source
     assert 'data-action="show-missing-media"' in source
     assert 'data-action="show-media-package-missing"' in source
+    assert 'id="mediaStatusFilter"' in source
+    assert "nextIncompleteGroup" in source
+    assert "run.batch_id === state.mediaBatchId" in source
     assert ".media-gallery-group.is-complete" in styles
     assert ".media-gallery-group.is-incomplete" in styles
-    assert ".media-page .media-assets-section > .section-head" in styles
+    assert ".media-assets-fixed-panel" in styles
+    assert ".media-assets-section #mediaGalleryContent" in styles
 
 
 def test_media_viewer_hides_thumbnail_strip_until_bottom_interaction() -> None:

@@ -18,5 +18,23 @@
     };
   }
 
-  return { paginateGroups };
+  function filterGroups(groups, filters = {}) {
+    return groups.filter(group => {
+      const channelKey = group.meta.channel_id || group.meta.channel_name;
+      if (filters.language && group.meta.language_code !== filters.language) return false;
+      if (filters.channel && channelKey !== filters.channel) return false;
+      if (filters.status === "complete" && group.complete !== true) return false;
+      if (filters.status === "incomplete" && group.complete !== false) return false;
+      return true;
+    });
+  }
+
+  function nextIncompleteGroup(groups, currentPackageId = "") {
+    const incomplete = groups.filter(group => group.complete === false);
+    if (!incomplete.length) return null;
+    const currentIndex = incomplete.findIndex(group => group.meta.package_id === currentPackageId);
+    return incomplete[(currentIndex + 1) % incomplete.length];
+  }
+
+  return { filterGroups, nextIncompleteGroup, paginateGroups };
 });

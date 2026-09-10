@@ -537,8 +537,12 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .media-gallery-filters { display: flex; align-items: end; gap: 8px; }
 .media-gallery-filters label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; }
 .media-gallery-filters .select { min-width: 160px; }
-.media-gallery-filters label:last-child .select { min-width: 240px; }
-.media-page .media-assets-section > .section-head { position: sticky; top: 78px; z-index: 20; background: rgba(255,255,255,.97); box-shadow: 0 1px 0 var(--line); backdrop-filter: blur(10px); }
+.media-gallery-filters label:nth-child(3) .select { min-width: 240px; }
+.media-assets-section { height: calc(100vh - 104px); min-height: 560px; display: flex; flex-direction: column; overflow: hidden; }
+.media-assets-fixed-panel { position: relative; z-index: 2; flex: 0 0 auto; background: #fff; box-shadow: 0 1px 0 var(--line); }
+.media-assets-section #mediaGalleryContent { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
+.media-assets-section #mediaGalleryContent:focus-visible { outline: 2px solid rgba(8,123,84,.24); outline-offset: -2px; }
+.media-assets-section > .pagination { flex: 0 0 auto; background: #fff; }
 .media-batch-progress { min-height: 58px; display: flex; align-items: center; gap: 22px; padding: 10px 15px; border-bottom: 1px solid var(--line); background: #fbfcfb; }
 .media-batch-progress > div { min-width: 80px; display: grid; gap: 3px; }
 .media-batch-progress span { color: var(--muted); font-size: 10px; }
@@ -640,7 +644,8 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
   .app-shell.is-collapsed .nav-list { padding-top: 12px; }
   .app-shell.is-collapsed .nav-item { justify-content: flex-start; padding: 8px 10px; }
   .topbar { min-height: 68px; padding: 10px 14px; }
-  .media-page .media-assets-section > .section-head { top: 68px; }
+  .media-assets-section { height: auto; min-height: 0; display: block; overflow: visible; }
+  .media-assets-section #mediaGalleryContent { overflow-y: visible; }
   .media-batch-progress { align-items: stretch; flex-wrap: wrap; gap: 10px 18px; }
   .media-batch-status { width: 100%; margin-left: 0; }
   .mobile-menu { display: inline-grid; }
