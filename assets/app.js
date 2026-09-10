@@ -869,12 +869,12 @@
     renderMediaGallery();
     requestAnimationFrame(() => {
       const row = document.querySelector(`[data-media-package-id="${CSS.escape(targetGroup.meta.package_id)}"]`);
-      const scroller = el("mediaGalleryContent");
-      if (row && scroller) {
+      const fixedPanel = document.querySelector(".media-assets-fixed-panel");
+      if (row) {
         const rowBox = row.getBoundingClientRect();
-        const scrollerBox = scroller.getBoundingClientRect();
-        scroller.scrollTo({
-          top: scroller.scrollTop + rowBox.top - scrollerBox.top - Math.max(0, (scroller.clientHeight - rowBox.height) / 2),
+        const fixedPanelBottom = fixedPanel?.getBoundingClientRect().bottom || 78;
+        window.scrollBy({
+          top: rowBox.top - fixedPanelBottom - 12,
           behavior: "smooth",
         });
       }
@@ -1014,7 +1014,7 @@
     const batchOptions = batches.map(batch => `<option value="${batch.id}" ${batch.id === state.mediaBatchId ? "selected" : ""}>${esc(batch.batch_number)} · ${esc(batch.production_date)} · ${batch.package_count} 个运营包</option>`).join("");
     const importPanel = workspace ? `<form id="imageImportForm" class="image-import-panel"><div class="field"><label>生产批次</label><select class="select" id="mediaBatchFilter" name="batch_id" required><option value="">选择批次</option>${batchOptions}</select></div><div class="field"><label>选择文件夹</label><input class="input" type="file" name="folder_files" accept="image/*" webkitdirectory multiple></div><div class="field"><label>选择多张图片</label><input class="input" type="file" name="image_files" accept="image/*" multiple></div><button class="button button-primary" type="submit">${icon("folder-input")} 导入并分类</button><div class="operation-progress" role="status" aria-live="polite"></div></form>` : `<div class="workspace-required"><span>${icon("folder-cog")}</span><div><strong>请先配置图片根目录</strong><p>根目录配置后，系统才能保存频道素材和用户产物。</p></div><button class="button button-primary" data-action="go-image-settings">前往设置</button></div>`;
     const filters = `<div class="media-gallery-filters"><label><span>状态</span><select class="select" id="mediaStatusFilter"><option value="">全部状态</option><option value="complete" ${state.mediaStatus === "complete" ? "selected" : ""}>图片齐全</option><option value="incomplete" ${state.mediaStatus === "incomplete" ? "selected" : ""}>缺图</option></select></label><label><span>语言</span><select class="select" id="mediaLanguageFilter"><option value="">全部语言</option></select></label><label><span>频道</span><select class="select" id="mediaChannelFilter"><option value="">全部频道</option></select></label><button class="button button-secondary" type="button" data-action="reconcile-media-assets">${icon("refresh-cw")} 校准素材关联</button></div>`;
-    const mediaAssetsSection = `<section class="section media-assets-section"><div class="media-assets-fixed-panel"><header class="section-head"><div class="section-title"><h2>素材资产</h2></div>${filters}</header><div class="media-batch-progress" id="mediaBatchProgress" hidden></div><div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary">正在读取素材…</div></div><div id="mediaGalleryContent" tabindex="0" aria-label="素材图片列表"><div class="loading-inline">素材列表加载中</div></div><div class="pagination" id="mediaGalleryPagination"></div></section>`;
+    const mediaAssetsSection = `<section class="section media-assets-section"><div class="media-assets-fixed-panel"><header class="section-head"><div class="section-title"><h2>素材资产</h2></div>${filters}</header><div class="media-batch-progress" id="mediaBatchProgress" hidden></div><div class="media-package-focus" id="mediaPackageFocus" hidden></div><div class="media-gallery-summary" id="mediaGallerySummary">正在读取素材…</div></div><div id="mediaGalleryContent"><div class="loading-inline">素材列表加载中</div></div><div class="pagination" id="mediaGalleryPagination"></div></section>`;
     const runHistory = section("处理历史", '<span id="mediaRunHistorySubtitle"></span>', '<div id="mediaRunHistory"></div>', "", true);
     root.innerHTML = `<div class="page-stack media-page">${section("批次图片处理", workspace ? `${esc(workspace.resolved_root)} · 按批次、语言、频道、排期、剧名存储` : "尚未配置图片根目录", importPanel)}${runHistory}${mediaAssetsSection}</div>`;
     renderIcons();
