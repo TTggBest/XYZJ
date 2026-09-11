@@ -2,29 +2,54 @@ import io
 import os
 import subprocess
 import tarfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
-from zhiju.app import app
+from zhiju.app import app, create_app
+from zhiju.database import get_db
+from zhiju.models import AppIconSetting, Base, Device, RuntimePackageBuild
 from zhiju.services.settings import _included_files
 
 
-def test_settings_read_models_come_from_runtime_and_database() -> None:
-    client = TestClient(app)
+def test_settings_read_models_come_from_runtime_and_database(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'settings.db'}")
+    Base.metadata.create_all(engine, tables=[
+        Device.__table__, RuntimePackageBuild.__table__, AppIconSetting.__table__,
+    ])
+    with Session(engine) as session:
+        session.add(AppIconSetting(
+            id="current-app-icon", source_type="default",
+            source_path=str(tmp_path / "fixture-icon.png"),
+            applied_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ))
+        session.commit()
 
-    runtime = client.get("/api/v3/settings/runtime")
-    assert runtime.status_code == 200
-    assert runtime.json()["system"] == "筱宇智矩"
-    assert runtime.json()["port"] == 19732
-    assert runtime.json()["database_ok"] is True
+    def open_db():
+        with Session(engine) as session:
+            yield session
 
-    assert client.get("/api/v3/devices").status_code == 200
-    assert client.get("/api/v3/runtime-packages").status_code == 200
-    icon = client.get("/api/v3/settings/app-icon")
-    assert icon.status_code == 200
-    assert icon.json()["source_type"] in {"default", "custom"}
-    assert icon.json()["preview_url"].startswith("/assets/app-icon-1024.png?v=")
+    test_app = create_app()
+    test_app.dependency_overrides[get_db] = open_db
+    try:
+        with TestClient(test_app) as client:
+            runtime = client.get("/api/v3/settings/runtime")
+            assert runtime.status_code == 200
+            assert runtime.json()["system"] == "筱宇智矩"
+            assert runtime.json()["port"] == 19732
+            assert runtime.json()["database_ok"] is True
+
+            assert client.get("/api/v3/devices").status_code == 200
+            assert client.get("/api/v3/runtime-packages").status_code == 200
+            icon = client.get("/api/v3/settings/app-icon")
+            assert icon.status_code == 200
+            assert icon.json()["source_type"] == "default"
+            assert icon.json()["preview_url"].startswith("/assets/app-icon-1024.png?v=")
+    finally:
+        engine.dispose()
 
 
 def test_runtime_package_source_excludes_local_state() -> None:

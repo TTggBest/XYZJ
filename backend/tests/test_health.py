@@ -32,7 +32,7 @@ def test_root_serves_management_ui() -> None:
     assert response.headers["cache-control"] == "no-cache"
     assert "筱宇智矩" in response.text
     assert "operations-page-data.js?v=3.18.4" in response.text
-    assert "app.js?v=3.18.5" in response.text
+    assert "app.js?v=3.19.0" in response.text
     app_js = client.get("/assets/app.js")
     assert app_js.status_code == 200
     assert app_js.headers["cache-control"] == "no-cache"
