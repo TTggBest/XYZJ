@@ -39,6 +39,7 @@ class CurrentUser(BaseModel):
     membership_role: str | None
     current_tenant: CurrentTenant | None
     memberships: list[AvailableMembership]
+    switchable_tenants: list[CurrentTenant]
     device: CurrentDevice | None
     permissions: list[str]
 

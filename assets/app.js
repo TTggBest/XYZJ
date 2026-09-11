@@ -1,7 +1,8 @@
 (() => {
   "use strict";
 
-  const API = "/api/v3";
+  const auth = window.ZhijuAuthState;
+  const accountCenter = window.ZhijuAccountCenter;
   const { localDate, resetDateToToday, shouldShowScrollTop } = window.ZhijuRuntimeViewState;
   const MEDIA_GROUPS_PER_PAGE = 20;
   const NODE_TYPES = ["search", "title", "cover", "description", "community", "merge"];
@@ -30,12 +31,13 @@
   const VIEW_META = {
     dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
-    media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"]
+    media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
   const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
+  const emptyPageState = structuredClone(state);
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
@@ -76,18 +78,10 @@
     return search.toString() ? `?${search}` : "";
   }
   async function api(path, options = {}) {
-    const isFormData = options.body instanceof FormData;
-    const response = await fetch(path.startsWith("/api") ? path : `${API}${path}`, {
-      ...options,
-      headers: { ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
-    });
-    const text = await response.text();
-    let data = null;
-    if (text) { try { data = JSON.parse(text); } catch { data = text; } }
-    if (!response.ok) throw new Error(typeof data?.detail === "string" ? data.detail : `请求失败（${response.status}）`);
-    return data;
+    return auth.request(fetch, path, options);
   }
   function notify(message, isError = false) {
+    if (!auth.current()) return;
     const toast = document.createElement("div");
     toast.className = `toast${isError ? " is-error" : ""}`;
     toast.textContent = message;
@@ -95,7 +89,7 @@
     setTimeout(() => toast.remove(), 3200);
   }
   function updateScrollTopButton() {
-    el("scrollTopButton").hidden = !shouldShowScrollTop(window.scrollY, window.innerHeight);
+    el("scrollTopButton").hidden = !auth.current() || !shouldShowScrollTop(window.scrollY, window.innerHeight);
   }
   function loading() { root.innerHTML = `<div class="loading"><div><div class="spinner"></div><p>正在读取数据库</p></div></div>`; }
   function empty(title, description, action = "", actionLabel = "") {
@@ -119,7 +113,7 @@
     }).join("")}</div>`;
   }
   function openModal(title, body) { el("modalTitle").textContent = title; el("modalBody").innerHTML = body; el("modalBackdrop").hidden = false; renderIcons(); }
-  function closeModal() { el("modalBackdrop").hidden = true; }
+  function closeModal() { el("modalBackdrop").hidden = true; el("modalBody").innerHTML = ""; }
   function openDrawer(title, body) { el("drawerTitle").textContent = title; el("drawerBody").innerHTML = body; el("drawerBackdrop").hidden = false; renderIcons(); }
   function closeDrawer() { el("drawerBackdrop").hidden = true; }
   function formData(form) { return Object.fromEntries(new FormData(form).entries()); }
@@ -137,7 +131,65 @@
     });
   }
 
+  function setLoginBusy(busy, message = "") {
+    for (const id of ["loginName", "loginPassword", "loginSubmit"]) el(id).disabled = busy;
+    el("loginStatus").textContent = message;
+  }
+  function closeAccountMenu() { el("accountMenu").hidden = true; el("accountButton").setAttribute("aria-expanded", "false"); }
+  function clearPageSession() {
+    closeRealtime(); closeMediaViewer();
+    clearTimeout(state.realtimeRefreshTimer); clearTimeout(state.packageInspectionHighlightTimer);
+    for (const key of Object.keys(state)) delete state[key];
+    Object.assign(state, structuredClone(emptyPageState), { date: localDate() });
+    for (const id of ["viewRoot", "modalBody", "drawerBody", "toastStack", "tenantSelect"]) el(id).innerHTML = "";
+    for (const id of ["accountIdentity", "accountContext", "accountDevice", "tenantBanner", "modalTitle", "drawerTitle", "tenantSwitchError"]) el(id).textContent = "";
+    for (const id of ["modalBackdrop", "drawerBackdrop", "tenantBanner", "tenantSwitchForm", "accountManage", "scrollTopButton"]) el(id).hidden = true;
+    el("appShell").classList.remove("mobile-nav-open", "is-workspace-scroll-locked");
+    root.classList.remove("is-workspace-scroll-locked");
+    closeAccountMenu();
+    el("appShell").hidden = true; el("loginShell").hidden = false;
+    el("loginPassword").value = ""; el("loginError").hidden = true;
+    setLoginBusy(false); el("loginName").focus();
+  }
+  function renderAccount() {
+    const user = auth.current(); if (!user) return;
+    const rights = auth.access();
+    el("accountIdentity").textContent = user.display_name;
+    el("accountContext").textContent = `${user.current_tenant?.company_name || "未选择主账号"} · ${auth.roleLabel(user.platform_role || user.membership_role)}`;
+    el("accountDevice").textContent = user.device ? `当前设备：${user.device.display_name}` : "当前设备未登记";
+    el("accountManage").hidden = !(rights.users || rights.tenants || rights.devices);
+    el("tenantBanner").hidden = !rights.superAdmin;
+    el("tenantBanner").textContent = rights.superAdmin ? `超级管理员模式 · 当前管理：${user.current_tenant?.company_name || "请选择主账号"}` : "";
+    el("tenantSwitchForm").hidden = !rights.switchTenant;
+    el("tenantSelect").innerHTML = rights.switchTenant ? `<option value="">请选择公司</option>${(user.switchable_tenants || []).map(item => `<option value="${esc(item.id)}" ${item.id === user.tenant_id ? "selected" : ""}>${esc(item.company_name)}（${esc(item.short_name)}）</option>`).join("")}` : "";
+  }
+  async function startApplication() {
+    if (!auth.current()) return;
+    el("loginShell").hidden = true; el("appShell").hidden = false; renderAccount(); renderIcons();
+    if (!auth.current().tenant_id) {
+      root.innerHTML = empty("请选择主账号", "在右上角账号菜单中选择需要管理的公司。", "", "");
+      el("accountMenu").hidden = false; el("accountButton").setAttribute("aria-expanded", "true");
+      return;
+    }
+    await Promise.all([checkHealth(), connectRealtime()]);
+    await loadView("dashboard");
+  }
+  async function bootstrapAuth() {
+    setLoginBusy(true, "正在确认登录状态…");
+    try { if (await auth.resolveBootstrap(api)) await startApplication(); }
+    catch (error) { if (error.name !== "AbortError") { el("loginError").textContent = error.message; el("loginError").hidden = false; } }
+    finally { setLoginBusy(false); }
+  }
+  async function showAccounts() {
+    const model = await accountCenter.load(api, state.accountTenantId);
+    state.accountModel = model; state.accountTenantId = model.tenantId;
+    root.innerHTML = accountCenter.render(model);
+  }
+
+  auth.subscribe(user => { if (user) renderAccount(); else clearPageSession(); });
+
   async function checkHealth() {
+    if (!auth.current()) return;
     try {
       const health = await api("/api/health");
       const ok = Boolean(health.ok && health.database?.ok);
@@ -150,7 +202,8 @@
       el("sideStatusDot").className = `status-dot ${ok ? "is-ok" : "is-error"}`;
       el("sideStatusText").textContent = ok ? "数据库已连接" : "数据库异常";
       el("sideRuntimePort").textContent = `Web · ${health.web_port}`;
-    } catch {
+    } catch (error) {
+      if (!auth.current() || error.name === "AbortError") return;
       el("dbState").innerHTML = `<span class="status-dot is-error"></span><span>服务不可用</span>`;
       el("sideStatusDot").className = "status-dot is-error";
       el("sideStatusText").textContent = "服务不可用";
@@ -159,7 +212,7 @@
 
   async function showDashboard() {
     const [channels, tasks, workorders, events] = await Promise.all([
-      api("/channels/overview"), api(`/tasks/overview${query({ task_date: state.date })}`), api("/work-orders/overview"), state.deviceRole === "builder" ? api("/system-events?limit=8") : Promise.resolve([])
+      api("/channels/overview"), api(`/tasks/overview${query({ task_date: state.date })}`), api("/work-orders/overview"), auth.canView("logs", state.deviceRole) ? api("/system-events?limit=8") : Promise.resolve([])
     ]);
     Object.assign(state, { channels, tasks, workorders, events });
     const todayOrders = workorders.filter(item => item.production_date === state.date);
@@ -175,7 +228,7 @@
       </div>
       <div class="dashboard-grid">
         ${section("今日生产进度", `${state.date} · 搜索、标题、封面、说明、社群、合成`, rows.length ? table(["剧目", "频道", "节点", "进度", "状态", ""], rows, 850) : empty("今日还没有生产工单", "工单开始生产后，六个生产节点会在这里显示。", "go-workorders", "进入工单"), `<button class="button button-secondary button-small" data-action="go-workorders">查看全部 ${icon("arrow-right")}</button>`)}
-        ${state.deviceRole === "builder" ? section("系统动态", "最近 8 条数据库状态事件", activity) : ""}
+        ${auth.canView("logs", state.deviceRole) ? section("系统动态", "最近 8 条数据库状态事件", activity) : ""}
       </div>
     </div>`;
   }
@@ -1181,7 +1234,7 @@
     return `<form class="form-grid" id="credentialForm"><input type="hidden" name="account_id" value="${esc(accountId)}"><div class="field"><label>凭证类型</label><input class="input mono" name="credential_type" required placeholder="oauth / bot_token / api_key"></div><div class="field field-wide"><label>Secret 引用</label><input class="input mono" name="secret_reference" required placeholder="keychain://zhiju/feishu/main"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存引用</button></div></form>`;
   }
 
-  const renderers = { dashboard: showDashboard, channels: showChannels, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings };
+  const renderers = { dashboard: showDashboard, channels: showChannels, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
   function captureViewPosition() {
     const topbarBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom || 0;
     const anchor = [...document.querySelectorAll(".package-card")].find(card => card.getBoundingClientRect().bottom > topbarBottom);
@@ -1205,11 +1258,15 @@
     });
   }
   async function loadView(view = state.view, options = {}) {
-    if (state.deviceRole && state.deviceRole !== "builder" && BUILDER_ONLY_VIEWS.has(view)) view = "dashboard";
+    if (!auth.current()) return;
+    if (!auth.canView(view, state.deviceRole)) {
+      if (!auth.current().tenant_id) { root.innerHTML = empty("请选择主账号", "在右上角账号菜单中选择需要管理的公司。"); return; }
+      view = "dashboard";
+    }
+    const actor = auth.current();
     const preservePosition = Boolean(options.preservePosition && view === state.view);
     const position = preservePosition ? captureViewPosition() : null;
     state.view = view;
-    await loadDemoStatus();
     const meta = VIEW_META[view] || VIEW_META.dashboard;
     el("breadcrumbText").textContent = meta[0]; el("pageTitle").textContent = meta[1];
     el("appShell").classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
@@ -1218,15 +1275,21 @@
     el("appShell").classList.remove("mobile-nav-open");
     if (!preservePosition) { loading(); renderIcons(); }
     try {
+      if (view !== "accounts") await loadDemoStatus();
+      if (actor !== auth.current()) return;
       await renderers[view]();
       if (["dashboard", "schedules", "workorders", "packages"].includes(view)) injectDemoBar();
       renderIcons();
       restoreViewPosition(position);
       updateScrollTopButton();
-    } catch (error) { root.innerHTML = `<div class="section">${empty("数据读取失败", error.message)}</div>`; renderIcons(); notify(error.message, true); }
+    } catch (error) {
+      if (actor !== auth.current() || error.status === 401 || error.name === "AbortError") return;
+      root.innerHTML = `<div class="section">${empty("数据读取失败", error.message)}</div>`; renderIcons(); notify(error.message, true);
+    }
   }
 
   function scheduleRealtimeRefresh() {
+    if (!auth.current()?.tenant_id || state.view === "accounts") return;
     clearTimeout(state.realtimeRefreshTimer);
     state.realtimeRefreshTimer = setTimeout(() => loadView(state.view, { preservePosition: true }), 250);
   }
@@ -1236,14 +1299,14 @@
   }
   function applyDeviceRole(deviceRole) {
     state.deviceRole = deviceRole || "worker";
-    document.querySelectorAll("[data-builder-only]").forEach(item => { item.hidden = state.deviceRole !== "builder"; });
+    document.querySelectorAll("[data-builder-only]").forEach(item => { item.hidden = !auth.canView(item.dataset.view, state.deviceRole); });
   }
   async function connectRealtime() {
-    if (document.visibilityState !== "visible" || state.realtimeConnecting || state.realtimeSource) return;
+    if (!auth.current()?.tenant_id || document.visibilityState !== "visible" || state.realtimeConnecting || state.realtimeSource) return;
     state.realtimeConnecting = true;
     try {
       const config = await api("/realtime/config");
-      if (document.visibilityState !== "visible") return;
+      if (!auth.current()?.tenant_id || document.visibilityState !== "visible") return;
       applyDeviceRole(config.device_role);
       if (!config.enabled || !config.stream_url) return;
       if (config.device_role !== "builder" && BUILDER_ONLY_VIEWS.has(state.view)) await loadView("dashboard");
@@ -1258,7 +1321,7 @@
       source.addEventListener("error", () => { reconnecting = true; });
       state.realtimeSource = source;
     } catch (error) {
-      console.warn("实时状态连接失败", error);
+      if (auth.current() && error.name !== "AbortError") console.warn("实时状态连接失败", error);
     } finally {
       state.realtimeConnecting = false;
     }
@@ -1267,6 +1330,20 @@
   document.addEventListener("click", async event => {
     const closeModalButton = event.target.closest("[data-close-modal]"); if (closeModalButton) return closeModal();
     const closeDrawerButton = event.target.closest("[data-close-drawer]"); if (closeDrawerButton) return closeDrawer();
+    if (!auth.current()) return;
+    if (!event.target.closest(".account-control")) closeAccountMenu();
+    const accountAction = event.target.closest("[data-account-action]");
+    if (accountAction) {
+      const action = accountAction.dataset.accountAction, id = accountAction.dataset.id;
+      try {
+        if (action === "select-tenant") { state.accountTenantId = id; return await loadView("accounts"); }
+        const model = state.accountModel;
+        const record = action === "edit-tenant" ? model.tenants.find(item => item.id === id) : action === "revoke-binding" ? model.bindings.find(item => item.id === id) : model.users.find(item => item.id === id);
+        openModal(accountCenter.titles[action], accountCenter.form(action, model, record));
+        el("modalBody").querySelector("input:not([type=hidden]), select")?.focus();
+      } catch (error) { notify(error.message, true); }
+      return;
+    }
     const nav = event.target.closest("[data-view]");
     if (nav) {
       if (nav.dataset.view === "media") state.mediaPackageId = "";
@@ -1723,7 +1800,27 @@
     }
   });
   document.addEventListener("submit", async event => {
+    if (["loginForm", "tenantSwitchForm"].includes(event.target.id)) return;
+    if (!auth.current()) { event.preventDefault(); return; }
     event.preventDefault(); const form = event.target; const data = formData(form);
+    if (form.id === "accountAdminForm") {
+      if (form.dataset.busy === "true") return;
+      const submit = form.querySelector('button[type="submit"]');
+      const feedback = el("accountFormError");
+      try {
+        const command = accountCenter.command(form.dataset.accountForm, data, state.accountModel);
+        for (const input of form.querySelectorAll('input[type="password"]')) input.value = "";
+        form.dataset.busy = "true"; submit.disabled = true; feedback.hidden = true;
+        const saved = await api(command.path, command.options);
+        if (form.dataset.accountForm === "new-tenant") state.accountTenantId = saved.id;
+        closeModal();
+        await auth.resolveBootstrap(api);
+        await loadView("accounts"); notify("账号资料已保存");
+      } catch (error) {
+        if (error.status !== 401 && error.name !== "AbortError" && auth.current()) { feedback.textContent = error.message; feedback.hidden = false; }
+      } finally { delete form.dataset.busy; submit.disabled = false; }
+      return;
+    }
     try {
       if (form.id === "channelForm") { data.daily_publish_count = Number(data.daily_publish_count); data.country_code = data.country_code.toUpperCase(); for (const key of ["operational_name", "default_genre"]) if (!data[key]) data[key] = null; await api("/channels", { method: "POST", body: JSON.stringify(data) }); notify("频道已保存"); closeModal(); await loadView("channels"); }
       if (form.id === "channelHubForm") {
@@ -1861,6 +1958,42 @@
   });
 
   el("sidebarToggle").addEventListener("click", () => { el("appShell").classList.toggle("is-collapsed"); localStorage.setItem("zhiju.nav.collapsed", el("appShell").classList.contains("is-collapsed") ? "1" : "0"); });
+  el("loginForm").addEventListener("submit", async event => {
+    event.preventDefault(); if (el("loginSubmit").disabled) return;
+    setLoginBusy(true, "正在登录…"); el("loginError").hidden = true;
+    const pending = auth.login(api, el("loginName").value, el("loginPassword").value);
+    el("loginPassword").value = "";
+    try { await pending; await startApplication(); }
+    catch (error) { if (error.name !== "AbortError") { el("loginError").textContent = error.message; el("loginError").hidden = false; } }
+    finally { setLoginBusy(false); }
+  });
+  el("accountButton").addEventListener("click", () => {
+    const show = el("accountMenu").hidden; el("accountMenu").hidden = !show;
+    el("accountButton").setAttribute("aria-expanded", String(show));
+    if (show) el("accountMenu").querySelector("select, button:not([hidden])")?.focus();
+  });
+  el("accountManage").addEventListener("click", () => { closeAccountMenu(); return loadView("accounts"); });
+  el("logoutButton").addEventListener("click", async () => {
+    const pending = auth.logout(api); setLoginBusy(true, "正在退出…");
+    try { await pending; }
+    catch (error) { el("loginError").textContent = `退出请求未完成：${error.message}`; el("loginError").hidden = false; }
+    finally { setLoginBusy(false); }
+  });
+  el("tenantSwitchForm").addEventListener("submit", async event => {
+    event.preventDefault(); if (el("tenantSwitchSubmit").disabled) return;
+    const tenantId = el("tenantSelect").value;
+    if (tenantId === auth.current()?.tenant_id) { closeAccountMenu(); return; }
+    el("tenantSwitchSubmit").disabled = true; el("tenantSwitchError").hidden = true;
+    try {
+      const pending = auth.switchTenant(api, tenantId); setLoginBusy(true, "正在切换主账号…");
+      await pending; await startApplication(); closeAccountMenu();
+    } catch (error) {
+      if (auth.current()) {
+        await startApplication(); el("accountMenu").hidden = false; el("accountButton").setAttribute("aria-expanded", "true");
+        el("tenantSwitchError").textContent = error.message; el("tenantSwitchError").hidden = false;
+      } else if (error.name !== "AbortError") { el("loginError").textContent = error.message; el("loginError").hidden = false; }
+    } finally { el("tenantSwitchSubmit").disabled = false; setLoginBusy(false); }
+  });
   el("scrollTopButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
   window.addEventListener("scroll", updateScrollTopButton, { passive: true });
   window.addEventListener("resize", updateScrollTopButton);
@@ -1869,7 +2002,7 @@
   el("modalBackdrop").addEventListener("click", event => { if (event.target === el("modalBackdrop")) closeModal(); });
   el("drawerBackdrop").addEventListener("click", event => { if (event.target === el("drawerBackdrop")) closeDrawer(); });
   document.addEventListener("keydown", event => {
-    if (event.key === "Escape") { closeMediaViewer(); closeModal(); closeDrawer(); el("appShell").classList.remove("mobile-nav-open"); return; }
+    if (event.key === "Escape") { const menuOpen = !el("accountMenu").hidden; closeAccountMenu(); if (menuOpen) el("accountButton").focus(); closeMediaViewer(); closeModal(); closeDrawer(); el("appShell").classList.remove("mobile-nav-open"); return; }
     if (state.mediaViewer && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
       event.preventDefault();
       const group = state.visibleMediaGroups[state.mediaViewer.groupIndex];
@@ -1889,12 +2022,14 @@
     document.querySelector(`[data-action="${action}"]`)?.click();
   });
   document.addEventListener("visibilitychange", () => {
+    if (!auth.current()) return;
     if (document.visibilityState !== "visible") return closeRealtime();
     checkHealth();
     connectRealtime().then(() => loadView(state.view, { preservePosition: true }));
   });
   window.addEventListener("pagehide", closeRealtime);
   window.addEventListener("message", async event => {
+    if (!auth.current()) return;
     if (event.origin !== window.location.origin || !event.data?.type?.startsWith("youtube-auth-")) return;
     if (event.data.type === "youtube-auth-complete") {
       notify(event.data.message || "YouTube频道授权完成");
@@ -1906,5 +2041,5 @@
 
   if (localStorage.getItem("zhiju.nav.collapsed") === "1" && window.innerWidth > 760) el("appShell").classList.add("is-collapsed");
   updateScrollTopButton();
-  checkHealth(); connectRealtime().finally(() => loadView("dashboard")); renderIcons();
+  bootstrapAuth(); renderIcons();
 })();

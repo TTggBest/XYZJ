@@ -124,7 +124,13 @@ def current_user(session: Session, principal: Principal) -> CurrentUser:
     user = session.get(AppUser, principal.user_id)
     tenant = session.get(Tenant, principal.tenant_id) if principal.tenant_id else None
     device = session.get(Device, principal.device_id) if principal.device_id else None
-    memberships = _available_memberships(session, principal.user_id, datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    memberships = _available_memberships(session, principal.user_id, now)
+    switchable = list(session.scalars(select(Tenant).where(
+        Tenant.status == "active", Tenant.lease_expires_at > now,
+    ).order_by(Tenant.short_name, Tenant.id))) if principal.platform_role == "super_admin" else [
+        item_tenant for _, item_tenant in memberships
+    ]
     return CurrentUser(
         user_id=user.id, display_name=user.display_name, login_name=user.login_name,
         platform_role=principal.platform_role, tenant_id=principal.tenant_id,
@@ -136,6 +142,9 @@ def current_user(session: Session, principal: Principal) -> CurrentUser:
             tenant_id=item_tenant.id, company_name=item_tenant.company_name,
             short_name=item_tenant.short_name, role_code=membership.role_code,
         ) for membership, item_tenant in memberships],
+        switchable_tenants=[CurrentTenant(
+            id=item.id, company_name=item.company_name, short_name=item.short_name,
+        ) for item in switchable],
         device=CurrentDevice(
             id=device.id, name=device.name, display_name=device.alias or device.name,
             trust_level=principal.device_trust_level,

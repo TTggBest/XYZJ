@@ -110,6 +110,26 @@ def seed_sessions(auth, *, super_admin=False, age_minutes=0):
     auth.client.cookies.set("zhiju_session", CURRENT_TOKEN)
 
 
+@pytest.mark.parametrize("super_admin", [False, True])
+def test_me_switch_options_match_actor_scope_and_filter_unavailable_tenants(auth, super_admin):
+    seed_sessions(auth, super_admin=super_admin)
+    now = datetime.now(timezone.utc)
+    with Session(auth.engine) as db:
+        db.add_all([
+            Tenant(id="suspended", company_name="Suspended", short_name="suspended",
+                   status="suspended", lease_expires_at=now + timedelta(days=30)),
+            Tenant(id="expired", company_name="Expired", short_name="expired",
+                   lease_expires_at=now - timedelta(days=1)),
+        ])
+        db.commit()
+    response = auth.client.get(ME)
+    assert response.status_code == 200
+    options = response.json()["switchable_tenants"]
+    assert {item["id"] for item in options} == ({"tenant", "other-tenant"} if super_admin else {"tenant"})
+    assert all(set(item) == {"id", "company_name", "short_name"} for item in options)
+    assert response.json()["device"]["trust_level"] == "normal"
+
+
 def test_password_login_sets_httponly_cookie_and_persists_only_its_digest(auth):
     before = datetime.now(timezone.utc)
     response = login(auth)
