@@ -109,9 +109,11 @@ def update_tenant(session: Session, principal: Principal, tenant_id: str, payloa
                   *, request_id: str) -> TenantView:
     require_super_code_machine(principal)
     tenant = _tenant(session, tenant_id, lock=True)
+    now = datetime.now(timezone.utc)
+    was_expired = _utc(tenant.lease_expires_at) <= now
     changes = payload.model_dump(exclude_unset=True)
     _set_account_fields(tenant, changes)
-    if tenant.status != "active" or _utc(tenant.lease_expires_at) <= datetime.now(timezone.utc):
+    if was_expired or tenant.status != "active" or _utc(tenant.lease_expires_at) <= now:
         _revoke_sessions(session, AuthSession.tenant_id == tenant.id, reason="tenant_unavailable")
     _audit(session, principal, event_type="tenant_update", target_type="tenant", target_id=tenant.id,
            tenant_id=tenant.id, request_id=request_id, detail={"changed_fields": sorted(changes)})
@@ -212,13 +214,15 @@ def update_user(session: Session, principal: Principal, user_id: str, payload: U
         "role_code" in changes or changes.get("membership_status") == "suspended"
     ):
         raise HTTPException(status_code=409, detail="必须使用所有者转交操作保留唯一所有者")
+    now = datetime.now(timezone.utc)
+    was_expired = user.lease_expires_at is not None and _utc(user.lease_expires_at) <= now
     _set_account_fields(user, global_changes)
     if "role_code" in changes:
         membership.role_code = changes["role_code"]
     if "membership_status" in changes:
         membership.status = changes["membership_status"]
-    if user.status != "active" or (
-        user.lease_expires_at is not None and _utc(user.lease_expires_at) <= datetime.now(timezone.utc)
+    if was_expired or user.status != "active" or (
+        user.lease_expires_at is not None and _utc(user.lease_expires_at) <= now
     ):
         _revoke_sessions(session, AuthSession.user_id == user.id, reason="user_unavailable")
     elif membership.status != "active":

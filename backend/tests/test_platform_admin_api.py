@@ -710,3 +710,107 @@ def test_offset_lease_enforces_real_expiration_after_patch_and_new_login(admin, 
     assert response.status_code == 200
     response = admin.client.post("/api/v3/auth/login", json={"login_name": login_name, "password": PASSWORD})
     assert response.status_code == want
+
+
+RENEWAL_CASES = [("tenant", "super", False), ("user", "super", False),
+                 ("user", "super", True), ("user", "owner", False), ("user", "owner", True)]
+
+
+def prepare_natural_expiry(admin, monkeypatch, target):
+    clock = {"now": datetime.now(timezone.utc)}
+    expires_at = clock["now"] + timedelta(hours=1)
+
+    class ControlledDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock["now"].astimezone(tz) if tz else clock["now"].replace(tzinfo=None)
+
+    for module in ("zhiju.auth_context", "zhiju.services.auth", "zhiju.services.platform_admin"):
+        monkeypatch.setattr(f"{module}.datetime", ControlledDateTime)
+    with Session(admin.engine) as db:
+        account = db.get(Tenant, "other-tenant") if target == "tenant" else db.get(AppUser, "staff")
+        account.lease_expires_at = expires_at
+        if target == "user":
+            db.add(AuthSession(
+                id="cross-tenant-staff-session", user_id="staff", tenant_id="other-tenant",
+                token_digest=digest_token("cross-tenant-staff-session"), created_at=clock["now"],
+                last_seen_at=clock["now"], expires_at=clock["now"] + timedelta(hours=8),
+            ))
+        db.commit()
+    return clock, expires_at
+
+
+def renewal_path(target, actor):
+    if target == "tenant":
+        return f"{TENANTS}/other-tenant"
+    return f"{LOCAL_USERS if actor == 'owner' else USERS}/staff"
+
+
+@pytest.mark.parametrize("target,actor,clear_lease", RENEWAL_CASES)
+def test_renewing_naturally_expired_lease_never_revives_old_cookie(admin, monkeypatch, target, actor, clear_lease):
+    clock, expires_at = prepare_natural_expiry(admin, monkeypatch, target)
+    user_id = "other-owner" if target == "tenant" else "staff"
+    with TestClient(admin.app, headers={"Origin": "http://testserver"}) as user_client:
+        response = user_client.post("/api/v3/auth/login", json={"login_name": user_id, "password": PASSWORD})
+        assert response.status_code == 200
+        old_cookie = response.cookies.get("zhiju_session")
+        assert user_client.get("/api/v3/auth/me").status_code == 200
+        clock["now"] = expires_at + timedelta(hours=1)
+        assert user_client.get("/api/v3/auth/me").status_code == (403 if target == "tenant" else 401)
+        with Session(admin.engine) as db:
+            old_session = db.scalar(select(AuthSession).where(AuthSession.token_digest == digest_token(old_cookie)))
+            assert old_session.status == "active"
+        act_as(admin, actor)
+        future = (clock["now"] + timedelta(days=30)).astimezone(timezone(timedelta(hours=8))).isoformat()
+        response = admin.client.patch(renewal_path(target, actor), json={
+            "lease_expires_at": None if clear_lease else future,
+        })
+        assert response.status_code == 200
+        assert user_client.get("/api/v3/auth/me").status_code == 401
+        with Session(admin.engine) as db:
+            scope = AuthSession.tenant_id == "other-tenant" if target == "tenant" else AuthSession.user_id == "staff"
+            related = list(db.scalars(select(AuthSession).where(scope)))
+            assert related and all(item.status == "revoked" and item.revoked_at is not None for item in related)
+            assert db.get(AuthSession, "session-owner").status == "active"
+        response = user_client.post("/api/v3/auth/login", json={"login_name": user_id, "password": PASSWORD})
+        assert response.status_code == 200 and response.cookies.get("zhiju_session") != old_cookie
+        assert user_client.get("/api/v3/auth/me").status_code == 200
+    audit = next(item for item in events(admin) if item.event_type == f"{target}_update")
+    assert_actor(audit, f"{target}_update", "other-tenant" if target == "tenant" else "staff",
+                 user_id=actor, tenant_id="other-tenant" if target == "tenant" else "tenant")
+
+
+@pytest.mark.parametrize("target,actor,clear_lease", RENEWAL_CASES)
+def test_lease_renewal_audit_failure_rolls_back_lease_and_old_session_revocation(admin, monkeypatch,
+                                                                           target, actor, clear_lease):
+    clock, expires_at = prepare_natural_expiry(admin, monkeypatch, target)
+    user_id = "other-owner" if target == "tenant" else "staff"
+    with TestClient(admin.app, headers={"Origin": "http://testserver"}) as user_client:
+        response = user_client.post("/api/v3/auth/login", json={"login_name": user_id, "password": PASSWORD})
+        assert response.status_code == 200
+        old_cookie = response.cookies.get("zhiju_session")
+        clock["now"] = expires_at + timedelta(hours=1)
+        assert user_client.get("/api/v3/auth/me").status_code == (403 if target == "tenant" else 401)
+
+    def reject_renewal_audit(mapper, connection, target_event):
+        if target_event.event_type == f"{target}_update":
+            raise RuntimeError("test renewal audit unavailable")
+
+    event.listen(AuthEvent, "before_insert", reject_renewal_audit)
+    try:
+        with TestClient(admin.app, raise_server_exceptions=False, headers={"Origin": "http://testserver"}) as actor_client:
+            actor_client.cookies.set("zhiju_session", f"token-{actor}")
+            response = actor_client.patch(renewal_path(target, actor), json={
+                "lease_expires_at": None if clear_lease else (clock["now"] + timedelta(days=30)).isoformat(),
+            })
+        assert response.status_code == 500
+    finally:
+        event.remove(AuthEvent, "before_insert", reject_renewal_audit)
+    with Session(admin.engine) as db:
+        account = db.get(Tenant, "other-tenant") if target == "tenant" else db.get(AppUser, "staff")
+        assert utc(account.lease_expires_at) == expires_at
+        old_session = db.scalar(select(AuthSession).where(AuthSession.token_digest == digest_token(old_cookie)))
+        assert old_session.status == "active" and old_session.revoked_at is None
+        if target == "user":
+            assert db.get(AuthSession, "cross-tenant-staff-session").status == "active"
+        assert db.scalar(select(AuthEvent).where(AuthEvent.event_type == f"{target}_update")) is None
