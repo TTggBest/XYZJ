@@ -12,6 +12,7 @@ from zhiju.models import (
     AppUser,
     AuthSession,
     Device,
+    DeviceUserBinding,
     Permission,
     RolePermission,
     Tenant,
@@ -70,6 +71,17 @@ def _resolve_principal(
     device = session.get(Device, auth_session.device_id) if auth_session.device_id else None
     if auth_session.device_id is not None and (device is None or device.status != "active"):
         return None
+
+    if auth_session.binding_id is not None:
+        binding = session.get(DeviceUserBinding, auth_session.binding_id)
+        if (
+            binding is None or binding.status != "active"
+            or binding.user_id != auth_session.user_id
+            or binding.device_id != auth_session.device_id
+            or (binding.expires_at is not None and _utc(binding.expires_at) <= now)
+        ):
+            return None
+        # The binding's origin tenant remains unchanged when a super admin switches tenants.
 
     membership_role = None
     if auth_session.tenant_id is not None:

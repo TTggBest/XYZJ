@@ -12,7 +12,8 @@ from zhiju import auth_context
 from zhiju.auth_context import Principal, get_current_principal, get_optional_principal
 from zhiju.database import get_db
 from zhiju.models import (
-    AppUser, AuthSession, Base, Channel, Device, Permission, RolePermission, Tenant, TenantMembership,
+    AppUser, AuthSession, Base, Channel, Device, DeviceUserBinding, Permission, RolePermission,
+    Tenant, TenantMembership,
 )
 from zhiju.permissions import require_permission, require_super_code_machine
 from zhiju.security import digest_token
@@ -41,7 +42,8 @@ def context(tmp_path, monkeypatch, request):
     url = "sqlite:///:memory:" if getattr(request, "param", "file") == "memory" else f"sqlite:///{tmp_path / 'auth.db'}"
     engine = create_engine(url, connect_args={"timeout": 0.1})
     tables = [model.__table__ for model in (
-        AppUser, Tenant, TenantMembership, Device, Permission, RolePermission, AuthSession, Channel,
+        AppUser, Tenant, TenantMembership, Device, DeviceUserBinding, Permission, RolePermission,
+        AuthSession, Channel,
     )]
     Base.metadata.create_all(engine, tables=tables)
     with Session(engine) as db:
@@ -68,6 +70,77 @@ def context(tmp_path, monkeypatch, request):
         yield SimpleNamespace(db=db, engine=engine, user=user, tenant=tenant, device=device,
                               membership=membership, auth_session=auth_session)
     engine.dispose()
+
+
+@pytest.fixture
+def bound_context(context):
+    context.user.platform_role = "super_admin"
+    context.device.trust_level = "super_code_machine"
+    context.binding = DeviceUserBinding(
+        id="binding", device_id="device", user_id="user", tenant_id="tenant",
+        credential_digest=digest_token("binding-secret"), bound_by_user_id="user", bound_at=NOW,
+        status="active", expires_at=NOW + timedelta(days=1),
+    )
+    context.db.add(context.binding)
+    context.auth_session.binding_id = "binding"
+    context.db.commit()
+    return context
+
+
+@pytest.mark.parametrize("reason", [
+    "expired", "boundary", "suspended", "revoked", "missing", "wrong_user", "wrong_device",
+])
+def test_invalid_origin_binding_rejects_principal_me_and_platform_mutation(bound_context, reason):
+    from zhiju.app import create_app
+
+    context = bound_context
+    if reason in {"expired", "boundary"}:
+        context.binding.expires_at = NOW - timedelta(seconds=reason == "expired")
+    elif reason in {"suspended", "revoked"}:
+        context.binding.status = reason
+    elif reason == "missing":
+        context.db.delete(context.binding)
+    elif reason == "wrong_user":
+        context.db.add(AppUser(id="other-user", display_name="Other", login_name="other",
+                               password_hash="unused", password_changed_at=NOW))
+        context.binding.user_id = "other-user"
+    else:
+        context.db.add(Device(id="other-device", device_key="other", name="Other",
+                              hostname="other-host", os_type="macos"))
+        context.binding.device_id = "other-device"
+    context.db.commit()
+
+    assert get_optional_principal(request(), context.db) is None
+    expect_status(context, 401)
+
+    def open_db():
+        with Session(context.engine) as db:
+            yield db
+
+    app = create_app()
+    app.dependency_overrides[get_db] = open_db
+    with TestClient(app, headers={"Origin": "http://testserver"}) as client:
+        client.cookies.set("zhiju_session", TOKEN)
+        assert client.get("/api/v3/auth/me").status_code == 401
+        assert client.post("/api/v3/platform/device-bindings/binding/revoke", json={}).status_code == 401
+
+
+@pytest.mark.parametrize("expires_at", [None, NOW + timedelta(days=1)])
+@pytest.mark.parametrize("switched", [False, True])
+def test_active_origin_binding_allows_super_admin_after_tenant_switch(bound_context, expires_at, switched):
+    context = bound_context
+    context.binding.expires_at = expires_at
+    if switched:
+        context.db.add(Tenant(id="other", company_name="Other", short_name="other",
+                              lease_expires_at=NOW + timedelta(days=30)))
+        context.auth_session.tenant_id = "other"
+    context.db.commit()
+
+    principal = get_current_principal(request(), context.db)
+    assert principal.user_id == "user"
+    assert principal.tenant_id == ("other" if switched else "tenant")
+    assert require_super_code_machine(principal) is principal
+    assert context.binding.tenant_id == "tenant"
 
 
 def expect_status(context, status, req=None):
