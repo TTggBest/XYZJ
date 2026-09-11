@@ -1,4 +1,19 @@
 from zhiju.models.audit import AuditEvent, SchemaComment
+from zhiju.models.auth import (
+    ACCOUNT_STATUSES,
+    BINDING_STATUSES,
+    MEMBERSHIP_ROLES,
+    PLATFORM_ROLES,
+    SESSION_STATUSES,
+    AppUser,
+    AuthEvent,
+    AuthSession,
+    DeviceUserBinding,
+    Permission,
+    RolePermission,
+    Tenant,
+    TenantMembership,
+)
 from zhiju.models.base import Base
 from zhiju.models.demo import DemoDataBatch, DemoDataEntity
 from zhiju.models.channel_intelligence import (
@@ -89,10 +104,15 @@ from zhiju.models.youtube import (
 )
 
 __all__ = [
+    "ACCOUNT_STATUSES",
     "AccountChannelAuthorization",
+    "AppUser",
     "AuditEvent",
+    "AuthEvent",
+    "AuthSession",
     "AuthorizationEvent",
     "Base",
+    "BINDING_STATUSES",
     "Channel",
     "ChannelAnalysisReport",
     "ChannelAnalysisEvidence",
@@ -115,6 +135,7 @@ __all__ = [
     "CommunityPostAsset",
     "FeishuSyncRun",
     "Device",
+    "DeviceUserBinding",
     "DemoDataBatch",
     "DemoDataEntity",
     "Drama",
@@ -134,6 +155,7 @@ __all__ = [
     "RuntimePackageBuild",
     "Language",
     "MediaAsset",
+    "MEMBERSHIP_ROLES",
     "OAuthGrant",
     "OAuthGrantScope",
     "OperationPackage",
@@ -148,6 +170,8 @@ __all__ = [
     "PackageSimilarityCheck",
     "PackageTitle",
     "PackageValidationResult",
+    "Permission",
+    "PLATFORM_ROLES",
     "PublishCadenceTemplateSlot",
     "ProductionNodeRun",
     "ProductionBatch",
@@ -156,8 +180,11 @@ __all__ = [
     "ScheduleChangeHistory",
     "Skill",
     "SkillVersion",
+    "SESSION_STATUSES",
     "SystemEvent",
     "TaskEvent",
+    "Tenant",
+    "TenantMembership",
     "WorkOrder",
     "ApiRequestLog",
     "QuotaUsageLog",

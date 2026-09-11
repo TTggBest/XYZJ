@@ -24,6 +24,10 @@ class Device(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("status IN ('active','inactive','retired')", name="valid_status"),
         CheckConstraint("device_role IN ('builder','studio','worker')", name="valid_device_role"),
+        CheckConstraint(
+            "trust_level IN ('super_code_machine','code_machine','production_device','normal')",
+            name="valid_trust_level",
+        ),
         Index("ix_devices_status_last_seen", "status", "last_seen_at"),
         {"comment": "运行、登录或执行授权操作的设备"},
     )
@@ -33,6 +37,9 @@ class Device(IdMixin, TimestampMixin, Base):
     alias: Mapped[str | None] = mapped_column(String(120), comment="设备运营别名")
     hostname: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, comment="设备主机名，运行包自动识别使用")
     device_role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="worker", comment="设备角色：builder、studio或worker")
+    trust_level: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="normal", comment="设备信任等级"
+    )
     login_user: Mapped[str | None] = mapped_column(String(120), comment="设备登录用户")
     thunderbolt_address: Mapped[str | None] = mapped_column(String(45), comment="雷电网络地址")
     lan_address: Mapped[str | None] = mapped_column(String(45), comment="普通局域网地址")
