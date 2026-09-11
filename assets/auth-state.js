@@ -48,8 +48,16 @@
   }
   function jsonOptions(body, method = "POST") { return { method, body: JSON.stringify(body) }; }
   async function resolveBootstrap(request) {
-    try { return accept(await request("/auth/me")); }
-    catch (error) { clear(); if (error.status === 401) return null; throw error; }
+    const expectedRevision = capture();
+    try { return accept(await request("/auth/me", { expectedRevision })); }
+    catch (error) {
+      if (error.name !== "AbortError" && error.status === 401) {
+        // The shared request may have already cleared this revision on 401.
+        if (isCurrent(expectedRevision)) clear();
+        return null;
+      }
+      throw error;
+    }
   }
   async function login(request, loginName, password) {
     return accept(await request("/auth/login", jsonOptions({ login_name: loginName.trim(), password })));

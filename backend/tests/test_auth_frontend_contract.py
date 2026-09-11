@@ -504,3 +504,71 @@ release();await pending;
 if(switchTenant){assert.equal(paths.length,count);assert.equal(auth.current().tenant_id,'t2');}
 else {assert.deepEqual(paths.slice(count),['/api/v3/packages/pa/copy-progress']);assert.equal(auth.current().tenant_id,'t1');}
 """)
+
+
+@pytest.mark.parametrize("me_result", [200, 401, 503, "network", "abort"])
+@pytest.mark.parametrize("switch_tenant", [True, False])
+def test_real_app_account_save_identity_refresh_is_bound_to_its_revision(me_result, switch_tenant):
+    run_node(APP_FIXTURE + f"const meResult={json.dumps(me_result)}, switchTenant={json.dumps(switch_tenant)};" + """
+let saved=false, releaseMe;
+const companies=superUser.switchable_tenants.map(item=>({...item,status:'active',lease_expires_at:'2030-01-02T12:00:45.789Z'}));
+const savedCompany={...companies[0],company_name:'甲公司更新'};
+class FixtureFormData {constructor(form){this.values=form.values;}entries(){return Object.entries(this.values);}}
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/platform/tenants')return new Response(JSON.stringify(companies));
+ if(path==='/api/v3/platform/tenants/t1'&&options.method==='PATCH'){
+  saved=true;return new Response(JSON.stringify(savedCompany));
+ }
+ if(path==='/api/v3/auth/me'&&saved)return new Promise((resolve,reject)=>{
+  releaseMe=()=>{
+   if(meResult==='network')return reject(new TypeError('identity lookup offline'));
+   if(meResult==='abort')return reject(new DOMException('identity lookup cancelled','AbortError'));
+   resolve(new Response(JSON.stringify(meResult===200?{...superUser,current_tenant:savedCompany}:{detail:'identity lookup failed'}),{status:meResult}));
+  };
+ });
+ return defaultResponse(path);
+},{FormData:FixtureFormData});
+await settle(page);await page.nodes.get('accountManage').emit('click');
+assert.match(page.nodes.get('viewRoot').innerHTML,/账号租约/);
+const editButton={dataset:{accountAction:'edit-tenant',id:'t1'}};
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-account-action]'?editButton:null}});
+assert.match(page.nodes.get('modalBody').innerHTML,/id="accountAdminForm"/);
+const submit=page.document.createElement();page.nodes.set('accountFormError',page.document.createElement());
+const form={id:'accountAdminForm',dataset:{accountForm:'edit-tenant'},querySelector:()=>submit,querySelectorAll:()=>[],
+ values:{tenant_id:'t1',company_name:'甲公司更新',short_name:'甲',status:'active',lease_expires_at:'2030-01-02T12:00'}};
+const pending=page.document.emit('submit',{target:form});await page.tick();
+assert.equal(saved,true);assert.equal(typeof releaseMe,'function');
+assert.deepEqual(paths.slice(-2),['/api/v3/platform/tenants/t1','/api/v3/auth/me']);
+if(switchTenant)await switchCompany(page);
+const confirmed=auth.current(), count=paths.length, content=page.nodes.get('viewRoot').innerHTML;
+releaseMe();await pending;
+if(switchTenant){
+ assert.equal(auth.current(),confirmed);assert.equal(auth.current().tenant_id,'t2');
+ assert.match(page.nodes.get('tenantBanner').textContent,/乙公司/);
+ assert.equal(page.nodes.get('viewRoot').innerHTML,content);assert.equal(paths.length,count);
+ assert.equal(page.nodes.get('appShell').hidden,false);assert.equal(page.nodes.get('loginShell').hidden,true);
+}else if(meResult===401){
+ assert.equal(auth.current(),null);assert.equal(page.nodes.get('appShell').hidden,true);
+ assert.equal(page.nodes.get('loginShell').hidden,false);assert.equal(paths.length,count);
+ for(const id of ['viewRoot','modalBody','drawerBody','toastStack'])assert.equal(page.nodes.get(id).innerHTML,'');
+}else if(meResult===200){
+ assert.equal(auth.current().current_tenant.company_name,'甲公司更新');
+ assert.match(page.nodes.get('tenantBanner').textContent,/甲公司更新/);assert.match(page.nodes.get('viewRoot').innerHTML,/账号租约/);
+}else{
+ assert.equal(auth.current(),confirmed);assert.equal(page.nodes.get('viewRoot').innerHTML,content);
+ assert.equal(page.nodes.get('appShell').hidden,false);assert.equal(page.nodes.get('loginShell').hidden,true);
+ assert.equal(paths.length,count);
+}
+""")
+
+
+def test_overlapping_identity_refresh_does_not_clear_newer_confirmed_profile():
+    run_node("""
+await auth.resolveBootstrap(async()=>principal);let release;
+const older=auth.resolveBootstrap((path,options)=>auth.request(()=>new Promise(resolve=>{release=resolve;}),path,options));
+const rejected=assert.rejects(older,error=>error.name==='AbortError');
+await auth.resolveBootstrap(async()=>({...principal,display_name:'更新姓名'}));const confirmed=auth.current();
+release(new Response(JSON.stringify(principal)));await rejected;
+assert.equal(auth.current(),confirmed);assert.equal(auth.current().display_name,'更新姓名');
+""")
