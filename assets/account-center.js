@@ -97,7 +97,12 @@
       path = "/platform/tenants";
       body = { company_name: values.company_name.trim(), short_name: values.short_name.trim(), status: values.status, lease_expires_at: lease(values.lease_expires_at), contact_name: nullable(values.contact_name), contact_phone: nullable(values.contact_phone), plan_code: nullable(values.plan_code), remark: nullable(values.remark) };
       if (action === "new-tenant") body.owner = { display_name: values.owner_display_name.trim(), login_name: values.owner_login_name.trim(), password: values.owner_password, lease_expires_at: lease(values.owner_lease_expires_at) };
-      else { path += `/${encodeURIComponent(values.tenant_id || model.tenantId)}`; method = "PATCH"; body.suspended_reason = nullable(values.suspended_reason); }
+      else {
+        const tenantId = values.tenant_id || model.tenantId;
+        const tenant = model.tenants?.find(item => item.id === tenantId);
+        path += `/${encodeURIComponent(tenantId)}`; method = "PATCH"; body.suspended_reason = nullable(values.suspended_reason);
+        if (tenant && values.lease_expires_at === localTime(tenant.lease_expires_at)) delete body.lease_expires_at;
+      }
     } else if (["new-user", "edit-user", "reset-password"].includes(action)) {
       if (!rights.manageUsers) throw new Error("没有用户管理权限");
       path = auth.usersPath(model.tenantId);

@@ -11,6 +11,8 @@
   const roles = { super_admin: "超级管理员", owner: "主账号所有者", admin: "主账号管理员", operator: "运营人员", viewer: "只读人员" };
   const managedRoles = ["admin", "operator", "viewer"];
   function current() { return principal; }
+  function capture() { return revision; }
+  function isCurrent(value) { return value === revision; }
   function subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }
   function accept(value) { principal = value; revision += 1; listeners.forEach(listener => listener(value)); return value; }
   function clear() { accept(null); }
@@ -58,17 +60,25 @@
   }
   async function switchTenant(request, tenantId) {
     if (!access().switchTenant || !principal.switchable_tenants?.some(item => item.id === tenantId)) throw new Error("请选择有权限的主账号");
-    const previous = principal;
     clear();
-    try { return accept(await request("/auth/switch-tenant", jsonOptions({ tenant_id: tenantId }))); }
-    catch (error) { if (error.status !== 401 && error.name !== "AbortError") accept(previous); throw error; }
+    const expectedRevision = capture();
+    try { return accept(await request("/auth/switch-tenant", { ...jsonOptions({ tenant_id: tenantId }), expectedRevision })); }
+    catch (error) {
+      if (!isCurrent(expectedRevision) || error.status === 401 || error.name === "AbortError") throw error;
+      // A lost response can still mean the server switched the session. Never restore a cached actor.
+      const confirmed = await request("/auth/me", { expectedRevision });
+      accept(confirmed);
+      if (confirmed.tenant_id !== tenantId) throw error;
+      return confirmed;
+    }
   }
   async function request(fetcher, path, options = {}) {
+    const { expectedRevision: started = revision, ...fetchOptions } = options;
+    if (!isCurrent(started)) throw new DOMException("账号上下文已改变", "AbortError");
     if (!principal && !path.startsWith("/auth/") && !path.startsWith("/api/v3/auth/")) throw Object.assign(new Error("请先登录"), { status: 401 });
-    const started = revision;
     const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
     const response = await fetcher(path.startsWith("/api/") ? path : `/api/v3${path}`, {
-      ...options, credentials: "same-origin", cache: "no-store",
+      ...fetchOptions, credentials: "same-origin", cache: "no-store",
       headers: { ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
     });
     const text = await response.text();
@@ -82,5 +92,5 @@
     }
     return data;
   }
-  return { current, subscribe, clear, can, roleLabel, managedRoles, access, canManageUser, canChangeUserRole, canView, usersPath, resolveBootstrap, login, logout, switchTenant, request };
+  return { current, capture, isCurrent, subscribe, clear, can, roleLabel, managedRoles, access, canManageUser, canChangeUserRole, canView, usersPath, resolveBootstrap, login, logout, switchTenant, request };
 });

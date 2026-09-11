@@ -3,6 +3,8 @@ import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = """
@@ -118,6 +120,22 @@ assert.equal(called,false);
 """)
 
 
+def test_shared_request_keeps_a_batch_bound_to_its_starting_identity():
+    run_node("""
+await auth.resolveBootstrap(async()=>principal);
+const revision=auth.capture();assert.equal(auth.isCurrent(revision),true);
+await auth.request(async(url,options)=>{
+ assert.equal(Object.hasOwn(options,'expectedRevision'),false);
+ return new Response('{}');
+},'/tasks/a1/dispatch',{method:'POST',expectedRevision:revision});
+await auth.resolveBootstrap(async()=>({...superUser,tenant_id:'t2'}));
+assert.equal(auth.isCurrent(revision),false);let called=false;
+await assert.rejects(auth.request(async()=>{called=true;return new Response('{}');},'/tasks/a2/dispatch',
+ {method:'POST',expectedRevision:revision}),error=>error.name==='AbortError');
+assert.equal(called,false);
+""")
+
+
 def test_account_center_owner_uses_only_tenant_endpoint_and_hides_platform_controls():
     run_node("""
 await auth.resolveBootstrap(async()=>principal);
@@ -203,6 +221,22 @@ const center=require(process.argv[1]+'/assets/account-center.js');
 const user={id:'u2',display_name:'共用用户',login_name:'shared',status:'active',role_code:'operator',membership_status:'active',platform_role:null,lease_expires_at:'2030-01-02T12:00:45Z'};
 const command=center.command('edit-user',{user_id:'u2',display_name:'共用用户',login_name:'shared',status:'active',role_code:'viewer',membership_status:'active',lease_expires_at:'2030-01-02T12:00',suspended_reason:''},{tenantId:'t1',users:[user]});
 assert.equal(command.path,'/tenant/users/u2');assert.deepEqual(JSON.parse(command.options.body),{role_code:'viewer'});
+""")
+
+
+def test_tenant_edit_omits_unchanged_exact_lease_for_the_edited_company():
+    run_node("""
+process.env.TZ='UTC';await auth.resolveBootstrap(async()=>superUser);
+const center=require(process.argv[1]+'/assets/account-center.js');
+const company={...tenant,status:'active',lease_expires_at:'2030-01-02T12:00:45.789Z'};
+const context={tenantId:'t2',tenants:[company,{id:'t2',lease_expires_at:'2031-01-01T12:00:00Z'}]};
+const values={tenant_id:'t1',company_name:'甲公司新名称',short_name:'甲',status:'active',lease_expires_at:'2030-01-02T12:00'};
+const unchanged=center.command('edit-tenant',values,context);
+assert.equal(unchanged.path,'/platform/tenants/t1');
+assert.equal(JSON.parse(unchanged.options.body).company_name,'甲公司新名称');
+assert.equal(Object.hasOwn(JSON.parse(unchanged.options.body),'lease_expires_at'),false);
+const changed=center.command('edit-tenant',{...values,lease_expires_at:'2030-01-02T12:01'},context);
+assert.equal(JSON.parse(changed.options.body).lease_expires_at,'2030-01-02T12:01:00.000Z');
 """)
 
 
@@ -293,4 +327,180 @@ await page.nodes.get('logoutButton').emit('click');await page.tick();
 assert.equal(page.nodes.get('loginShell').hidden,false);assert.equal(page.nodes.get('appShell').hidden,true);
 assert.equal(page.nodes.get('accountIdentity').textContent,'');assert.equal(page.nodes.get('tenantSelect').innerHTML,'');
 assert.deepEqual(paths,['/api/v3/auth/me','/api/v3/auth/logout']);
+""")
+
+
+APP_FIXTURE = """
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const companyB={...superUser,tenant_id:'t2',current_tenant:superUser.switchable_tenants[1]};
+const paths=[];let serverUser=superUser;
+function defaultResponse(path) {
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(serverUser));
+ if(path==='/api/v3/auth/switch-tenant'){serverUser=companyB;return new Response(JSON.stringify(serverUser));}
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"web_port":8200}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path.startsWith('/api/v3/tasks/overview'))return new Response(JSON.stringify(serverUser.tenant_id==='t1'
+  ? [{task_id:'a1',task_status:'pending_dispatch'},{task_id:'a2',task_status:'pending_dispatch'}] : []));
+ return new Response('[]');
+}
+async function settle(page) {for(let i=0;i<4;i++)await page.tick();}
+function clickAction(page,action,data={}) {
+ const button={dataset:{action,...data},closest:()=>null};
+ return page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
+}
+async function switchCompany(page) {
+ page.nodes.get('tenantSelect').value='t2';await page.nodes.get('tenantSwitchForm').emit('submit');
+}
+"""
+
+
+def test_real_app_bulk_dispatch_does_not_send_next_old_id_after_tenant_switch():
+    run_node(APP_FIXTURE + """
+let release;
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/tasks/a1/dispatch')return new Promise(resolve=>{release=()=>resolve(new Response('{}'));});
+ return defaultResponse(path);
+});
+await settle(page);const pending=clickAction(page,'dispatch-all');await page.tick();
+assert.equal(typeof release,'function');await switchCompany(page);
+assert.equal(auth.current().tenant_id,'t2');const count=paths.length;
+release();await pending;
+assert.deepEqual(paths.filter(path=>path.endsWith('/dispatch')),['/api/v3/tasks/a1/dispatch']);
+assert.equal(paths.length,count);assert.match(page.nodes.get('tenantBanner').textContent,/乙公司/);
+""")
+
+
+@pytest.mark.parametrize("first_status", [200, 409])
+def test_real_app_bulk_dispatch_completes_under_one_identity(first_status):
+    run_node(APP_FIXTURE + f"const firstStatus={first_status};" + """
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/tasks/a1/dispatch')return new Response('{"detail":"已下发"}',{status:firstStatus});
+ return defaultResponse(path);
+});
+await settle(page);await clickAction(page,'dispatch-all');
+assert.deepEqual(paths.filter(path=>path.endsWith('/dispatch')),['/api/v3/tasks/a1/dispatch','/api/v3/tasks/a2/dispatch']);
+assert.match(page.nodes.get('viewRoot').innerHTML,/工单列表/);assert.equal(auth.current().tenant_id,'t1');
+""")
+
+
+@pytest.mark.parametrize("failure", ["401", "abort"])
+def test_real_app_bulk_dispatch_stops_on_auth_failure_or_abort(failure):
+    run_node(APP_FIXTURE + f"const failure={json.dumps(failure)};" + """
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/tasks/a1/dispatch'){
+  if(failure==='abort')throw new DOMException('cancelled','AbortError');
+  return new Response('{"detail":"请先登录"}',{status:401});
+ }
+ return defaultResponse(path);
+});
+await settle(page);const count=paths.length;await clickAction(page,'dispatch-all');
+assert.deepEqual(paths.slice(count),['/api/v3/tasks/a1/dispatch']);
+""")
+
+
+@pytest.mark.parametrize("failure", ["network", "503"])
+def test_real_app_uncertain_switch_reconfirms_server_identity_before_business(failure):
+    run_node(APP_FIXTURE + f"const failure={json.dumps(failure)};" + """
+let releaseMe, confirm=false;const business=[];
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/auth/switch-tenant'){
+  serverUser=companyB;confirm=true;
+  if(failure==='network')throw new TypeError('response lost');
+  return new Response('{"detail":"upstream failed"}',{status:503});
+ }
+ if(path==='/api/v3/auth/me'&&confirm)return new Promise(resolve=>{releaseMe=()=>resolve(new Response(JSON.stringify(serverUser)));});
+ if(!path.includes('/auth/'))business.push({server:serverUser.tenant_id,shown:auth.current()?.tenant_id});
+ return defaultResponse(path);
+});
+await settle(page);const count=paths.length;const pending=switchCompany(page);await settle(page);
+assert.deepEqual(paths.slice(count),['/api/v3/auth/switch-tenant','/api/v3/auth/me']);
+assert.equal(auth.current(),null);assert.equal(page.nodes.get('viewRoot').innerHTML,'');
+assert.equal(page.nodes.get('appShell').hidden,true);assert.equal(typeof releaseMe,'function');
+releaseMe();await pending;
+assert.equal(auth.current().tenant_id,'t2');assert.equal(page.nodes.get('appShell').hidden,false);
+assert.match(page.nodes.get('tenantBanner').textContent,/乙公司/);
+assert.ok(business.some(item=>item.server==='t2'));
+assert.ok(business.every(item=>item.server===item.shown));
+""")
+
+
+@pytest.mark.parametrize("confirmation_status", [401, 503, "network"])
+def test_real_app_failed_switch_confirmation_stays_empty_and_sends_no_business(confirmation_status):
+    run_node(APP_FIXTURE + f"const confirmationStatus={json.dumps(confirmation_status)};" + """
+let confirm=false;
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/auth/switch-tenant'){serverUser=companyB;confirm=true;throw new TypeError('response lost');}
+ if(path==='/api/v3/auth/me'&&confirm){
+  if(confirmationStatus==='network')throw new TypeError('cannot confirm');
+  return new Response('{"detail":"cannot confirm"}',{status:confirmationStatus});
+ }
+ return defaultResponse(path);
+});
+await settle(page);const count=paths.length;await switchCompany(page);
+assert.deepEqual(paths.slice(count),['/api/v3/auth/switch-tenant','/api/v3/auth/me']);
+assert.equal(auth.current(),null);assert.equal(page.nodes.get('appShell').hidden,true);
+assert.equal(page.nodes.get('loginShell').hidden,false);
+for(const id of ['viewRoot','modalBody','drawerBody','toastStack'])assert.equal(page.nodes.get(id).innerHTML,'');
+""")
+
+
+def test_real_app_uncommitted_switch_uses_confirmed_identity_and_shows_failure():
+    run_node(APP_FIXTURE + """
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/auth/switch-tenant')throw new TypeError('未送达');
+ return defaultResponse(path);
+});
+await settle(page);const count=paths.length;await switchCompany(page);
+assert.deepEqual(paths.slice(count,count+2),['/api/v3/auth/switch-tenant','/api/v3/auth/me']);
+assert.equal(auth.current().tenant_id,'t1');assert.match(page.nodes.get('tenantBanner').textContent,/甲公司/);
+assert.equal(page.nodes.get('tenantSwitchError').hidden,false);assert.match(page.nodes.get('tenantSwitchError').textContent,/未送达/);
+""")
+
+
+@pytest.mark.parametrize("form_id", ["dramaBulkForm", "appIconForm"])
+@pytest.mark.parametrize("switch_tenant", [True, False])
+def test_real_app_file_submission_stays_bound_to_identity_during_file_read(form_id, switch_tenant):
+    run_node(APP_FIXTURE + f"const formId={json.dumps(form_id)}, switchTenant={json.dumps(switch_tenant)};" + """
+let release;
+const file={name:'fixture',text:()=>new Promise(resolve=>{release=()=>resolve('甲公司的 CSV');})};
+class FixtureFormData {entries(){return [][Symbol.iterator]();}}
+class FixtureFileReader {readAsDataURL(){release=()=>{this.result='data:image/png;base64,fixture';this.onload();};}}
+const page=start(process.argv[1],auth,async(path,options)=>{paths.push(path);return defaultResponse(path);},
+ {FormData:FixtureFormData,FileReader:FixtureFileReader});
+await settle(page);
+const form={id:formId,matches:()=>false,elements:{csv_file:{files:[file]},icon_file:{files:[file]}}};
+const pending=page.document.emit('submit',{target:form});await page.tick();
+assert.equal(typeof release,'function');if(switchTenant)await switchCompany(page);const count=paths.length;
+release();await pending;
+if(switchTenant){assert.equal(paths.length,count);assert.equal(auth.current().tenant_id,'t2');}
+else {
+ const endpoint=formId==='dramaBulkForm'?'/api/v3/dramas/bulk-csv':'/api/v3/settings/app-icon';
+ assert.equal(paths.filter(path=>path===endpoint).length,1);assert.equal(auth.current().tenant_id,'t1');
+}
+""")
+
+
+@pytest.mark.parametrize("switch_tenant", [True, False])
+def test_real_app_copy_progress_stays_bound_to_identity_during_clipboard_wait(switch_tenant):
+    run_node(APP_FIXTURE + f"const switchTenant={json.dumps(switch_tenant)};" + """
+let release;const item={package_id:'pa',chinese_title:'甲公司剧目',titles:[{id:'title-a',variant_number:1,localized_title:'甲公司标题'}]};
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/packages/operations-overview')return new Response(JSON.stringify([item]));
+ return defaultResponse(path);
+},{navigator:{clipboard:{writeText:value=>{assert.equal(value,'甲公司标题');return new Promise(resolve=>{release=resolve;});}}}});
+await settle(page);await clickAction(page,'package-page-detail',{id:'pa'});
+assert.match(page.nodes.get('viewRoot').innerHTML,/data-copy-key="pa:detail-title-1"/);
+const pending=clickAction(page,'copy-package-field',{copyKey:'pa:detail-title-1',packageId:'pa',outputType:'title',outputId:'title-a'});
+await page.tick();assert.equal(typeof release,'function');if(switchTenant)await switchCompany(page);const count=paths.length;
+release();await pending;
+if(switchTenant){assert.equal(paths.length,count);assert.equal(auth.current().tenant_id,'t2');}
+else {assert.deepEqual(paths.slice(count),['/api/v3/packages/pa/copy-progress']);assert.equal(auth.current().tenant_id,'t1');}
 """)

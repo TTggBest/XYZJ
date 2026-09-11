@@ -578,8 +578,19 @@
   }
   async function dispatchMany(ids) {
     if (!ids.length) return notify("没有待生产的工单", true);
+    const expectedRevision = auth.capture();
     let done = 0;
-    for (const id of ids) { try { await api(`/tasks/${id}/dispatch`, { method: "POST" }); done += 1; } catch (error) { notify(error.message, true); } }
+    for (const id of ids) {
+      if (!auth.isCurrent(expectedRevision)) return;
+      try {
+        await api(`/tasks/${id}/dispatch`, { method: "POST", expectedRevision });
+        if (!auth.isCurrent(expectedRevision)) return;
+        done += 1;
+      } catch (error) {
+        if (!auth.isCurrent(expectedRevision) || error.status === 401 || error.name === "AbortError") return;
+        notify(error.message, true);
+      }
+    }
     notify(`已开始生产 ${done} 条工单`); await loadView("workorders");
   }
 
@@ -1562,12 +1573,14 @@
       }
       else if (action === "focus-missing-prompt") focusMissingPackagePrompt(button.dataset.role);
       else if (action === "copy-package-field") {
+        const expectedRevision = auth.capture();
         const value = state.copyValues.get(button.dataset.copyKey);
         if (!value) return;
         await copyText(value);
+        if (!auth.isCurrent(expectedRevision)) return;
         if (button.dataset.outputType && button.dataset.outputId && button.dataset.packageId) {
           const copyProgress = await api(`/packages/${button.dataset.packageId}/copy-progress`, {
-            method: "PUT",
+            method: "PUT", expectedRevision,
             body: JSON.stringify({ output_type: button.dataset.outputType, output_id: button.dataset.outputId })
           });
           applyCopyProgress(copyProgress);
@@ -1802,7 +1815,7 @@
   document.addEventListener("submit", async event => {
     if (["loginForm", "tenantSwitchForm"].includes(event.target.id)) return;
     if (!auth.current()) { event.preventDefault(); return; }
-    event.preventDefault(); const form = event.target; const data = formData(form);
+    event.preventDefault(); const expectedRevision = auth.capture(); const form = event.target; const data = formData(form);
     if (form.id === "accountAdminForm") {
       if (form.dataset.busy === "true") return;
       const submit = form.querySelector('button[type="submit"]');
@@ -1921,7 +1934,7 @@
       if (form.id === "dramaBulkForm") {
         const file = form.elements.csv_file.files[0];
         if (!file) throw new Error("请选择 CSV 文件");
-        const result = await api("/dramas/bulk-csv", { method: "POST", body: JSON.stringify({ content: await file.text() }) });
+        const result = await api("/dramas/bulk-csv", { method: "POST", expectedRevision, body: JSON.stringify({ content: await file.text() }) });
         notify(`批量录入完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`); closeModal(); await loadView("dramas", { preservePosition: true });
       }
       if (form.id === "dramaProgressForm") {
@@ -1952,9 +1965,9 @@
       if (form.id === "integrationForm") { data.status = "active"; await api("/integrations", { method: "POST", body: JSON.stringify(data) }); notify("第三方服务已保存"); closeModal(); await loadView("settings"); }
       if (form.id === "integrationAccountForm") { const integrationId = data.integration_id; delete data.integration_id; data.status = "pending"; if (!data.external_account_id) data.external_account_id = null; await api(`/integrations/${integrationId}/accounts`, { method: "POST", body: JSON.stringify(data) }); notify("第三方账号已保存"); closeModal(); await loadView("settings"); }
       if (form.id === "credentialForm") { const accountId = data.account_id; delete data.account_id; data.status = "active"; await api(`/integration-accounts/${accountId}/credentials`, { method: "PUT", body: JSON.stringify(data) }); notify("凭证引用已保存"); closeModal(); await loadView("settings"); }
-      if (form.id === "appIconForm") { const file = form.elements.icon_file.files[0]; if (!file) throw new Error("请选择图标文件"); const dataUrl = await readFileDataUrl(file); await api("/settings/app-icon", { method: "PUT", body: JSON.stringify({ filename: file.name, data_url: dataUrl }) }); notify("应用图标已更新"); await loadView("settings"); }
+      if (form.id === "appIconForm") { const file = form.elements.icon_file.files[0]; if (!file) throw new Error("请选择图标文件"); const dataUrl = await readFileDataUrl(file); await api("/settings/app-icon", { method: "PUT", expectedRevision, body: JSON.stringify({ filename: file.name, data_url: dataUrl }) }); notify("应用图标已更新"); await loadView("settings"); }
       if (form.id === "deviceForm") { for (const key of ["alias", "login_user", "thunderbolt_address", "lan_address", "ssh_key_path", "ip_address", "ssh_address", "purpose"]) if (!data[key]) data[key] = null; await api("/devices/register", { method: "PUT", body: JSON.stringify(data) }); notify("设备配置已保存"); closeModal(); await loadView("settings"); }
-    } catch (error) { notify(error.message, true); }
+    } catch (error) { if (auth.isCurrent(expectedRevision) && error.status !== 401 && error.name !== "AbortError") notify(error.message, true); }
   });
 
   el("sidebarToggle").addEventListener("click", () => { el("appShell").classList.toggle("is-collapsed"); localStorage.setItem("zhiju.nav.collapsed", el("appShell").classList.contains("is-collapsed") ? "1" : "0"); });
