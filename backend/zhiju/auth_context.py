@@ -39,12 +39,16 @@ def _utc(value: datetime) -> datetime:
 def get_optional_principal(
     request: Request, session: Session = Depends(get_db),
 ) -> Principal | None:
+    # A caller transaction may already contain flushed work, even when dirty is empty.
+    allow_heartbeat = not session.in_transaction()
     # Authentication reads must not flush business changes pending in the caller.
     with session.no_autoflush:
-        return _resolve_principal(request, session)
+        return _resolve_principal(request, session, allow_heartbeat=allow_heartbeat)
 
 
-def _resolve_principal(request: Request, session: Session) -> Principal | None:
+def _resolve_principal(
+    request: Request, session: Session, *, allow_heartbeat: bool,
+) -> Principal | None:
     token = request.cookies.get("zhiju_session")
     if not token:
         return None
@@ -99,7 +103,7 @@ def _resolve_principal(request: Request, session: Session) -> Principal | None:
         device_trust_level=device.trust_level if device else "normal",
         permissions=permissions,
     )
-    if _utc(auth_session.last_seen_at) <= now - timedelta(minutes=5):
+    if allow_heartbeat and _utc(auth_session.last_seen_at) <= now - timedelta(minutes=5):
         # Own a short transaction; never commit the caller's unit of work.
         with session.get_bind().engine.begin() as connection:
             connection.execute(update(AuthSession).where(

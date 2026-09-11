@@ -36,9 +36,10 @@ def request(token=TOKEN, extra_headers=()):
 
 
 @pytest.fixture
-def context(tmp_path, monkeypatch):
+def context(tmp_path, monkeypatch, request):
     monkeypatch.setattr(auth_context, "datetime", FrozenDatetime)
-    engine = create_engine(f"sqlite:///{tmp_path / 'auth.db'}")
+    url = "sqlite:///:memory:" if getattr(request, "param", "file") == "memory" else f"sqlite:///{tmp_path / 'auth.db'}"
+    engine = create_engine(url, connect_args={"timeout": 0.1})
     tables = [model.__table__ for model in (
         AppUser, Tenant, TenantMembership, Device, Permission, RolePermission, AuthSession, Channel,
     )]
@@ -237,6 +238,7 @@ def test_headers_cannot_supply_or_override_identity_device_tenant_or_permissions
 
 
 @pytest.mark.parametrize("age_seconds,updated", [(299, False), (300, True), (600, True)])
+@pytest.mark.parametrize("context", ["file", "memory"], indirect=True)
 def test_last_seen_persists_at_most_once_per_five_minutes(context, age_seconds, updated):
     previous = NOW - timedelta(seconds=age_seconds)
     context.auth_session.last_seen_at = previous
@@ -248,19 +250,25 @@ def test_last_seen_persists_at_most_once_per_five_minutes(context, age_seconds, 
     assert stored == expected.replace(tzinfo=None)
 
 
-def test_heartbeat_persists_without_committing_or_flushing_callers_business_changes(context):
+@pytest.mark.parametrize("context", ["file", "memory"], indirect=True)
+@pytest.mark.parametrize("flush", [False, True])
+def test_heartbeat_is_skipped_without_disturbing_pending_or_flushed_business_changes(context, flush):
     channel = Channel(id="channel", youtube_channel_id="UC-test", original_name="Original")
     context.db.add(channel)
-    context.auth_session.last_seen_at = NOW - timedelta(minutes=10)
+    previous_seen = NOW - timedelta(minutes=10)
+    context.auth_session.last_seen_at = previous_seen
     context.db.commit()
     channel.original_name = "Uncommitted change"
+    if flush:
+        context.db.flush()
 
-    get_current_principal(request(), context.db)
+    principal = get_current_principal(request(), context.db)
+    assert principal.user_id == "user"
     context.db.rollback()
 
     with Session(context.engine) as independent:
         assert independent.get(Channel, "channel").original_name == "Original"
-        assert independent.get(AuthSession, "session").last_seen_at == NOW.replace(tzinfo=None)
+        assert independent.get(AuthSession, "session").last_seen_at == previous_seen.replace(tzinfo=None)
 
 
 def test_authentication_queries_do_not_autoflush_callers_pending_changes(context):
