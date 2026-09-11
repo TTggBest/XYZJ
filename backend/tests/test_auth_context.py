@@ -12,7 +12,7 @@ from zhiju import auth_context
 from zhiju.auth_context import Principal, get_current_principal, get_optional_principal
 from zhiju.database import get_db
 from zhiju.models import (
-    AppUser, AuthSession, Base, Device, Permission, RolePermission, Tenant, TenantMembership,
+    AppUser, AuthSession, Base, Channel, Device, Permission, RolePermission, Tenant, TenantMembership,
 )
 from zhiju.permissions import require_permission, require_super_code_machine
 from zhiju.security import digest_token
@@ -40,7 +40,7 @@ def context(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_context, "datetime", FrozenDatetime)
     engine = create_engine(f"sqlite:///{tmp_path / 'auth.db'}")
     tables = [model.__table__ for model in (
-        AppUser, Tenant, TenantMembership, Device, Permission, RolePermission, AuthSession,
+        AppUser, Tenant, TenantMembership, Device, Permission, RolePermission, AuthSession, Channel,
     )]
     Base.metadata.create_all(engine, tables=tables)
     with Session(engine) as db:
@@ -196,20 +196,28 @@ def test_super_admin_current_tenant_must_still_be_active(context):
     expect_status(context, 403)
 
 
-@pytest.mark.parametrize("device_status", [None, "inactive", "retired"])
-def test_unavailable_device_cannot_supply_super_machine_trust(context, device_status):
+def test_session_without_device_cannot_supply_super_machine_trust(context):
     context.user.platform_role = "super_admin"
     context.device.trust_level = "super_code_machine"
-    if device_status is None:
-        context.auth_session.device_id = None
-    else:
-        context.device.status = device_status
+    context.auth_session.device_id = None
     context.db.commit()
     principal = get_current_principal(request(), context.db)
     assert principal.device_trust_level == "normal"
     with pytest.raises(HTTPException) as exc:
         require_super_code_machine(principal)
     assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("device_status", ["inactive", "retired"])
+@pytest.mark.parametrize("platform_role", [None, "super_admin"])
+def test_non_active_device_invalidates_authentication_even_for_ordinary_permissions(
+    context, device_status, platform_role,
+):
+    context.device.status = device_status
+    context.user.platform_role = platform_role
+    context.db.commit()
+    assert get_optional_principal(request(), context.db) is None
+    expect_status(context, 401)
 
 
 def test_headers_cannot_supply_or_override_identity_device_tenant_or_permissions(context):
@@ -238,6 +246,32 @@ def test_last_seen_persists_at_most_once_per_five_minutes(context, age_seconds, 
         stored = independent.get(AuthSession, "session").last_seen_at
     expected = NOW if updated else previous
     assert stored == expected.replace(tzinfo=None)
+
+
+def test_heartbeat_persists_without_committing_or_flushing_callers_business_changes(context):
+    channel = Channel(id="channel", youtube_channel_id="UC-test", original_name="Original")
+    context.db.add(channel)
+    context.auth_session.last_seen_at = NOW - timedelta(minutes=10)
+    context.db.commit()
+    channel.original_name = "Uncommitted change"
+
+    get_current_principal(request(), context.db)
+    context.db.rollback()
+
+    with Session(context.engine) as independent:
+        assert independent.get(Channel, "channel").original_name == "Original"
+        assert independent.get(AuthSession, "session").last_seen_at == NOW.replace(tzinfo=None)
+
+
+def test_authentication_queries_do_not_autoflush_callers_pending_changes(context):
+    channel = Channel(id="channel", youtube_channel_id="UC-test", original_name="Original")
+    context.db.add(channel)
+    context.db.commit()
+    channel.original_name = "Uncommitted change"
+
+    get_current_principal(request(), context.db)
+
+    assert channel in context.db.dirty
 
 
 def test_dependencies_work_through_fastapi_and_cookie_auth(context):

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
@@ -39,6 +39,12 @@ def _utc(value: datetime) -> datetime:
 def get_optional_principal(
     request: Request, session: Session = Depends(get_db),
 ) -> Principal | None:
+    # Authentication reads must not flush business changes pending in the caller.
+    with session.no_autoflush:
+        return _resolve_principal(request, session)
+
+
+def _resolve_principal(request: Request, session: Session) -> Principal | None:
     token = request.cookies.get("zhiju_session")
     if not token:
         return None
@@ -55,6 +61,10 @@ def get_optional_principal(
     if user is None or user.status != "active":
         return None
     if user.lease_expires_at is not None and _utc(user.lease_expires_at) <= now:
+        return None
+
+    device = session.get(Device, auth_session.device_id) if auth_session.device_id else None
+    if auth_session.device_id is not None and (device is None or device.status != "active"):
         return None
 
     membership_role = None
@@ -80,19 +90,22 @@ def get_optional_principal(
         .join(RolePermission, RolePermission.permission_id == Permission.id)
         .where(RolePermission.role_code.in_(roles))
     ))
-    device = session.get(Device, auth_session.device_id) if auth_session.device_id else None
     principal = Principal(
         user_id=user.id,
         tenant_id=auth_session.tenant_id,
         membership_role=membership_role,
         platform_role=user.platform_role,
         device_id=device.id if device else None,
-        device_trust_level=device.trust_level if device and device.status == "active" else "normal",
+        device_trust_level=device.trust_level if device else "normal",
         permissions=permissions,
     )
     if _utc(auth_session.last_seen_at) <= now - timedelta(minutes=5):
-        auth_session.last_seen_at = now
-        session.commit()
+        # Own a short transaction; never commit the caller's unit of work.
+        with session.get_bind().engine.begin() as connection:
+            connection.execute(update(AuthSession).where(
+                AuthSession.id == auth_session.id,
+                AuthSession.last_seen_at <= now - timedelta(minutes=5),
+            ).values(last_seen_at=now))
     return principal
 
 
