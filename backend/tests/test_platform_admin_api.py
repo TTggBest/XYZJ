@@ -94,6 +94,26 @@ def act_as(admin, user_id):
     admin.client.cookies.set("zhiju_session", f"token-{user_id}")
 
 
+def seed_successor_access(admin):
+    now = datetime.now(timezone.utc)
+    with Session(admin.engine) as db:
+        db.add(Device(id="successor-device", device_key="successor-device", hostname="successor-device",
+                      name="Successor Device", os_type="macos", trust_level="super_code_machine"))
+        db.flush()
+        db.add(DeviceUserBinding(
+            id="successor-binding", device_id="successor-device", user_id="candidate", tenant_id="tenant",
+            status="active", auto_login_enabled=True, credential_digest=digest_token("successor-device-secret"),
+            bound_by_user_id="super", bound_at=now,
+        ))
+        db.flush()
+        db.add(AuthSession(
+            id="session-candidate", user_id="candidate", tenant_id=None, device_id="successor-device",
+            binding_id="successor-binding", token_digest=digest_token("token-candidate"),
+            status="active", created_at=now, last_seen_at=now, expires_at=now + timedelta(hours=8),
+        ))
+        db.commit()
+
+
 def user_payload(**changes):
     return {"display_name": "New User", "login_name": "new-user", "password": PASSWORD,
             "role_code": "operator", **changes}
@@ -360,6 +380,9 @@ def test_administration_write_rejects_missing_or_wrong_origin(admin, origin):
 
 @pytest.mark.parametrize("operation", ["create", "owner", "password", "super"])
 def test_audit_failure_rolls_back_entire_admin_transaction_including_stale_heartbeat(admin, operation):
+    if operation == "super":
+        seed_successor_access(admin)
+
     def reject_audit(mapper, connection, target):
         raise RuntimeError("test audit unavailable")
 
@@ -391,10 +414,9 @@ def test_audit_failure_rolls_back_entire_admin_transaction_including_stale_heart
     assert events(admin) == []
 
 
-@pytest.mark.parametrize("new_account", [False, True])
-def test_super_admin_transfer_is_atomic_unique_and_revokes_previous_super_sessions(admin, new_account):
-    payload = {"new_user": {"display_name": "Successor", "login_name": "successor", "password": PASSWORD}} if new_account else {"user_id": "candidate"}
-    response = admin.client.post(SUPER_ADMIN, json=payload)
+def test_super_admin_transfer_is_atomic_unique_and_revokes_previous_super_sessions(admin):
+    seed_successor_access(admin)
+    response = admin.client.post(SUPER_ADMIN, json={"user_id": "candidate"})
     assert response.status_code == 200
     target_id = response.json()["id"]
     with Session(admin.engine) as db:
@@ -405,6 +427,66 @@ def test_super_admin_transfer_is_atomic_unique_and_revokes_previous_super_sessio
     assert_actor(events(admin)[0], "super_admin_transfer", target_id, tenant_id=None)
     assert PASSWORD not in response.text and "password_hash" not in response.text
     assert admin.client.get(TENANTS).status_code == 401
+    act_as(admin, "candidate")
+    assert admin.client.get(TENANTS).status_code == 200
+
+
+@pytest.mark.parametrize("unavailable", [
+    "missing_session", "missing_binding", "revoked_session", "expired_session",
+    "revoked_binding", "suspended_binding", "auto_login_disabled", "expired_binding",
+    "normal_device", "inactive_device", "wrong_device", "wrong_user", "inactive_session_tenant",
+])
+def test_super_admin_transfer_refuses_successor_without_usable_trusted_session(admin, unavailable):
+    if unavailable != "missing_session":
+        seed_successor_access(admin)
+        with Session(admin.engine) as db:
+            auth_session = db.get(AuthSession, "session-candidate")
+            binding = db.get(DeviceUserBinding, "successor-binding")
+            device = db.get(Device, "successor-device")
+            if unavailable == "missing_binding":
+                auth_session.binding_id = None
+            elif unavailable == "revoked_session":
+                auth_session.status = "revoked"
+            elif unavailable == "expired_session":
+                auth_session.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            elif unavailable == "revoked_binding":
+                binding.status = "revoked"
+            elif unavailable == "suspended_binding":
+                binding.status = "suspended"
+            elif unavailable == "auto_login_disabled":
+                binding.auto_login_enabled = False
+            elif unavailable == "expired_binding":
+                binding.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            elif unavailable == "normal_device":
+                device.trust_level = "normal"
+            elif unavailable == "inactive_device":
+                device.status = "inactive"
+            elif unavailable == "wrong_device":
+                auth_session.device_id = "super-device"
+            elif unavailable == "wrong_user":
+                binding.user_id = "owner"
+            else:
+                auth_session.tenant_id = "other-tenant"
+                db.get(Tenant, "other-tenant").status = "suspended"
+            db.commit()
+    response = admin.client.post(SUPER_ADMIN, json={"user_id": "candidate"})
+    assert response.status_code == 409 and events(admin) == []
+    with Session(admin.engine) as db:
+        assert db.get(AppUser, "super").platform_role == "super_admin"
+        assert db.get(AppUser, "candidate").platform_role is None
+        assert db.get(AuthSession, "session-super").status == "active"
+    assert admin.client.get(TENANTS).status_code == 200
+
+
+def test_super_admin_transfer_refuses_new_account_without_creating_it_or_revoking_actor(admin):
+    response = admin.client.post(SUPER_ADMIN, json={"new_user": {
+        "display_name": "Successor", "login_name": "successor", "password": PASSWORD,
+    }})
+    assert response.status_code == 409 and events(admin) == []
+    with Session(admin.engine) as db:
+        assert db.scalar(select(AppUser).where(AppUser.login_name == "successor")) is None
+        assert db.get(AppUser, "super").platform_role == "super_admin"
+        assert db.get(AuthSession, "session-super").status == "active"
 
 
 @pytest.mark.parametrize("payload,want", [
@@ -571,3 +653,60 @@ def test_auth_administration_does_not_broadcast_to_global_business_sse(admin, mo
     monkeypatch.setattr("zhiju.app.publish_change_event", unexpected_broadcast)
     response = admin.client.post(TENANTS, json=tenant_payload())
     assert response.status_code == 201
+
+
+@pytest.mark.parametrize("offset_hours", [8, -7])
+@pytest.mark.parametrize("target", ["tenant_create", "owner_create", "user_create",
+                                    "tenant_patch", "user_patch", "binding_create"])
+def test_offset_leases_preserve_utc_instant_through_storage_and_api_round_trip(admin, offset_hours, target):
+    expected = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0)
+    supplied = expected.astimezone(timezone(timedelta(hours=offset_hours))).isoformat()
+    if target == "tenant_create":
+        response = admin.client.post(TENANTS, json=tenant_payload(lease_expires_at=supplied))
+        assert response.status_code == 201
+        identity, model, field, list_path = response.json()["id"], Tenant, "lease_expires_at", TENANTS
+    elif target == "owner_create":
+        payload = tenant_payload()
+        payload["owner"]["lease_expires_at"] = supplied
+        response = admin.client.post(TENANTS, json=payload)
+        assert response.status_code == 201
+        list_path = f"{TENANTS}/{response.json()['id']}/users"
+        response = admin.client.get(list_path)
+        assert response.status_code == 200
+        identity, model, field = response.json()[0]["id"], AppUser, "lease_expires_at"
+    elif target == "user_create":
+        response = admin.client.post(USERS, json=user_payload(lease_expires_at=supplied))
+        assert response.status_code == 201
+        identity, model, field, list_path = response.json()["id"], AppUser, "lease_expires_at", USERS
+    elif target == "tenant_patch":
+        response = admin.client.patch(f"{TENANTS}/other-tenant", json={"lease_expires_at": supplied})
+        assert response.status_code == 200
+        identity, model, field, list_path = "other-tenant", Tenant, "lease_expires_at", TENANTS
+    elif target == "user_patch":
+        response = admin.client.patch(f"{USERS}/staff", json={"lease_expires_at": supplied})
+        assert response.status_code == 200
+        identity, model, field, list_path = "staff", AppUser, "lease_expires_at", USERS
+    else:
+        binding = enroll(admin, lambda metadata, secret: None, expires_at=supplied)
+        identity, model, field, list_path = binding.id, DeviceUserBinding, "expires_at", BINDINGS
+    with Session(admin.engine) as db:
+        assert utc(getattr(db.get(model, identity), field)) == expected
+    listing = admin.client.get(list_path)
+    assert listing.status_code == 200
+    actual = next(item for item in listing.json() if item["id"] == identity)[field]
+    returned_instant = datetime.fromisoformat(actual)
+    assert returned_instant.utcoffset() == timedelta(0)
+    assert returned_instant == expected
+
+
+@pytest.mark.parametrize("target", ["tenant", "user"])
+@pytest.mark.parametrize("offset_hours,expires_in_hours,want", [(8, -1, 401), (-7, 1, 200)])
+def test_offset_lease_enforces_real_expiration_after_patch_and_new_login(admin, target,
+                                                                      offset_hours, expires_in_hours, want):
+    expires = datetime.now(timezone.utc) + timedelta(hours=expires_in_hours)
+    supplied = expires.astimezone(timezone(timedelta(hours=offset_hours))).isoformat()
+    path, login_name = (f"{TENANTS}/other-tenant", "other-owner") if target == "tenant" else (f"{USERS}/staff", "staff")
+    response = admin.client.patch(path, json={"lease_expires_at": supplied})
+    assert response.status_code == 200
+    response = admin.client.post("/api/v3/auth/login", json={"login_name": login_name, "password": PASSWORD})
+    assert response.status_code == want

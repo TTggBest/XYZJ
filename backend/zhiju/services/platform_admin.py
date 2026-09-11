@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import json
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from zhiju.auth_context import Principal, _utc
@@ -254,16 +254,30 @@ def transfer_super_admin(session: Session, principal: Principal, payload: SuperA
         raise HTTPException(status_code=409, detail="平台必须存在唯一的当前超级管理员")
     previous = supers[0]
     if payload.new_user is not None:
-        successor = _new_account(session, principal, payload.new_user)
-    else:
-        successor = session.scalar(select(AppUser).where(AppUser.id == payload.user_id).with_for_update())
-        if successor is None:
-            raise HTTPException(status_code=404, detail="目标用户不存在")
+        raise HTTPException(status_code=409, detail="新账号尚无可用的超级代码机会话，不能转交超级管理员")
+    successor = session.scalar(select(AppUser).where(AppUser.id == payload.user_id).with_for_update())
+    if successor is None:
+        raise HTTPException(status_code=404, detail="目标用户不存在")
     if successor.id == previous.id or session.scalar(select(TenantMembership.id).where(
         TenantMembership.user_id == successor.id,
     ).limit(1)):
         raise HTTPException(status_code=409, detail="新超级管理员必须是另一个独立于主账号的用户")
     _active_account(successor, label="目标用户")
+    now = datetime.now(timezone.utc)
+    usable_session_id = session.scalar(select(AuthSession.id).join(
+        DeviceUserBinding, DeviceUserBinding.id == AuthSession.binding_id,
+    ).join(Device, Device.id == AuthSession.device_id).outerjoin(
+        Tenant, Tenant.id == AuthSession.tenant_id,
+    ).where(
+        AuthSession.user_id == successor.id, AuthSession.status == "active", AuthSession.expires_at > now,
+        DeviceUserBinding.user_id == successor.id, DeviceUserBinding.device_id == Device.id,
+        DeviceUserBinding.status == "active", DeviceUserBinding.auto_login_enabled.is_(True),
+        or_(DeviceUserBinding.expires_at.is_(None), DeviceUserBinding.expires_at > now),
+        Device.status == "active", Device.trust_level == "super_code_machine",
+        or_(AuthSession.tenant_id.is_(None), and_(Tenant.status == "active", Tenant.lease_expires_at > now)),
+    ).limit(1).with_for_update())
+    if usable_session_id is None:
+        raise HTTPException(status_code=409, detail="目标用户尚无可用的超级代码机绑定会话，不能转交超级管理员")
     previous.platform_role = None
     successor.platform_role = "super_admin"
     _revoke_sessions(session, AuthSession.user_id == previous.id, reason="super_admin_transfer")

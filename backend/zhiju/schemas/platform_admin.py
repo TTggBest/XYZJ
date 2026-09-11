@@ -1,13 +1,17 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, StringConstraints, model_validator
+
+from zhiju.auth_context import _utc
 
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 EntityId = Annotated[str, StringConstraints(min_length=1, max_length=36)]
 AccountStatus = Literal["active", "suspended"]
 ManagedRole = Literal["admin", "operator", "viewer"]
+UtcInputTime = Annotated[AwareDatetime, AfterValidator(_utc)]
+UtcStoredTime = Annotated[datetime, AfterValidator(_utc)]
 
 
 class AdminInput(BaseModel):
@@ -18,13 +22,13 @@ class NewAccount(AdminInput):
     display_name: Name
     login_name: Name
     password: SecretStr = Field(min_length=1, max_length=1024)
-    lease_expires_at: AwareDatetime | None = None
+    lease_expires_at: UtcInputTime | None = None
 
 
 class TenantCreate(AdminInput):
     company_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
     short_name: Name
-    lease_expires_at: AwareDatetime
+    lease_expires_at: UtcInputTime
     owner: NewAccount
     status: AccountStatus = "active"
     plan_code: str | None = Field(default=None, max_length=60)
@@ -37,7 +41,7 @@ class TenantUpdate(AdminInput):
     company_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)] | None = None
     short_name: Name | None = None
     status: AccountStatus | None = None
-    lease_expires_at: AwareDatetime | None = None
+    lease_expires_at: UtcInputTime | None = None
     plan_code: str | None = Field(default=None, max_length=60)
     contact_name: str | None = Field(default=None, max_length=120)
     contact_phone: str | None = Field(default=None, max_length=40)
@@ -59,7 +63,7 @@ class TenantView(BaseModel):
     company_name: str
     short_name: str
     status: str
-    lease_expires_at: datetime
+    lease_expires_at: UtcStoredTime
     plan_code: str | None
     contact_name: str | None
     contact_phone: str | None
@@ -82,7 +86,7 @@ class UserUpdate(AdminInput):
     display_name: Name | None = None
     login_name: Name | None = None
     status: AccountStatus | None = None
-    lease_expires_at: AwareDatetime | None = None
+    lease_expires_at: UtcInputTime | None = None
     suspended_reason: str | None = Field(default=None, max_length=500)
     role_code: ManagedRole | None = None
     membership_status: AccountStatus | None = None
@@ -107,7 +111,7 @@ class AccountView(BaseModel):
     login_name: str
     status: str
     platform_role: str | None
-    lease_expires_at: datetime | None
+    lease_expires_at: UtcStoredTime | None
 
 
 class UserView(AccountView):
@@ -132,7 +136,7 @@ class DeviceBindingCreate(AdminInput):
     user_id: EntityId
     tenant_id: EntityId
     is_default: bool = False
-    expires_at: AwareDatetime | None = None
+    expires_at: UtcInputTime | None = None
 
 
 class DeviceBindingView(BaseModel):
@@ -145,7 +149,7 @@ class DeviceBindingView(BaseModel):
     is_default: bool
     auto_login_enabled: bool
     status: str
-    expires_at: datetime | None
+    expires_at: UtcStoredTime | None
     bound_by_user_id: str
     bound_at: datetime
     revoked_at: datetime | None
