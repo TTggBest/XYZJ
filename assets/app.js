@@ -533,8 +533,9 @@
   async function showWorkorders() {
     const tasks = await api(`/tasks/overview${query({ task_date: state.date })}`); state.tasks = tasks;
     const rows = tasks.map((item, index) => `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${item.community_count}</td><td>${tag(item.work_order_status || item.task_status)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${item.task_status === "pending_dispatch" ? `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${item.task_id}">${icon("play")} 开始生产</button>` : item.work_order_id ? `<button class="button button-secondary button-small" data-action="work-detail" data-id="${item.work_order_id}">查看进度</button>` : ""}</div></td></tr>`);
-    const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button><span class="stat-line">${tasks.length} 条工单</span></div>`;
-    root.innerHTML = `<div class="page-stack">${section("工单列表", "罗列需要生产运营包的剧目，并显示搜索、标题、封面、说明、社群、合成进度", rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
+    const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button></div>`;
+    const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks);
+    root.innerHTML = `<div class="page-stack">${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
   async function workDetail(id) {
     const detail = await api(`/work-orders/${id}`);
@@ -677,12 +678,9 @@
   }
   async function showPackages() {
     state.copyValues.clear();
-    const [items, workorders] = await Promise.all([
-      api(`/packages/operations-overview${query({ production_date: state.date })}`),
-      api(`/work-orders${query({ production_date: state.date })}`),
-    ]);
+    const { items, workOrderTotal } = await window.ZhijuOperationsPageData.loadPackagePageData(api, state.date);
     state.packageItems = items;
-    state.packageWorkOrderTotal = workorders.length;
+    state.packageWorkOrderTotal = workOrderTotal;
     resetPackageInspection();
     const channels = [...new Map(items.map(item => [item.channel_id, item.channel_name])).entries()];
     const filtered = filteredPackageItems();

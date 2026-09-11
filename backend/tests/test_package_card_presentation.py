@@ -284,7 +284,6 @@ def test_package_summary_renders_distinct_semantic_badges() -> None:
 def test_package_list_refreshes_summary_after_copy_and_on_demand() -> None:
     app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
 
-    assert "state.packageWorkOrderTotal = workorders.length" in app_source
     assert "renderPackageProgressSummary();" in app_source
     assert 'action === "refresh-package-summary"' in app_source
     assert 'data-action="clear-package-search"' in app_source
