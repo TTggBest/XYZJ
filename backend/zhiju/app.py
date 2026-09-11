@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from zhiju import __version__
 from zhiju.api.auth import router as auth_router
+from zhiju.api.platform_admin import router as platform_admin_router, tenant_router as tenant_users_router
 from zhiju.api.health import router as health_router
 from zhiju.api.settings import router as settings_router
 from zhiju.api.history import router as history_router
@@ -36,9 +37,13 @@ def create_app() -> FastAPI:
     async def handle_validation_error(request, exc):
         if request.url.path == "/api/v3/auth/login":
             return JSONResponse(status_code=422, content={"detail": "登录信息格式不正确"})
+        if request.url.path.startswith(("/api/v3/platform/", "/api/v3/tenant/users")):
+            return JSONResponse(status_code=422, content={"detail": "账号管理信息格式不正确"})
         return await request_validation_exception_handler(request, exc)
 
     app.include_router(auth_router, prefix="/api")
+    app.include_router(platform_admin_router, prefix="/api")
+    app.include_router(tenant_users_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     app.include_router(history_router, prefix="/api")
@@ -64,7 +69,7 @@ def create_app() -> FastAPI:
         is_business_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}
             and request.url.path.startswith("/api/v3/")
-            and not request.url.path.startswith("/api/v3/auth/")
+            and not request.url.path.startswith(("/api/v3/auth/", "/api/v3/platform/", "/api/v3/tenant/users"))
             and request.url.path not in {
                 "/api/v3/events/publish",
                 "/api/v3/settings/runtime/environment",
