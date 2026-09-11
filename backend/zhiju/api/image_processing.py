@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
@@ -6,6 +6,7 @@ from zhiju.schemas.image_processing import (
     ChannelLogoProfileRead,
     ImageAssetReconcileRead,
     ImageProcessingBatchRead,
+    ImageProcessingRunPageRead,
     ImageProcessingRunRead,
     ImageWorkspaceRead,
     ImageWorkspaceWrite,
@@ -20,6 +21,7 @@ from zhiju.services.image_processing import (
     list_batch_media_coverage,
     list_channel_logo_profiles,
     list_processing_batches,
+    list_processing_run_page,
     list_processing_runs,
     reconcile_processing_assets,
     reveal_media_asset_folder,
@@ -98,6 +100,21 @@ def get_batch_asset_coverage(
 @router.get("/image-processing/runs", response_model=list[ImageProcessingRunRead])
 def get_image_processing_runs(session: Session = Depends(get_db)) -> list[ImageProcessingRunRead]:
     return list_processing_runs(session)
+
+
+@router.get("/image-processing/runs/history", response_model=ImageProcessingRunPageRead)
+def get_image_processing_run_history(
+    batch_id: str | None = None,
+    limit: int = Query(default=10, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    session: Session = Depends(get_db),
+) -> ImageProcessingRunPageRead:
+    return list_processing_run_page(
+        session,
+        batch_id=batch_id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/image-processing/import", response_model=ImageProcessingRunRead, status_code=201)

@@ -615,11 +615,14 @@ def import_images(
     batch_id: str,
     uploads: list[tuple[str, bytes]],
 ) -> ImageProcessingRunRead:
+    if not uploads:
+        raise ValueError("请选择要导入的图片")
+    uploads = filter_image_uploads(uploads)
+    if not uploads:
+        raise ValueError("没有可导入的图片")
     batch = session.get(ProductionBatch, batch_id)
     if batch is None:
         raise ValueError("生产批次不存在")
-    if not uploads:
-        raise ValueError("请选择要导入的图片")
     setting = _workspace_setting(session)
     root, _, output = _ensure_workspace(setting)
     contexts = _package_contexts(session, batch.id)
@@ -1002,3 +1005,31 @@ def get_processing_run(session: Session, run_id: str) -> ImageProcessingRunRead:
 def list_processing_runs(session: Session, limit: int = 30) -> list[ImageProcessingRunRead]:
     run_ids = session.scalars(select(ImageProcessingRun.id).order_by(ImageProcessingRun.created_at.desc()).limit(limit)).all()
     return [get_processing_run(session, run_id) for run_id in run_ids]
+
+
+def filter_image_uploads(uploads: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    return [upload for upload in uploads if Path(upload[0]).name != ".DS_Store"]
+
+
+def list_processing_run_page(
+    session: Session,
+    *,
+    batch_id: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
+) -> dict[str, object]:
+    filters = [ImageProcessingRun.batch_id == batch_id] if batch_id else []
+    total = session.scalar(
+        select(func.count()).select_from(ImageProcessingRun).where(*filters)
+    ) or 0
+    run_ids = session.scalars(
+        select(ImageProcessingRun.id)
+        .where(*filters)
+        .order_by(ImageProcessingRun.created_at.desc(), ImageProcessingRun.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return {
+        "total": total,
+        "items": [get_processing_run(session, run_id) for run_id in run_ids],
+    }

@@ -75,6 +75,11 @@ class ImageProcessingRunRead(BaseModel):
     items: list[ImageProcessingItemRead]
 
 
+class ImageProcessingRunPageRead(BaseModel):
+    total: int
+    items: list[ImageProcessingRunRead]
+
+
 class ImageAssetReconcileRead(BaseModel):
     scanned_items: int
     registered_assets: int

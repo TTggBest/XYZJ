@@ -1,11 +1,12 @@
 from hashlib import sha256
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 import subprocess
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw
 
@@ -38,6 +39,7 @@ def test_image_processing_routes_are_registered() -> None:
     assert "get" in paths["/api/v3/image-processing/batches/{batch_id}/asset-coverage"]
     assert "post" in paths["/api/v3/image-processing/import"]
     assert "get" in paths["/api/v3/image-processing/runs"]
+    assert "get" in paths["/api/v3/image-processing/runs/history"]
     assert "post" in paths["/api/v3/image-processing/runs/{run_id}/generate-logo"]
     assert "post" in paths["/api/v3/image-processing/assets/reconcile"]
     assert "get" in paths["/api/v3/media-assets/{asset_id}/content"]
@@ -45,6 +47,80 @@ def test_image_processing_routes_are_registered() -> None:
     assert "get" in paths["/api/v3/media-assets/contexts"]
     assert "post" in paths["/api/v3/media-assets/{asset_id}/reveal"]
     assert client.get("/api/v3/channels/logo-profiles").status_code == 200
+
+
+def test_processing_run_history_is_counted_and_paged_within_the_selected_batch() -> None:
+    suffix = uuid4().hex[:10]
+    connection = database_router.get_active_engine().connect()
+    transaction = connection.begin()
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    try:
+        batch = models.ProductionBatch(
+            batch_number=f"FS-HISTORY-{suffix}",
+            production_date=date(2026, 9, 11),
+            source="native",
+            status="active",
+        )
+        other_batch = models.ProductionBatch(
+            batch_number=f"FS-HISTORY-OTHER-{suffix}",
+            production_date=date(2026, 9, 12),
+            source="native",
+            status="active",
+        )
+        session.add_all([batch, other_batch])
+        session.flush()
+        base_time = datetime(2026, 9, 11, tzinfo=timezone.utc)
+        runs = [
+            models.ImageProcessingRun(
+                batch_id=batch.id,
+                status="classified",
+                total_files=index,
+                created_at=base_time + timedelta(minutes=index),
+            )
+            for index in range(25)
+        ]
+        session.add_all(runs)
+        session.add(models.ImageProcessingRun(
+            batch_id=other_batch.id,
+            status="classified",
+            total_files=999,
+            created_at=base_time + timedelta(days=1),
+        ))
+        session.commit()
+
+        page = image_processing.list_processing_run_page(
+            session,
+            batch_id=batch.id,
+            limit=10,
+            offset=10,
+        )
+
+        assert page["total"] == 25
+        assert [item.total_files for item in page["items"]] == list(range(14, 4, -1))
+    finally:
+        session.close()
+        transaction.rollback()
+        connection.close()
+
+
+def test_ds_store_uploads_are_ignored_before_import_counting() -> None:
+    uploads = [
+        (".DS_Store", b"metadata"),
+        ("folder/.DS_Store", b"nested metadata"),
+        ("video1231.png", b"image"),
+    ]
+
+    assert image_processing.filter_image_uploads(uploads) == [("video1231.png", b"image")]
+
+
+def test_import_rejects_a_selection_containing_only_ds_store_without_writing() -> None:
+    session = Mock()
+
+    with pytest.raises(ValueError, match="没有可导入的图片"):
+        image_processing.import_images(session, "batch-id", [(".DS_Store", b"metadata")])
+
+    session.add.assert_not_called()
+    session.commit.assert_not_called()
 
 
 def test_media_asset_contexts_return_only_packages_with_images_and_small_fields() -> None:
@@ -568,7 +644,9 @@ def test_media_page_shows_batch_coverage_video_id_and_missing_image_navigation()
     assert 'data-action="open-missing-prompts"' in source
     assert 'id="mediaStatusFilter"' in source
     assert "nextIncompleteGroup" in source
-    assert "run.batch_id === state.mediaBatchId" in source
+    assert "batchId: state.mediaBatchId" in source
+    assert 'data-action="toggle-media-run-history"' in source
+    assert 'data-action="media-run-history-page"' in source
     assert ".media-gallery-group.is-complete" in styles
     assert ".media-gallery-group.is-incomplete" in styles
     assert ".media-assets-fixed-panel { position: sticky; top: 78px;" in styles
