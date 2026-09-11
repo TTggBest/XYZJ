@@ -1,6 +1,9 @@
+from io import StringIO
 from pathlib import Path
 
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from sqlalchemy import CheckConstraint, UniqueConstraint
 
@@ -68,6 +71,7 @@ AUTH_TABLE_COLUMNS = {
         "user_id",
         "tenant_id",
         "device_id",
+        "binding_id",
         "token_digest",
         "status",
         "expires_at",
@@ -142,6 +146,14 @@ def test_password_and_secret_columns_are_digest_only() -> None:
     assert "token_digest" in Base.metadata.tables["auth_sessions"].c
     assert "credential_digest" in Base.metadata.tables["device_user_bindings"].c
     assert "password" not in Base.metadata.tables["app_users"].c
+
+
+def test_auth_sessions_keep_nullable_origin_binding_reference() -> None:
+    column = Base.metadata.tables["auth_sessions"].c["binding_id"]
+    assert column.nullable is True
+    assert {(fk.target_fullname, fk.ondelete) for fk in column.foreign_keys} == {
+        ("device_user_bindings.id", "SET NULL"),
+    }
 
 
 def test_auth_role_status_and_device_trust_values_are_constrained() -> None:
@@ -246,3 +258,28 @@ def test_tenant_auth_migration_is_additive_and_follows_current_head() -> None:
         "create_index",
         "create_table",
     }
+
+
+def test_auth_migration_emits_binding_reference_in_valid_mysql_creation_and_drop_order(monkeypatch):
+    config = Config(ROOT / "alembic.ini")
+    config.set_main_option("script_location", str(ROOT / "backend" / "alembic"))
+    revision = ScriptDirectory.from_config(config).get_revision("a9c4e7b2d613")
+    sql = StringIO()
+    context = MigrationContext.configure(dialect_name="mysql", opts={"as_sql": True, "output_buffer": sql})
+    monkeypatch.setattr(revision.module, "op", Operations(context))
+
+    revision.module.upgrade()
+
+    upgrade_sql = sql.getvalue()
+    assert upgrade_sql.index("CREATE TABLE device_user_bindings") < upgrade_sql.index("CREATE TABLE auth_sessions")
+    session_sql = upgrade_sql.split("CREATE TABLE auth_sessions", 1)[1].split(";", 1)[0]
+    assert "binding_id VARCHAR(36)" in session_sql
+    assert "binding_id VARCHAR(36) NOT NULL" not in session_sql
+    assert "FOREIGN KEY(binding_id) REFERENCES device_user_bindings (id) ON DELETE SET NULL" in session_sql
+
+    sql.seek(0)
+    sql.truncate()
+    revision.module.downgrade()
+    downgrade_sql = sql.getvalue()
+    assert downgrade_sql.index("DROP TABLE auth_events") < downgrade_sql.index("DROP TABLE auth_sessions")
+    assert downgrade_sql.index("DROP TABLE auth_sessions") < downgrade_sql.index("DROP TABLE device_user_bindings")

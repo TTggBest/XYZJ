@@ -1,7 +1,9 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from zhiju import __version__
@@ -29,6 +31,13 @@ from zhiju.realtime import build_change_event, publish_change_event
 def create_app() -> FastAPI:
     frontend_root = Path(__file__).resolve().parents[2]
     app = FastAPI(title="筱宇智矩 API", version=__version__)
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(request, exc):
+        if request.url.path == "/api/v3/auth/login":
+            return JSONResponse(status_code=422, content={"detail": "登录信息格式不正确"})
+        return await request_validation_exception_handler(request, exc)
+
     app.include_router(auth_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")

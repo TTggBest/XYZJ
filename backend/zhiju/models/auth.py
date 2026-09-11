@@ -162,6 +162,10 @@ class AuthSession(IdMixin, Base):
     device_id: Mapped[str | None] = mapped_column(
         ForeignKey("devices.id", ondelete="SET NULL"), comment="当前设备ID"
     )
+    binding_id: Mapped[str | None] = mapped_column(
+        ForeignKey("device_user_bindings.id", ondelete="SET NULL"),
+        comment="设备免登录创建时设置的原始绑定ID，租户切换不改变",
+    )
     token_digest: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True, comment="高熵会话令牌SHA-256摘要"
     )

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from argon2 import PasswordHasher, extract_parameters
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
@@ -92,17 +93,18 @@ def seed_sessions(auth, *, super_admin=False, age_minutes=0):
         if super_admin:
             db.get(AppUser, "user").platform_role = "super_admin"
             db.delete(db.get(TenantMembership, "membership"))
-        for session_id, token in [("current", CURRENT_TOKEN), ("other", OTHER_TOKEN)]:
-            db.add(AuthSession(
-                id=session_id, user_id="user", tenant_id="tenant", device_id="device",
-                token_digest=digest_token(token), created_at=now,
-                last_seen_at=now - timedelta(minutes=age_minutes),
-                expires_at=now + timedelta(hours=8),
-            ))
         for binding_id, tenant_id in [("binding", "tenant"), ("other-binding", "other-tenant")]:
             db.add(DeviceUserBinding(
                 id=binding_id, device_id="device", user_id="user", tenant_id=tenant_id,
                 credential_digest=digest_token(binding_id), bound_by_user_id="user", bound_at=now,
+            ))
+        db.flush()
+        for session_id, token in [("current", CURRENT_TOKEN), ("other", OTHER_TOKEN)]:
+            db.add(AuthSession(
+                id=session_id, user_id="user", tenant_id="tenant", device_id="device", binding_id="binding",
+                token_digest=digest_token(token), created_at=now,
+                last_seen_at=now - timedelta(minutes=age_minutes),
+                expires_at=now + timedelta(hours=8),
             ))
         db.commit()
     auth.client.cookies.set("zhiju_session", CURRENT_TOKEN)
@@ -168,6 +170,42 @@ def test_unknown_account_and_wrong_password_return_identical_login_failure(auth)
         assert [(item.event_type, item.result) for item in audits] == [("login", "failure")] * 2
         assert {item.actor_user_id for item in audits} == {None, "user"}
         assert "wrong password" not in str([item.__dict__ for item in audits])
+
+
+@pytest.mark.parametrize("payload", [
+    {"password": "request-password-marker"},
+    {"login_name": "", "password": "request-password-marker"},
+    {"login_name": "owner", "password": ["request-password-marker"]},
+    [{"login_name": "owner", "password": "request-password-marker"}],
+])
+def test_login_validation_errors_never_echo_password_or_raw_input(auth, payload):
+    response = auth.client.post(LOGIN, json=payload)
+    assert response.status_code == 422
+    assert "request-password-marker" not in response.text
+    assert '"input"' not in response.text
+    with Session(auth.engine) as db:
+        assert list(db.scalars(select(AuthSession))) == []
+        assert list(db.scalars(select(AuthEvent))) == []
+
+
+def test_unknown_account_runs_fixed_argon_verification_with_normal_password_cost(auth, monkeypatch):
+    verified_hashes = []
+    real_verify = PasswordHasher.verify
+
+    def observe_real_verification(hasher, encoded, password, **kwargs):
+        verified_hashes.append(encoded)
+        return real_verify(hasher, encoded, password, **kwargs)
+
+    monkeypatch.setattr(PasswordHasher, "verify", observe_real_verification)
+    wrong = login(auth, password="wrong-password")
+    assert wrong.status_code == 401 and len(verified_hashes) == 1
+    user_hash = verified_hashes.pop()
+    for _ in range(2):
+        unknown = login(auth, login_name="missing", password="wrong-password")
+        assert unknown.status_code == 401 and unknown.json() == wrong.json()
+    assert len(verified_hashes) == 2
+    assert verified_hashes[0] == verified_hashes[1] != user_hash
+    assert extract_parameters(verified_hashes[0]) == extract_parameters(user_hash)
 
 
 def test_five_failures_lock_account_for_fifteen_minutes_without_extending_lock(auth):
@@ -340,6 +378,52 @@ def test_logout_can_clear_an_inactive_users_session(auth):
     assert auth.client.post(LOGOUT).status_code == 200
     with Session(auth.engine) as db:
         assert db.get(AuthSession, "current").status == "revoked"
+
+
+def test_logout_after_tenant_switch_pauses_only_the_origin_binding(auth):
+    seed_sessions(auth, super_admin=True)
+    assert auth.client.post(SWITCH, json={"tenant_id": "other-tenant"}).status_code == 200
+    with Session(auth.engine) as db:
+        current = db.get(AuthSession, "current")
+        assert current.tenant_id == "other-tenant" and current.binding_id == "binding"
+    assert auth.client.post(LOGOUT).status_code == 200
+    with Session(auth.engine) as db:
+        assert db.get(DeviceUserBinding, "binding").auto_login_enabled is False
+        assert db.get(DeviceUserBinding, "other-binding").auto_login_enabled is True
+        assert db.get(AuthSession, "current").status == "revoked"
+        assert db.get(AuthSession, "other").status == "active"
+
+
+def test_logout_of_revoked_session_still_pauses_binding_and_records_logout(auth):
+    seed_sessions(auth)
+    revoked_at = datetime.now(timezone.utc) - timedelta(minutes=3)
+    with Session(auth.engine) as db:
+        current = db.get(AuthSession, "current")
+        current.status = "revoked"
+        current.revoked_at = revoked_at
+        current.revoke_reason = "password_reset"
+        db.commit()
+    response = auth.client.post(LOGOUT)
+    assert response.status_code == 200 and "max-age=0" in response.headers["set-cookie"].lower()
+    with Session(auth.engine) as db:
+        current = db.get(AuthSession, "current")
+        assert current.status == "revoked" and utc(current.revoked_at) == revoked_at
+        assert current.revoke_reason == "password_reset"
+        assert db.get(DeviceUserBinding, "binding").auto_login_enabled is False
+        audit = db.scalar(select(AuthEvent))
+        assert (audit.event_type, audit.result, audit.actor_user_id, audit.session_id) == ("logout", "success", "user", "current")
+
+
+def test_logout_without_origin_binding_does_not_guess_from_device_and_current_tenant(auth):
+    seed_sessions(auth)
+    with Session(auth.engine) as db:
+        db.get(AuthSession, "current").binding_id = None
+        db.commit()
+    assert auth.client.post(LOGOUT).status_code == 200
+    with Session(auth.engine) as db:
+        assert db.get(AuthSession, "current").status == "revoked"
+        assert db.get(DeviceUserBinding, "binding").auto_login_enabled is True
+        assert db.get(DeviceUserBinding, "other-binding").auto_login_enabled is True
 
 
 @pytest.mark.parametrize("token", [None, "unknown"])

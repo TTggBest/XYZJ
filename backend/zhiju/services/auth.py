@@ -14,7 +14,10 @@ from zhiju.models import (
     Permission, RolePermission, Tenant, TenantMembership,
 )
 from zhiju.schemas.auth import AvailableMembership, CurrentDevice, CurrentTenant, CurrentUser
-from zhiju.security import digest_token, new_opaque_token, verify_password
+from zhiju.security import digest_token, hash_password, new_opaque_token, verify_password
+
+
+_DUMMY_PASSWORD_HASH = hash_password(new_opaque_token())
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ def password_login(
     tenant = None
     locked = user is not None and user.locked_until is not None and _utc(user.locked_until) > now
     if user is None:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
         failure = "invalid_credentials"
     elif locked:
         failure = "temporarily_locked"
@@ -141,19 +145,18 @@ def logout(session: Session, *, token: str | None, request_id: str) -> None:
     if not token:
         return
     auth_session = session.scalar(select(AuthSession).where(
-        AuthSession.token_digest == digest_token(token), AuthSession.status != "revoked",
+        AuthSession.token_digest == digest_token(token),
     ).with_for_update())
     if auth_session is None:
         return
     now = datetime.now(timezone.utc)
-    auth_session.status = "revoked"
-    auth_session.revoked_at = now
-    auth_session.revoke_reason = "logout"
-    if auth_session.device_id is not None:
+    if auth_session.status != "revoked":
+        auth_session.status = "revoked"
+        auth_session.revoked_at = now
+        auth_session.revoke_reason = "logout"
+    if auth_session.binding_id is not None:
         binding = session.scalar(select(DeviceUserBinding).where(
-            DeviceUserBinding.device_id == auth_session.device_id,
-            DeviceUserBinding.user_id == auth_session.user_id,
-            DeviceUserBinding.tenant_id == auth_session.tenant_id,
+            DeviceUserBinding.id == auth_session.binding_id,
             DeviceUserBinding.status == "active",
         ).with_for_update())
         if binding is not None:

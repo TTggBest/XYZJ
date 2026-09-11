@@ -132,29 +132,6 @@ def upgrade() -> None:
     op.create_index("ix_tenant_memberships_user_status", "tenant_memberships", ["user_id", "status"], unique=False)
 
     op.create_table(
-        "auth_sessions",
-        sa.Column("user_id", sa.String(length=36), nullable=False, comment="用户ID"),
-        sa.Column("tenant_id", sa.String(length=36), nullable=True, comment="当前主账号ID"),
-        sa.Column("device_id", sa.String(length=36), nullable=True, comment="当前设备ID"),
-        sa.Column("token_digest", sa.String(length=64), nullable=False, comment="高熵会话令牌SHA-256摘要"),
-        sa.Column("status", sa.String(length=20), server_default="active", nullable=False, comment="会话状态"),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False, comment="会话到期时间"),
-        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False, comment="最后使用时间"),
-        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True, comment="撤销时间"),
-        sa.Column("revoke_reason", sa.String(length=500), nullable=True, comment="撤销原因"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, comment="创建时间"),
-        sa.Column("id", sa.String(length=36), nullable=False, comment="系统内部稳定主键"),
-        sa.CheckConstraint("status IN ('active','revoked','expired')", name=op.f("ck_auth_sessions_valid_status")),
-        sa.ForeignKeyConstraint(["device_id"], ["devices.id"], name=op.f("fk_auth_sessions_device_id_devices"), ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], name=op.f("fk_auth_sessions_tenant_id_tenants"), ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["app_users.id"], name=op.f("fk_auth_sessions_user_id_app_users"), ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_auth_sessions")),
-        sa.UniqueConstraint("token_digest", name=op.f("uq_auth_sessions_token_digest")),
-        comment="服务端认证会话",
-    )
-    op.create_index("ix_auth_sessions_token_status", "auth_sessions", ["token_digest", "status"], unique=False)
-
-    op.create_table(
         "device_user_bindings",
         sa.Column("device_id", sa.String(length=36), nullable=False, comment="设备ID"),
         sa.Column("user_id", sa.String(length=36), nullable=False, comment="用户ID"),
@@ -189,6 +166,31 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "auth_sessions",
+        sa.Column("user_id", sa.String(length=36), nullable=False, comment="用户ID"),
+        sa.Column("tenant_id", sa.String(length=36), nullable=True, comment="当前主账号ID"),
+        sa.Column("device_id", sa.String(length=36), nullable=True, comment="当前设备ID"),
+        sa.Column("binding_id", sa.String(length=36), nullable=True, comment="设备免登录创建时设置的原始绑定ID，租户切换不改变"),
+        sa.Column("token_digest", sa.String(length=64), nullable=False, comment="高熵会话令牌SHA-256摘要"),
+        sa.Column("status", sa.String(length=20), server_default="active", nullable=False, comment="会话状态"),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False, comment="会话到期时间"),
+        sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False, comment="最后使用时间"),
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True, comment="撤销时间"),
+        sa.Column("revoke_reason", sa.String(length=500), nullable=True, comment="撤销原因"),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, comment="创建时间"),
+        sa.Column("id", sa.String(length=36), nullable=False, comment="系统内部稳定主键"),
+        sa.CheckConstraint("status IN ('active','revoked','expired')", name=op.f("ck_auth_sessions_valid_status")),
+        sa.ForeignKeyConstraint(["device_id"], ["devices.id"], name=op.f("fk_auth_sessions_device_id_devices"), ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["binding_id"], ["device_user_bindings.id"], name=op.f("fk_auth_sessions_binding_id_device_user_bindings"), ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], name=op.f("fk_auth_sessions_tenant_id_tenants"), ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["app_users.id"], name=op.f("fk_auth_sessions_user_id_app_users"), ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_auth_sessions")),
+        sa.UniqueConstraint("token_digest", name=op.f("uq_auth_sessions_token_digest")),
+        comment="服务端认证会话",
+    )
+    op.create_index("ix_auth_sessions_token_status", "auth_sessions", ["token_digest", "status"], unique=False)
+
+    op.create_table(
         "auth_events",
         sa.Column("tenant_id", sa.String(length=36), nullable=True, comment="事件作用主账号ID"),
         sa.Column("actor_user_id", sa.String(length=36), nullable=True, comment="真实操作者用户ID"),
@@ -218,8 +220,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("auth_events")
-    op.drop_table("device_user_bindings")
     op.drop_table("auth_sessions")
+    op.drop_table("device_user_bindings")
     op.drop_table("tenant_memberships")
     op.drop_table("role_permissions")
     op.drop_table("tenants")
