@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from zhiju import __version__
+from zhiju.api.auth import router as auth_router
 from zhiju.api.health import router as health_router
 from zhiju.api.settings import router as settings_router
 from zhiju.api.history import router as history_router
@@ -28,6 +29,7 @@ from zhiju.realtime import build_change_event, publish_change_event
 def create_app() -> FastAPI:
     frontend_root = Path(__file__).resolve().parents[2]
     app = FastAPI(title="筱宇智矩 API", version=__version__)
+    app.include_router(auth_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     app.include_router(history_router, prefix="/api")
@@ -53,6 +55,7 @@ def create_app() -> FastAPI:
         is_business_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}
             and request.url.path.startswith("/api/v3/")
+            and not request.url.path.startswith("/api/v3/auth/")
             and request.url.path not in {
                 "/api/v3/events/publish",
                 "/api/v3/settings/runtime/environment",
