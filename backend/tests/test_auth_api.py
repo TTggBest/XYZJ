@@ -208,6 +208,54 @@ def test_unknown_account_runs_fixed_argon_verification_with_normal_password_cost
     assert extract_parameters(verified_hashes[0]) == extract_parameters(user_hash)
 
 
+@pytest.mark.parametrize("account_state,reason", [
+    ("locked", "temporarily_locked"),
+    ("suspended", "user_inactive"),
+    ("lease_expired", "user_lease_expired"),
+])
+def test_known_account_rejection_before_password_check_runs_one_dummy_verification(
+    auth, monkeypatch, account_state, reason,
+):
+    verified_hashes = []
+    real_verify = PasswordHasher.verify
+
+    def observe_real_verification(hasher, encoded, password, **kwargs):
+        verified_hashes.append(encoded)
+        return real_verify(hasher, encoded, password, **kwargs)
+
+    monkeypatch.setattr(PasswordHasher, "verify", observe_real_verification)
+    unknown = login(auth, login_name="missing")
+    assert unknown.status_code == 401 and len(verified_hashes) == 1
+    dummy_hash = verified_hashes.pop()
+    if account_state == "locked":
+        for _ in range(5):
+            assert login(auth, password="wrong-password").status_code == 401
+    else:
+        with Session(auth.engine) as db:
+            user = db.get(AppUser, "user")
+            user.failed_login_count = 2
+            if account_state == "suspended":
+                user.status = "suspended"
+            else:
+                user.lease_expires_at = datetime.now(timezone.utc)
+            db.commit()
+    with Session(auth.engine) as db:
+        locked_until = db.get(AppUser, "user").locked_until
+    verified_hashes.clear()
+
+    rejected = login(auth)
+
+    assert rejected.status_code == 401 and rejected.json() == unknown.json()
+    assert verified_hashes == [dummy_hash]
+    with Session(auth.engine) as db:
+        user = db.get(AppUser, "user")
+        assert user.failed_login_count == (5 if account_state == "locked" else 3)
+        assert user.locked_until == locked_until and user.last_login_at is None
+        assert list(db.scalars(select(AuthSession))) == []
+        audit = db.scalar(select(AuthEvent).where(AuthEvent.actor_user_id == "user").order_by(AuthEvent.occurred_at.desc()))
+        assert (audit.event_type, audit.result, audit.reason) == ("login", "failure", reason)
+
+
 def test_five_failures_lock_account_for_fifteen_minutes_without_extending_lock(auth):
     before = datetime.now(timezone.utc)
     for _ in range(5):

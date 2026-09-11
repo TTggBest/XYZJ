@@ -55,14 +55,17 @@ def password_login(
         verify_password(password, _DUMMY_PASSWORD_HASH)
         failure = "invalid_credentials"
     elif locked:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
         failure = "temporarily_locked"
     else:
         if user.locked_until is not None:
             user.locked_until = None
             user.failed_login_count = 0
         if user.status != "active":
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             failure = "user_inactive"
         elif user.lease_expires_at is not None and _utc(user.lease_expires_at) <= now:
+            verify_password(password, _DUMMY_PASSWORD_HASH)
             failure = "user_lease_expired"
         elif not verify_password(password, user.password_hash):
             failure = "invalid_credentials"
