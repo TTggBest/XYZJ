@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+from fastapi import Depends, HTTPException, Request
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from zhiju.database import get_db
+from zhiju.models import (
+    AppUser,
+    AuthSession,
+    Device,
+    Permission,
+    RolePermission,
+    Tenant,
+    TenantMembership,
+)
+from zhiju.security import digest_token
+
+
+@dataclass(frozen=True)
+class Principal:
+    user_id: str
+    tenant_id: str | None
+    membership_role: str | None
+    platform_role: str | None
+    device_id: str | None
+    device_trust_level: str
+    permissions: frozenset[str]
+
+
+def _utc(value: datetime) -> datetime:
+    # MySQL DATETIME (and SQLite tests) return naive UTC timestamps.
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def get_optional_principal(
+    request: Request, session: Session = Depends(get_db),
+) -> Principal | None:
+    token = request.cookies.get("zhiju_session")
+    if not token:
+        return None
+
+    auth_session = session.scalar(select(AuthSession).where(
+        AuthSession.token_digest == digest_token(token),
+        AuthSession.status == "active",
+    ))
+    now = datetime.now(timezone.utc)
+    if auth_session is None or _utc(auth_session.expires_at) <= now:
+        return None
+
+    user = session.get(AppUser, auth_session.user_id)
+    if user is None or user.status != "active":
+        return None
+    if user.lease_expires_at is not None and _utc(user.lease_expires_at) <= now:
+        return None
+
+    membership_role = None
+    if auth_session.tenant_id is not None:
+        tenant = session.get(Tenant, auth_session.tenant_id)
+        if tenant is None or tenant.status != "active" or _utc(tenant.lease_expires_at) <= now:
+            raise HTTPException(status_code=403, detail="主账号已停用或租约已到期")
+        membership = session.scalar(select(TenantMembership).where(
+            TenantMembership.user_id == user.id,
+            TenantMembership.tenant_id == tenant.id,
+            TenantMembership.status == "active",
+        ))
+        if membership is not None:
+            membership_role = membership.role_code
+
+    # Platform admins enter tenant context as themselves, without an owner membership.
+    if membership_role is None and user.platform_role != "super_admin":
+        raise HTTPException(status_code=403, detail="没有当前主账号的有效成员权限")
+
+    roles = {role for role in (membership_role, user.platform_role) if role is not None}
+    permissions = frozenset(session.scalars(
+        select(Permission.code)
+        .join(RolePermission, RolePermission.permission_id == Permission.id)
+        .where(RolePermission.role_code.in_(roles))
+    ))
+    device = session.get(Device, auth_session.device_id) if auth_session.device_id else None
+    principal = Principal(
+        user_id=user.id,
+        tenant_id=auth_session.tenant_id,
+        membership_role=membership_role,
+        platform_role=user.platform_role,
+        device_id=device.id if device else None,
+        device_trust_level=device.trust_level if device and device.status == "active" else "normal",
+        permissions=permissions,
+    )
+    if _utc(auth_session.last_seen_at) <= now - timedelta(minutes=5):
+        auth_session.last_seen_at = now
+        session.commit()
+    return principal
+
+
+def get_current_principal(
+    request: Request, session: Session = Depends(get_db),
+) -> Principal:
+    principal = get_optional_principal(request, session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return principal
