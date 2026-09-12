@@ -27,6 +27,7 @@ from zhiju.api.feishu_sync import router as feishu_sync_router
 from zhiju.api.image_processing import router as image_processing_router
 from zhiju.api.youtube_oauth import router as youtube_oauth_router
 from zhiju.realtime import build_change_event, publish_change_event
+from zhiju.tenant_scope import TENANT_ROUTES
 
 
 def create_app() -> FastAPI:
@@ -66,18 +67,19 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def publish_successful_changes(request, call_next):
         response = await call_next(request)
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", request.url.path)
+        principal = getattr(request.state, "principal", None)
+        tenant_id = getattr(principal, "tenant_id", None)
         is_business_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}
-            and request.url.path.startswith("/api/v3/")
+            and (request.method, route_path) in TENANT_ROUTES
             and not request.url.path.startswith(("/api/v3/auth/", "/api/v3/platform/", "/api/v3/tenant/users"))
-            and request.url.path not in {
-                "/api/v3/events/publish",
-                "/api/v3/settings/runtime/environment",
-            }
             and response.status_code < 400
+            and tenant_id is not None
         )
         if is_business_write:
-            await publish_change_event(build_change_event(request))
+            await publish_change_event(tenant_id=tenant_id, event=build_change_event(request))
         return response
 
     @app.middleware("http")

@@ -12,7 +12,7 @@ def test_realtime_routes_are_registered() -> None:
 
     assert "/api/v3/realtime/config" in paths
     assert "/api/v3/events/stream" in paths
-    assert "/api/v3/events/publish" in paths
+    assert "/api/v3/events/publish" not in paths
 
 
 def test_realtime_config_uses_local_stream_by_default() -> None:
@@ -24,20 +24,20 @@ def test_realtime_config_uses_local_stream_by_default() -> None:
     assert isinstance(response.json()["subscriber_count"], int)
 
 
-def test_broker_broadcasts_to_each_subscriber() -> None:
+def test_broker_broadcasts_to_each_subscriber_in_one_tenant() -> None:
     async def scenario() -> None:
         broker = RealtimeBroker()
-        first = broker.subscribe()
-        second = broker.subscribe()
+        first = broker.subscribe(tenant_id="tenant-a")
+        second = broker.subscribe(tenant_id="tenant-a")
         assert broker.subscriber_count == 2
         event = {"event": "data.changed", "entity_type": "operation_task"}
 
-        await broker.publish(event)
+        await broker.publish(tenant_id="tenant-a", event=event)
 
         assert await first.get() == event
         assert await second.get() == event
-        broker.unsubscribe(first)
-        broker.unsubscribe(second)
+        broker.unsubscribe(tenant_id="tenant-a", queue=first)
+        broker.unsubscribe(tenant_id="tenant-a", queue=second)
         assert broker.subscriber_count == 0
 
     asyncio.run(scenario())
