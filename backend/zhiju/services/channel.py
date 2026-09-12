@@ -1027,6 +1027,8 @@ def list_media_assets(
     include_deleted: bool = False,
     limit: int = 200,
 ) -> list[MediaAsset]:
+    if channel_id:
+        require_tenant_entity(session, Channel, channel_id)
     statement = select(MediaAsset)
     if batch_id is not None:
         statement = (

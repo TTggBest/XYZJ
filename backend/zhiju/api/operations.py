@@ -494,7 +494,7 @@ def get_schedule_candidates(
 def post_schedule_candidate(
     schedule_id: str,
     payload: ScheduleCandidateCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ScheduleCandidateRead:
     try:
         return create_schedule_candidate(session, schedule_id, payload)
@@ -510,7 +510,7 @@ def post_select_schedule_candidate(
     schedule_id: str,
     candidate_id: str,
     payload: ScheduleCandidateSelect,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ScheduleRead:
     try:
         return select_schedule_candidate(

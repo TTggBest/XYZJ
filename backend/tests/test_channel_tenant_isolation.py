@@ -20,6 +20,7 @@ from zhiju.models import (
     Channel, ChannelAnalysisReport, ChannelCommunitySlot, ChannelDnaVersion,
     ChannelKeyword, ChannelPlaylist, ChannelProfile, ChannelPublishSlot,
     ChannelScheduleEntry, Drama, DramaProductionState, GoogleAccount, OAuthGrant, AuthorizationEvent,
+    ScheduleCandidate,
     MediaAsset,
 )
 from zhiju.schemas.channel import ChannelDnaVersionCreate, ChannelProfileUpsert
@@ -280,6 +281,7 @@ OPERATION_TENANT_ENDPOINTS = {
     "get_community_slots", "post_community_slot", "patch_community_slot_status",
     "get_schedules", "get_channel_schedule_page", "get_schedule_overview",
     "post_schedule", "patch_schedule_status", "patch_schedule_source_video",
+    "post_schedule_candidate", "post_select_schedule_candidate",
 }
 
 
@@ -376,3 +378,65 @@ def test_http_device_registration_keeps_platform_session(tenant_client, channel_
             Base.metadata.tables["audit_events"].c.action == "device.created"
         ).with_only_columns(Base.metadata.tables["audit_events"].c.tenant_id)).all()
         assert events == [(None,)]
+
+
+@pytest.fixture
+def schedule_candidates(channel_store):
+    with Session(channel_store) as session:
+        session.add_all([
+            ScheduleCandidate(id=f"candidate-{key}", schedule_id=f"schedule-{key}",
+                              drama_id=f"drama-{key}", candidate_type="backup", rank_number=1,
+                              reason="test", status="available")
+            for key in ("a", "b")
+        ])
+        session.commit()
+
+
+def test_http_candidate_write_creates_own_candidate(tenant_client, channel_store):
+    response = tenant_client.post("/api/v3/schedules/schedule-a/candidates", json={
+        "drama_id": "drama-a", "rank_number": 2, "reason": "own candidate",
+    })
+    assert response.status_code == 201, response.text
+    with Session(channel_store) as session:
+        candidate = session.get(ScheduleCandidate, response.json()["id"])
+        assert (candidate.schedule_id, candidate.drama_id, candidate.status) == (
+            "schedule-a", "drama-a", "available",
+        )
+        assert session.scalar(sa.select(sa.func.count()).select_from(ScheduleCandidate)
+                              .where(ScheduleCandidate.schedule_id == "schedule-b")) == 0
+
+
+def test_http_candidate_write_selects_own_candidate(tenant_client, channel_store, schedule_candidates):
+    response = tenant_client.post("/api/v3/schedules/schedule-a/candidates/candidate-a/select", json={
+        "reason": "select own candidate",
+    })
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == "schedule-a"
+    with Session(channel_store) as session:
+        assert session.get(ScheduleCandidate, "candidate-a").status == "selected"
+        assert session.get(ScheduleCandidate, "candidate-b").status == "available"
+
+
+@pytest.mark.parametrize("path,payload", [
+    ("/schedules/schedule-b/candidates", {"drama_id": "drama-a", "rank_number": 2, "reason": "test"}),
+    ("/schedules/schedule-b/candidates/candidate-b/select", {"reason": "test"}),
+    ("/schedules/schedule-a/candidates/candidate-b/select", {"reason": "test"}),
+])
+def test_http_candidate_write_foreign_schedule_or_candidate_is_404(
+    tenant_client, channel_store, schedule_candidates, path, payload,
+):
+    response = tenant_client.post(f"/api/v3{path}", json=payload)
+    assert response.status_code == 404, response.text
+    with Session(channel_store) as session:
+        assert session.execute(sa.select(ScheduleCandidate.id, ScheduleCandidate.status)
+                               .order_by(ScheduleCandidate.id)).all() == [
+            ("candidate-a", "available"), ("candidate-b", "available"),
+        ]
+
+
+@pytest.mark.parametrize("channel_id,status", [("a", 200), ("b", 404)])
+def test_http_media_assets_channel_filter_authorizes_owner(tenant_client, channel_id, status):
+    response = tenant_client.get("/api/v3/media-assets", params={"channel_id": channel_id})
+    assert response.status_code == status, response.text
+    if status == 200:
+        assert [row["id"] for row in response.json()] == ["asset-a"]
