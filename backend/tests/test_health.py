@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from zhiju.app import app
+from zhiju.auth_context import Principal, get_current_principal
 from zhiju.config import get_settings
 
 
@@ -18,8 +19,16 @@ def test_health_reports_runtime_web_port() -> None:
     assert response.json()["web_port"] == get_settings().port
 
 
-def test_identity_lists_start_from_database() -> None:
+def test_identity_lists_require_login_and_start_from_tenant_database(monkeypatch) -> None:
     client = TestClient(app)
+    assert client.get("/api/v3/accounts").status_code == 401
+    assert client.get("/api/v3/channels").status_code == 401
+    principal = Principal(
+        user_id="test-user", tenant_id="00000000-0000-4000-8000-000000000001",
+        membership_role="owner", platform_role=None, device_id=None,
+        device_trust_level="normal", permissions=frozenset({"channel.read"}),
+    )
+    monkeypatch.setitem(app.dependency_overrides, get_current_principal, lambda: principal)
     assert client.get("/api/v3/accounts").status_code == 200
     assert client.get("/api/v3/channels").status_code == 200
 
@@ -32,7 +41,7 @@ def test_root_serves_management_ui() -> None:
     assert response.headers["cache-control"] == "no-cache"
     assert "筱宇智矩" in response.text
     assert "operations-page-data.js?v=3.18.4" in response.text
-    assert "app.js?v=3.18.5" in response.text
+    assert "app.js?v=3.19.0" in response.text
     app_js = client.get("/assets/app.js")
     assert app_js.status_code == 200
     assert app_js.headers["cache-control"] == "no-cache"

@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.config import get_settings
 from zhiju.schemas.drama_progress import (
     DramaProductionExclusionWrite,
@@ -40,7 +40,7 @@ def get_progress_page(
     batch_name: str | None = None,
     overall_status: str | None = None,
     current_node: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaProgressPage:
     return list_drama_progress(
         session,
@@ -60,7 +60,7 @@ def get_progress_page(
 )
 def get_progress_item(
     drama_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaProductionStateRead:
     try:
         return get_drama_progress(session, drama_id)
@@ -75,7 +75,7 @@ def get_progress_item(
 def put_progress_item(
     drama_id: str,
     payload: DramaProductionStateWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaProductionStateRead:
     try:
         return update_drama_progress(session, drama_id, payload)
@@ -91,7 +91,7 @@ def put_progress_item(
 )
 def post_cloud_download_complete(
     drama_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaProductionStateRead:
     try:
         return complete_cloud_download(session, drama_id)
@@ -108,7 +108,7 @@ def post_cloud_download_complete(
 def put_production_exclusion(
     drama_id: str,
     payload: DramaProductionExclusionWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaProductionStateRead:
     try:
         return set_production_exclusion(session, drama_id, excluded=payload.excluded)
@@ -122,7 +122,7 @@ def put_production_exclusion(
 )
 def post_zhihe_progress_sync(
     updated_after: datetime | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ZhiheProgressSyncResult:
     settings = get_settings()
     if not settings.zhihe_api_base_url or not settings.zhihe_api_token:

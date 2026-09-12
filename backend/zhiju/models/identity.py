@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
 class Device(IdMixin, TimestampMixin, Base):
@@ -24,6 +24,10 @@ class Device(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("status IN ('active','inactive','retired')", name="valid_status"),
         CheckConstraint("device_role IN ('builder','studio','worker')", name="valid_device_role"),
+        CheckConstraint(
+            "trust_level IN ('super_code_machine','code_machine','production_device','normal')",
+            name="valid_trust_level",
+        ),
         Index("ix_devices_status_last_seen", "status", "last_seen_at"),
         {"comment": "运行、登录或执行授权操作的设备"},
     )
@@ -33,6 +37,9 @@ class Device(IdMixin, TimestampMixin, Base):
     alias: Mapped[str | None] = mapped_column(String(120), comment="设备运营别名")
     hostname: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, comment="设备主机名，运行包自动识别使用")
     device_role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="worker", comment="设备角色：builder、studio或worker")
+    trust_level: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default="normal", comment="设备信任等级"
+    )
     login_user: Mapped[str | None] = mapped_column(String(120), comment="设备登录用户")
     thunderbolt_address: Mapped[str | None] = mapped_column(String(45), comment="雷电网络地址")
     lan_address: Mapped[str | None] = mapped_column(String(45), comment="普通局域网地址")
@@ -45,7 +52,7 @@ class Device(IdMixin, TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后在线时间")
 
 
-class GoogleAccount(IdMixin, TimestampMixin, Base):
+class GoogleAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "google_accounts"
     __table_args__ = (
         CheckConstraint("status IN ('active','disabled','revoked')", name="valid_status"),
@@ -67,7 +74,7 @@ class GoogleAccount(IdMixin, TimestampMixin, Base):
     oauth_grants: Mapped[list[OAuthGrant]] = relationship(back_populates="account")
 
 
-class OAuthGrant(IdMixin, TimestampMixin, Base):
+class OAuthGrant(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "google_oauth_grants"
     __table_args__ = (
         CheckConstraint("status IN ('pending','active','expired','revoked','error')", name="valid_status"),
@@ -76,7 +83,7 @@ class OAuthGrant(IdMixin, TimestampMixin, Base):
         {"comment": "Google OAuth授权记录，仅保存Secret引用"},
     )
 
-    account_id: Mapped[str] = mapped_column(ForeignKey("google_accounts.id", ondelete="RESTRICT"), nullable=False, comment="Google账号内部ID")
+    account_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="Google账号内部ID")
     provider_subject: Mapped[str] = mapped_column(String(255), nullable=False, comment="Google OAuth subject标识")
     credential_ref: Mapped[str] = mapped_column(String(500), nullable=False, comment="外部Secret存储引用，禁止存Token明文")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending", comment="授权记录状态")
@@ -88,18 +95,18 @@ class OAuthGrant(IdMixin, TimestampMixin, Base):
     scopes: Mapped[list[OAuthGrantScope]] = relationship(back_populates="grant", cascade="all, delete-orphan")
 
 
-class OAuthGrantScope(Base):
+class OAuthGrantScope(TenantOwnedMixin, Base):
     __tablename__ = "google_oauth_grant_scopes"
     __table_args__ = ({"comment": "OAuth授权范围明细"},)
 
-    grant_id: Mapped[str] = mapped_column(ForeignKey("google_oauth_grants.id", ondelete="CASCADE"), primary_key=True, comment="OAuth授权记录ID")
+    grant_id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="OAuth授权记录ID")
     scope: Mapped[str] = mapped_column(String(500), primary_key=True, comment="OAuth scope")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间")
 
     grant: Mapped[OAuthGrant] = relationship(back_populates="scopes")
 
 
-class Channel(IdMixin, TimestampMixin, Base):
+class Channel(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channels"
     __table_args__ = (
         CheckConstraint(
@@ -131,7 +138,7 @@ class Channel(IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="软删除时间")
 
 
-class AccountChannelAuthorization(IdMixin, TimestampMixin, Base):
+class AccountChannelAuthorization(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "account_channel_authorizations"
     __table_args__ = (
         CheckConstraint("status IN ('active','revoked','mismatch','error')", name="valid_status"),
@@ -140,16 +147,16 @@ class AccountChannelAuthorization(IdMixin, TimestampMixin, Base):
         {"comment": "Google账号与YouTube频道的授权关系"},
     )
 
-    account_id: Mapped[str] = mapped_column(ForeignKey("google_accounts.id", ondelete="RESTRICT"), nullable=False, comment="Google账号内部ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
-    oauth_grant_id: Mapped[str] = mapped_column(ForeignKey("google_oauth_grants.id", ondelete="RESTRICT"), nullable=False, comment="实际使用的OAuth授权ID")
+    account_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="Google账号内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    oauth_grant_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="实际使用的OAuth授权ID")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="绑定状态")
     verified_youtube_channel_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="Token调用YouTube后返回的频道ID")
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="频道绑定校验时间")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="解除绑定时间")
 
 
-class AuthorizationEvent(IdMixin, Base):
+class AuthorizationEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "authorization_events"
     __table_args__ = (
         CheckConstraint("result IN ('success','failure','cancelled')", name="valid_result"),
@@ -158,12 +165,27 @@ class AuthorizationEvent(IdMixin, Base):
         {"comment": "OAuth授权与频道校验事件流水"},
     )
 
-    account_id: Mapped[str | None] = mapped_column(ForeignKey("google_accounts.id", ondelete="SET NULL"), comment="Google账号内部ID")
-    channel_id: Mapped[str | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), comment="频道内部ID")
+    account_id: Mapped[str | None] = mapped_column(String(36), comment="Google账号内部ID")
+    channel_id: Mapped[str | None] = mapped_column(String(36), comment="频道内部ID")
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), comment="操作设备ID")
-    oauth_grant_id: Mapped[str | None] = mapped_column(ForeignKey("google_oauth_grants.id", ondelete="SET NULL"), comment="OAuth授权记录ID")
+    oauth_grant_id: Mapped[str | None] = mapped_column(String(36), comment="OAuth授权记录ID")
     event_type: Mapped[str] = mapped_column(String(60), nullable=False, comment="授权事件类型")
     result: Mapped[str] = mapped_column(String(20), nullable=False, comment="执行结果")
     error_code: Mapped[str | None] = mapped_column(String(120), comment="错误代码")
     error_message: Mapped[str | None] = mapped_column(Text, comment="脱敏错误信息")
     occurred_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="事件发生时间")
+
+
+configure_tenant_relations(
+    (
+        ("google_oauth_grants", "account_id", "google_accounts", "RESTRICT"),
+        ("account_channel_authorizations", "account_id", "google_accounts", "RESTRICT"),
+        ("account_channel_authorizations", "channel_id", "channels", "RESTRICT"),
+        ("account_channel_authorizations", "oauth_grant_id", "google_oauth_grants", "RESTRICT"),
+        ("authorization_events", "account_id", "google_accounts", "RESTRICT"),
+        ("authorization_events", "channel_id", "channels", "RESTRICT"),
+        ("authorization_events", "oauth_grant_id", "google_oauth_grants", "RESTRICT"),
+        ("google_oauth_grant_scopes", "grant_id", "google_oauth_grants", "CASCADE"),
+    ),
+    parent_tables=("channels", "google_accounts", "google_oauth_grants", "account_channel_authorizations"),
+)

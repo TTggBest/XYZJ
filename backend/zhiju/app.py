@@ -1,10 +1,14 @@
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from zhiju import __version__
+from zhiju.api.auth import router as auth_router
+from zhiju.api.platform_admin import router as platform_admin_router, tenant_router as tenant_users_router
 from zhiju.api.health import router as health_router
 from zhiju.api.settings import router as settings_router
 from zhiju.api.history import router as history_router
@@ -23,11 +27,24 @@ from zhiju.api.feishu_sync import router as feishu_sync_router
 from zhiju.api.image_processing import router as image_processing_router
 from zhiju.api.youtube_oauth import router as youtube_oauth_router
 from zhiju.realtime import build_change_event, publish_change_event
+from zhiju.tenant_scope import TENANT_ROUTES
 
 
 def create_app() -> FastAPI:
     frontend_root = Path(__file__).resolve().parents[2]
     app = FastAPI(title="筱宇智矩 API", version=__version__)
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(request, exc):
+        if request.url.path == "/api/v3/auth/login":
+            return JSONResponse(status_code=422, content={"detail": "登录信息格式不正确"})
+        if request.url.path.startswith(("/api/v3/platform/", "/api/v3/tenant/users")):
+            return JSONResponse(status_code=422, content={"detail": "账号管理信息格式不正确"})
+        return await request_validation_exception_handler(request, exc)
+
+    app.include_router(auth_router, prefix="/api")
+    app.include_router(platform_admin_router, prefix="/api")
+    app.include_router(tenant_users_router, prefix="/api")
     app.include_router(health_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     app.include_router(history_router, prefix="/api")
@@ -37,8 +54,8 @@ def create_app() -> FastAPI:
     app.include_router(youtube_oauth_router, prefix="/api")
     app.include_router(channel_router, prefix="/api")
     app.include_router(drama_progress_router, prefix="/api")
-    app.include_router(drama_library_router, prefix="/api")
     app.include_router(operations_router, prefix="/api")
+    app.include_router(drama_library_router, prefix="/api")
     app.include_router(production_router, prefix="/api")
     app.include_router(youtube_router, prefix="/api")
     app.include_router(skill_router, prefix="/api")
@@ -50,17 +67,19 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def publish_successful_changes(request, call_next):
         response = await call_next(request)
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", request.url.path)
+        principal = getattr(request.state, "principal", None)
+        tenant_id = getattr(principal, "tenant_id", None)
         is_business_write = (
             request.method in {"POST", "PUT", "PATCH", "DELETE"}
-            and request.url.path.startswith("/api/v3/")
-            and request.url.path not in {
-                "/api/v3/events/publish",
-                "/api/v3/settings/runtime/environment",
-            }
+            and (request.method, route_path) in TENANT_ROUTES
+            and not request.url.path.startswith(("/api/v3/auth/", "/api/v3/platform/", "/api/v3/tenant/users"))
             and response.status_code < 400
+            and tenant_id is not None
         )
         if is_business_write:
-            await publish_change_event(build_change_event(request))
+            await publish_change_event(tenant_id=tenant_id, event=build_change_event(request))
         return response
 
     @app.middleware("http")

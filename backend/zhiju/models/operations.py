@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
 class Language(IdMixin, TimestampMixin, Base):
@@ -40,19 +40,21 @@ class Language(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="语言状态")
 
 
-class Drama(IdMixin, TimestampMixin, Base):
+class Drama(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "dramas"
     __table_args__ = (
         CheckConstraint("status IN ('active','expired','blocked','archived')", name="valid_status"),
         CheckConstraint("source_type IN ('manual','feishu')", name="valid_source_type"),
+        UniqueConstraint("tenant_id", "drama_code", name="uq_dramas_tenant_drama_code"),
+        UniqueConstraint("tenant_id", "normalized_title", name="uq_dramas_tenant_normalized_title"),
         Index("ix_dramas_status_expiry", "status", "expires_at"),
         {"comment": "本地剧库中的剧目主档"},
     )
 
     drama_number: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True, autoincrement=True, comment="剧库自增编号")
-    drama_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, comment="系统自动生成的可读剧库ID")
+    drama_code: Mapped[str] = mapped_column(String(40), nullable=False, comment="系统自动生成的可读剧库ID")
     chinese_title: Mapped[str] = mapped_column(String(255), nullable=False, comment="中文主剧名")
-    normalized_title: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, comment="用于完全匹配的规范化主剧名")
+    normalized_title: Mapped[str] = mapped_column(String(255), nullable=False, comment="用于完全匹配的规范化主剧名")
     comprehensive_score: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), comment="飞书剧库综合评分")
     baidu_cloud_url: Mapped[str | None] = mapped_column(String(1000), comment="百度网盘资源地址")
     content_summary: Mapped[str | None] = mapped_column(Text, comment="内容概要")
@@ -68,21 +70,21 @@ class Drama(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="剧目状态")
 
 
-class DramaAlias(IdMixin, TimestampMixin, Base):
+class DramaAlias(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_aliases"
     __table_args__ = (
-        UniqueConstraint("normalized_alias", name="uq_drama_aliases_normalized_alias"),
+        UniqueConstraint("tenant_id", "normalized_alias", name="uq_drama_aliases_tenant_alias"),
         Index("ix_drama_aliases_normalized_alias", "normalized_alias"),
         {"comment": "剧目别名，一条记录保存一个别名"},
     )
 
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), nullable=False, comment="剧目内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
     alias: Mapped[str] = mapped_column(String(255), nullable=False, comment="剧目别名")
     normalized_alias: Mapped[str] = mapped_column(String(255), nullable=False, comment="用于完全匹配的规范化别名")
     source: Mapped[str] = mapped_column(String(60), nullable=False, server_default="manual", comment="别名来源")
 
 
-class DramaCoreTerm(IdMixin, TimestampMixin, Base):
+class DramaCoreTerm(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_core_terms"
     __table_args__ = (
         CheckConstraint("term_type IN ('keyword','topic','trope','persona','conflict')", name="valid_term_type"),
@@ -91,14 +93,14 @@ class DramaCoreTerm(IdMixin, TimestampMixin, Base):
         {"comment": "剧目核心词、题材、套路、人设和冲突词"},
     )
 
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), nullable=False, comment="剧目内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
     term_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="核心词类型")
     term: Mapped[str] = mapped_column(String(255), nullable=False, comment="核心词正文")
     weight: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default="0.5000", comment="核心词权重，0到1")
     source: Mapped[str] = mapped_column(String(60), nullable=False, server_default="manual", comment="核心词来源")
 
 
-class DramaTranslation(IdMixin, TimestampMixin, Base):
+class DramaTranslation(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_translations"
     __table_args__ = (
         CheckConstraint("translation_status IN ('missing','pending','in_progress','ready','failed')", name="valid_translation_status"),
@@ -109,7 +111,7 @@ class DramaTranslation(IdMixin, TimestampMixin, Base):
         {"comment": "剧目各语言翻译与素材可用状态"},
     )
 
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), nullable=False, comment="剧目内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
     language_id: Mapped[str] = mapped_column(ForeignKey("languages.id", ondelete="RESTRICT"), nullable=False, comment="语言内部ID")
     translated_title: Mapped[str | None] = mapped_column(String(500), comment="该语言剧名")
     translation_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="missing", comment="翻译状态")
@@ -119,7 +121,7 @@ class DramaTranslation(IdMixin, TimestampMixin, Base):
     source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
 
 
-class DramaProductionState(IdMixin, TimestampMixin, Base):
+class DramaProductionState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_production_states"
     __table_args__ = (
         CheckConstraint(
@@ -142,7 +144,7 @@ class DramaProductionState(IdMixin, TimestampMixin, Base):
         {"comment": "每部剧唯一一套制剧进度"},
     )
 
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="CASCADE"), nullable=False, comment="剧目内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
     cloud_download_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="网盘下载状态")
     parameter_normalization_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="统一参数状态")
     youtube_upload_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="上传YouTube状态")
@@ -162,7 +164,7 @@ class DramaProductionState(IdMixin, TimestampMixin, Base):
     last_error: Mapped[str | None] = mapped_column(Text, comment="最近失败原因")
 
 
-class ChannelPlaylist(IdMixin, TimestampMixin, Base):
+class ChannelPlaylist(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_playlists"
     __table_args__ = (
         CheckConstraint("status IN ('draft','active','paused','archived','deleted')", name="valid_status"),
@@ -172,7 +174,7 @@ class ChannelPlaylist(IdMixin, TimestampMixin, Base):
         {"comment": "频道播放列表定义"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     youtube_playlist_id: Mapped[str | None] = mapped_column(String(80), unique=True, comment="YouTube播放列表外部ID")
     local_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="目标语言播放列表名称")
     chinese_name: Mapped[str | None] = mapped_column(String(255), comment="播放列表中文名称")
@@ -202,7 +204,7 @@ class PublishCadenceTemplateSlot(IdMixin, TimestampMixin, Base):
     engagement_offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="120", comment="社区或Shorts相对视频延迟分钟数")
 
 
-class ChannelPublishSlot(IdMixin, TimestampMixin, Base):
+class ChannelPublishSlot(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_publish_slots"
     __table_args__ = (
         CheckConstraint("slot_type IN ('main','aux')", name="valid_slot_type"),
@@ -213,7 +215,7 @@ class ChannelPublishSlot(IdMixin, TimestampMixin, Base):
         {"comment": "频道长期视频发布时间档位规则"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     slot_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="主档或辅档")
     slot_number: Mapped[int] = mapped_column(SmallInteger, nullable=False, comment="同类档位编号")
     local_time: Mapped[time] = mapped_column(Time, nullable=False, comment="频道当地发布时间")
@@ -221,7 +223,7 @@ class ChannelPublishSlot(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="档位状态")
 
 
-class ChannelCommunitySlot(IdMixin, TimestampMixin, Base):
+class ChannelCommunitySlot(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_community_slots"
     __table_args__ = (
         CheckConstraint("schedule_mode IN ('relative','fixed')", name="valid_schedule_mode"),
@@ -248,8 +250,8 @@ class ChannelCommunitySlot(IdMixin, TimestampMixin, Base):
         {"comment": "频道Community发布时间规则"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
-    publish_slot_id: Mapped[str | None] = mapped_column(ForeignKey("channel_publish_slots.id", ondelete="CASCADE"), comment="相对模式关联的视频档位ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    publish_slot_id: Mapped[str | None] = mapped_column(String(36), comment="相对模式关联的视频档位ID")
     schedule_mode: Mapped[str] = mapped_column(String(20), nullable=False, comment="相对档位或固定时间模式")
     local_time: Mapped[time | None] = mapped_column(Time, comment="固定模式的当地发布时间")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, comment="IANA时区")
@@ -257,12 +259,13 @@ class ChannelCommunitySlot(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="Community档位状态")
 
 
-class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
+class ChannelScheduleEntry(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_schedule_entries"
     __table_args__ = (
         CheckConstraint("status IN ('planned','reserved','confirmed','replaced','cancelled','published')", name="valid_status"),
         CheckConstraint("source_type IN ('manual','feishu','system')", name="valid_source_type"),
         CheckConstraint("community_count >= 0", name="community_count_nonnegative"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_schedule_entries_tenant_idempotency"),
         UniqueConstraint("channel_id", "publish_date", "publish_slot_id", name="uq_schedule_entries_channel_slot_date"),
         Index("ix_schedule_entries_channel_date_status", "channel_id", "publish_date", "status"),
         Index("ix_schedule_entries_drama_status", "drama_id", "status"),
@@ -270,13 +273,13 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
         {"comment": "频道某日某档位的剧目排期实例"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="剧目内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
     channel_dna_version_id: Mapped[str | None] = mapped_column(
-        ForeignKey("channel_dna_versions.id", ondelete="SET NULL"), comment="创建排期时采用的频道运营参考版本ID"
+        comment="创建排期时采用的频道运营参考版本ID"
     )
-    playlist_id: Mapped[str | None] = mapped_column(ForeignKey("channel_playlists.id", ondelete="SET NULL"), comment="计划加入的播放列表ID")
-    publish_slot_id: Mapped[str] = mapped_column(ForeignKey("channel_publish_slots.id", ondelete="RESTRICT"), nullable=False, comment="发布时间档位ID")
+    playlist_id: Mapped[str | None] = mapped_column(String(36), comment="计划加入的播放列表ID")
+    publish_slot_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="发布时间档位ID")
     publish_date: Mapped[date] = mapped_column(Date, nullable=False, comment="频道当地发布日期")
     planned_local_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="固化的当地计划时间")
     planned_beijing_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="固化的北京时间")
@@ -284,8 +287,8 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
     community_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0", comment="计划Community数量")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="planned", comment="排期状态")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="100", comment="排期优先级，数值越小越优先")
-    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True, comment="创建排期的幂等键")
-    replaced_by_schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="SET NULL"), comment="替换后的排期ID")
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, comment="创建排期的幂等键")
+    replaced_by_schedule_id: Mapped[str | None] = mapped_column(String(36), comment="替换后的排期ID")
     source_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="manual", comment="排期来源")
     source_sheet_id: Mapped[str | None] = mapped_column(String(40), comment="来源飞书工作表ID")
     source_row_number: Mapped[int | None] = mapped_column(Integer, comment="来源飞书原始行号")
@@ -303,16 +306,16 @@ class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
     is_task_written: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已写入任务")
 
 
-class ScheduleChangeHistory(IdMixin, Base):
+class ScheduleChangeHistory(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "schedule_change_history"
     __table_args__ = (
         Index("ix_schedule_change_history_schedule_time", "schedule_id", "changed_at"),
         {"comment": "排期每次调整的不可变历史"},
     )
 
-    schedule_id: Mapped[str] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="CASCADE"), nullable=False, comment="排期实例ID")
-    old_drama_id: Mapped[str | None] = mapped_column(ForeignKey("dramas.id", ondelete="SET NULL"), comment="调整前剧目ID")
-    new_drama_id: Mapped[str | None] = mapped_column(ForeignKey("dramas.id", ondelete="SET NULL"), comment="调整后剧目ID")
+    schedule_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="排期实例ID")
+    old_drama_id: Mapped[str | None] = mapped_column(String(36), comment="调整前剧目ID")
+    new_drama_id: Mapped[str | None] = mapped_column(String(36), comment="调整后剧目ID")
     old_planned_utc_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="调整前UTC计划时间")
     new_planned_utc_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="调整后UTC计划时间")
     old_status: Mapped[str | None] = mapped_column(String(20), comment="调整前状态")
@@ -323,7 +326,7 @@ class ScheduleChangeHistory(IdMixin, Base):
     changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="调整时间")
 
 
-class ScheduleCandidate(IdMixin, TimestampMixin, Base):
+class ScheduleCandidate(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "schedule_candidates"
     __table_args__ = (
         CheckConstraint("candidate_type IN ('primary','backup')", name="valid_candidate_type"),
@@ -335,10 +338,36 @@ class ScheduleCandidate(IdMixin, TimestampMixin, Base):
         {"comment": "排期的主选与备选剧目"},
     )
 
-    schedule_id: Mapped[str] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="CASCADE"), nullable=False, comment="排期实例ID")
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="候选剧目ID")
+    schedule_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="排期实例ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="候选剧目ID")
     candidate_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="主选或备选")
     rank_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="候选排序")
     score: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), comment="选剧评分")
     reason: Mapped[str | None] = mapped_column(Text, comment="入选原因")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="available", comment="候选状态")
+
+
+configure_tenant_relations(
+    (
+        ("channel_playlists", "channel_id", "channels", "CASCADE"),
+        ("channel_publish_slots", "channel_id", "channels", "CASCADE"),
+        ("drama_aliases", "drama_id", "dramas", "CASCADE"),
+        ("drama_core_terms", "drama_id", "dramas", "CASCADE"),
+        ("drama_production_states", "drama_id", "dramas", "CASCADE"),
+        ("drama_translations", "drama_id", "dramas", "CASCADE"),
+        ("channel_community_slots", "channel_id", "channels", "CASCADE"),
+        ("channel_community_slots", "publish_slot_id", "channel_publish_slots", "CASCADE"),
+        ("channel_schedule_entries", "channel_dna_version_id", "channel_dna_versions", "RESTRICT"),
+        ("channel_schedule_entries", "channel_id", "channels", "RESTRICT"),
+        ("channel_schedule_entries", "drama_id", "dramas", "RESTRICT"),
+        ("channel_schedule_entries", "playlist_id", "channel_playlists", "RESTRICT"),
+        ("channel_schedule_entries", "publish_slot_id", "channel_publish_slots", "RESTRICT"),
+        ("channel_schedule_entries", "replaced_by_schedule_id", "channel_schedule_entries", "RESTRICT"),
+        ("schedule_candidates", "drama_id", "dramas", "RESTRICT"),
+        ("schedule_candidates", "schedule_id", "channel_schedule_entries", "CASCADE"),
+        ("schedule_change_history", "new_drama_id", "dramas", "RESTRICT"),
+        ("schedule_change_history", "old_drama_id", "dramas", "RESTRICT"),
+        ("schedule_change_history", "schedule_id", "channel_schedule_entries", "CASCADE"),
+    ),
+    parent_tables=("channel_playlists", "channel_publish_slots", "channel_schedule_entries", "dramas"),
+)

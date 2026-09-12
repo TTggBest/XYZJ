@@ -7,8 +7,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
-from zhiju.database import get_db
-from zhiju.models.identity import Channel
+from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
+from zhiju.database import TenantSession, get_db
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.operations import PlaylistRead
 from zhiju.schemas.youtube_oauth import (
     YouTubeAuthorizationStart,
@@ -24,8 +25,9 @@ from zhiju.services.youtube_channel_sync import (
 from zhiju.services.youtube_oauth import (
     MacOSKeychainSecretStore,
     OAuthCallbackRelay,
-    OAuthStateStore,
     build_authorization_url,
+    consume_oauth_state,
+    create_oauth_state,
     complete_channel_authorization,
     exchange_authorization_code,
     fetch_google_identity,
@@ -37,8 +39,8 @@ from zhiju.services.youtube_oauth import (
 
 
 router = APIRouter(prefix="/v3", tags=["youtube-oauth"])
-oauth_states = OAuthStateStore()
 callback_relay = OAuthCallbackRelay()
+OAUTH_STATE_TTL_SECONDS = 600
 
 
 def _legacy_client_path() -> Path:
@@ -49,7 +51,11 @@ def _legacy_client_path() -> Path:
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
-@router.get("/settings/youtube-oauth", response_model=YouTubeOAuthClientStatus)
+@router.get(
+    "/settings/youtube-oauth",
+    response_model=YouTubeOAuthClientStatus,
+    dependencies=[Depends(require_platform_permission)],
+)
 def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
     settings = get_settings()
     try:
@@ -67,6 +73,7 @@ def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
 @router.post(
     "/settings/youtube-oauth/import-legacy",
     response_model=YouTubeOAuthClientStatus,
+    dependencies=[Depends(require_platform_permission)],
 )
 def post_import_legacy_youtube_oauth() -> YouTubeOAuthClientStatus:
     settings = get_settings()
@@ -89,27 +96,29 @@ def post_import_legacy_youtube_oauth() -> YouTubeOAuthClientStatus:
 )
 def post_start_youtube_authorization(
     channel_id: str,
-    session: Session = Depends(get_db),
+    principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_tenant_db),
 ) -> YouTubeAuthorizationStart:
     settings = get_settings()
     if settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube授权")
-    channel = session.get(Channel, channel_id)
-    if channel is None or channel.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="频道不存在")
     store = MacOSKeychainSecretStore()
     try:
         config = load_oauth_client_config(store)
-        state = oauth_states.create(channel.id)
+        state = create_oauth_state(
+            session, principal, channel_id, ttl_seconds=OAUTH_STATE_TTL_SECONDS,
+        )
         callback_relay.ensure(
             config.redirect_uri,
             f"http://127.0.0.1:{settings.port}/api/v3/youtube/oauth/callback",
         )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return YouTubeAuthorizationStart(
         authorization_url=build_authorization_url(config, state),
-        expires_in_seconds=oauth_states.ttl_seconds,
+        expires_in_seconds=OAUTH_STATE_TTL_SECONDS,
     )
 
 
@@ -119,7 +128,7 @@ def post_start_youtube_authorization(
 )
 def post_sync_youtube_channel_videos(
     channel_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> YouTubeVideoSyncResult:
     settings = get_settings()
     if settings.device_role != "builder":
@@ -145,7 +154,7 @@ def post_sync_youtube_channel_videos(
 def post_create_youtube_playlist(
     channel_id: str,
     playlist_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PlaylistRead:
     settings = get_settings()
     if settings.device_role != "builder":
@@ -174,7 +183,7 @@ def get_youtube_oauth_callback(
     if settings.device_role != "builder":
         return _callback_page(False, "仅代码机可以完成YouTube授权")
     try:
-        pending = oauth_states.consume(state)
+        context = consume_oauth_state(session, state)
         if error:
             raise ValueError("Google授权已取消")
         if not code:
@@ -187,16 +196,25 @@ def get_youtube_oauth_callback(
             raise ValueError("Google未返回访问令牌")
         identity = fetch_google_identity(access_token)
         youtube_payload = fetch_youtube_channels(access_token)
-        complete_channel_authorization(
-            session,
-            store,
-            channel_id=pending.channel_id,
-            identity=identity,
-            token=token,
-            youtube_payload=youtube_payload,
-        )
+        with TenantSession(
+            bind=session.get_bind(), autoflush=False, expire_on_commit=False,
+            info={
+                "tenant_id": context.tenant_id,
+                "user_id": context.user_id,
+                "permissions": frozenset(),
+                "session_id": context.session_id,
+            },
+        ) as tenant_session:
+            complete_channel_authorization(
+                tenant_session,
+                store,
+                channel_id=context.channel_id,
+                identity=identity,
+                token=token,
+                youtube_payload=youtube_payload,
+            )
         return _callback_page(True, "YouTube频道授权完成")
-    except (RuntimeError, ValueError) as exc:
+    except (ConflictError, RuntimeError, ValueError) as exc:
         session.rollback()
         return _callback_page(False, str(exc))
 

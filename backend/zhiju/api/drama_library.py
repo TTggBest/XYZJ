@@ -4,7 +4,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.schemas.drama_library import (
     DramaLibraryBulkRequest,
     DramaLibraryBulkResult,
@@ -46,7 +46,7 @@ def get_library(
     batch_name: str | None = None,
     expires_from: datetime | None = None,
     expires_to: datetime | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaLibraryPage:
     return list_drama_library(
         session,
@@ -63,7 +63,7 @@ def get_library(
 
 
 @router.get("/dramas/{drama_id}", response_model=DramaLibraryDetail)
-def get_library_item(drama_id: str, session: Session = Depends(get_db)) -> DramaLibraryDetail:
+def get_library_item(drama_id: str, session: Session = Depends(get_tenant_db)) -> DramaLibraryDetail:
     try:
         return get_drama_library_detail(session, drama_id)
     except NotFoundError as exc:
@@ -74,7 +74,7 @@ def get_library_item(drama_id: str, session: Session = Depends(get_db)) -> Drama
 def patch_library_item(
     drama_id: str,
     payload: DramaLibraryUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaLibraryDetail:
     try:
         return update_drama_library_item(session, drama_id, payload)
@@ -90,7 +90,7 @@ def put_drama_language(
     drama_id: str,
     language_id: str,
     payload: DramaLanguageCoverageUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaLanguageCoverage:
     try:
         return upsert_drama_language(session, drama_id, language_id, payload)
@@ -105,7 +105,7 @@ def put_drama_language(
 def remove_drama_language(
     drama_id: str,
     language_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> None:
     try:
         delete_drama_language(session, drama_id, language_id)
@@ -116,7 +116,7 @@ def remove_drama_language(
 @router.post("/dramas/bulk", response_model=DramaLibraryBulkResult, status_code=status.HTTP_201_CREATED)
 def post_library_bulk(
     payload: DramaLibraryBulkRequest,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaLibraryBulkResult:
     try:
         return bulk_upsert_dramas(session, payload)
@@ -127,7 +127,7 @@ def post_library_bulk(
 @router.post("/dramas/bulk-csv", response_model=DramaLibraryBulkResult, status_code=status.HTTP_201_CREATED)
 def post_library_bulk_csv(
     payload: DramaLibraryCsvRequest,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaLibraryBulkResult:
     try:
         return bulk_upsert_dramas(session, parse_drama_csv(payload.content))

@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.schemas.youtube import (
     AnalyticsBreakdownRead,
     AnalyticsBreakdownUpsert,
@@ -79,7 +79,7 @@ def get_api_requests(
     request_result: str | None = Query(default=None, alias="result"),
     date_from: date | None = None,
     date_to: date | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ApiRequestRecordRead]:
     return list_api_requests(
         session,
@@ -95,7 +95,7 @@ def get_api_requests(
 @router.post("/api-requests", response_model=ApiRequestRecordRead)
 def post_api_request(
     payload: ApiRequestRecordCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ApiRequestRecordRead:
     try:
         return record_api_request(session, payload)
@@ -109,7 +109,7 @@ def get_quota_usage(
     account_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[QuotaUsageRead]:
     return list_quota_usage(
         session,
@@ -126,7 +126,7 @@ def get_quota_usage_summary(
     account_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[QuotaUsageSummary]:
     return summarize_quota_usage(
         session,
@@ -142,13 +142,13 @@ def get_videos(
     channel_id: str | None = None,
     publish_status: str | None = Query(default=None, alias="status"),
     privacy_status: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[VideoRead]:
     return list_videos(session, channel_id=channel_id, publish_status=publish_status, privacy_status=privacy_status)
 
 
 @router.post("/videos", response_model=VideoRead)
-def post_video(payload: VideoUpsert, session: Session = Depends(get_db)) -> VideoRead:
+def post_video(payload: VideoUpsert, session: Session = Depends(get_tenant_db)) -> VideoRead:
     try:
         return upsert_video(session, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -160,7 +160,7 @@ def get_playlist_memberships(
     playlist_id: str | None = None,
     video_id: str | None = None,
     membership_status: str | None = Query(default=None, alias="status"),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[PlaylistMembershipRead]:
     return list_playlist_memberships(
         session,
@@ -173,7 +173,7 @@ def get_playlist_memberships(
 @router.put("/playlist-memberships", response_model=PlaylistMembershipRead)
 def put_playlist_membership(
     payload: PlaylistMembershipUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PlaylistMembershipRead:
     try:
         return upsert_playlist_membership(session, payload)
@@ -188,7 +188,7 @@ def put_playlist_membership(
 def patch_playlist_membership_order(
     membership_id: str,
     payload: PlaylistOrderChange,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PlaylistMembershipRead:
     try:
         return change_playlist_membership_order(session, membership_id, payload)
@@ -201,7 +201,7 @@ def patch_playlist_membership_order(
     response_model=list[PlaylistOrderHistoryRead],
 )
 def get_playlist_order_history(
-    playlist_id: str, session: Session = Depends(get_db)
+    playlist_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[PlaylistOrderHistoryRead]:
     try:
         return list_playlist_order_history(session, playlist_id)
@@ -215,7 +215,7 @@ def get_comments(
     video_id: str | None = None,
     reply_status: str | None = None,
     include_channel_owner: bool = False,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[CommentRead]:
     return list_comments(
         session,
@@ -227,7 +227,7 @@ def get_comments(
 
 
 @router.post("/comments", response_model=CommentRead)
-def post_comment(payload: CommentUpsert, session: Session = Depends(get_db)) -> CommentRead:
+def post_comment(payload: CommentUpsert, session: Session = Depends(get_tenant_db)) -> CommentRead:
     try:
         return upsert_comment(session, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -238,7 +238,7 @@ def post_comment(payload: CommentUpsert, session: Session = Depends(get_db)) -> 
 def patch_comment_analysis(
     comment_id: str,
     payload: CommentAnalysisUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> CommentRead:
     try:
         return update_comment_analysis(session, comment_id, payload)
@@ -249,13 +249,13 @@ def patch_comment_analysis(
 @router.get("/comment-replies", response_model=list[CommentReplyRead])
 def get_comment_replies(
     comment_id: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[CommentReplyRead]:
     return list_comment_replies(session, comment_id)
 
 
 @router.post("/comment-replies", response_model=CommentReplyRead)
-def post_comment_reply(payload: CommentReplyCreate, session: Session = Depends(get_db)) -> CommentReplyRead:
+def post_comment_reply(payload: CommentReplyCreate, session: Session = Depends(get_tenant_db)) -> CommentReplyRead:
     try:
         return create_comment_reply(session, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -266,7 +266,7 @@ def post_comment_reply(payload: CommentReplyCreate, session: Session = Depends(g
 def patch_comment_reply_review(
     reply_id: str,
     payload: CommentReplyReview,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> CommentReplyRead:
     try:
         return review_comment_reply(session, reply_id, payload)
@@ -278,7 +278,7 @@ def patch_comment_reply_review(
 def patch_comment_reply_status(
     reply_id: str,
     payload: CommentReplyStatusUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> CommentReplyRead:
     try:
         return update_comment_reply_status(session, reply_id, payload)
@@ -291,7 +291,7 @@ def get_channel_daily_metrics(
     channel_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ChannelDailyMetricRead]:
     return list_channel_metrics(session, channel_id, date_from, date_to)
 
@@ -299,7 +299,7 @@ def get_channel_daily_metrics(
 @router.post("/channel-daily-metrics", response_model=ChannelDailyMetricRead)
 def post_channel_daily_metric(
     payload: ChannelDailyMetricUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelDailyMetricRead:
     try:
         return upsert_channel_metric(session, payload)
@@ -312,7 +312,7 @@ def get_video_daily_metrics(
     video_id: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[VideoDailyMetricRead]:
     return list_video_metrics(session, video_id, date_from, date_to)
 
@@ -320,7 +320,7 @@ def get_video_daily_metrics(
 @router.post("/video-daily-metrics", response_model=VideoDailyMetricRead)
 def post_video_daily_metric(
     payload: VideoDailyMetricUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> VideoDailyMetricRead:
     try:
         return upsert_video_metric(session, payload)
@@ -334,7 +334,7 @@ def get_analytics_breakdowns(
     video_id: str | None = None,
     metric_date: date | None = None,
     dimension_type: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[AnalyticsBreakdownRead]:
     return list_breakdowns(session, channel_id, video_id, metric_date, dimension_type)
 
@@ -342,7 +342,7 @@ def get_analytics_breakdowns(
 @router.post("/analytics-breakdowns", response_model=AnalyticsBreakdownRead)
 def post_analytics_breakdown(
     payload: AnalyticsBreakdownUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> AnalyticsBreakdownRead:
     try:
         return upsert_breakdown(session, payload)
@@ -354,7 +354,7 @@ def post_analytics_breakdown(
 def get_sync_watermarks(
     channel_id: str | None = None,
     data_type: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[SyncWatermarkRead]:
     return list_sync_watermarks(session, channel_id, data_type)
 
@@ -364,7 +364,7 @@ def post_sync_start(
     channel_id: str,
     data_type: str,
     payload: SyncStart,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> SyncWatermarkRead:
     try:
         return start_sync(session, channel_id, data_type, payload)
@@ -377,7 +377,7 @@ def post_sync_complete(
     channel_id: str,
     data_type: str,
     payload: SyncComplete,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> SyncWatermarkRead:
     try:
         return complete_sync(session, channel_id, data_type, payload)

@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.permissions import require_builder_device
 from zhiju.schemas.history import (
     AuditEventRead,
@@ -40,7 +40,7 @@ def get_system_events(
     occurred_to: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[SystemEventRead]:
     return list_system_events(
         session,
@@ -68,7 +68,7 @@ def get_audit_events(
     occurred_to: datetime | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[AuditEventRead]:
     return list_audit_events(
         session,
@@ -91,14 +91,14 @@ def get_timeline(
     entity_type: str,
     entity_id: str,
     limit: int = Query(default=200, ge=1, le=500),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[EntityTimelineItem]:
     return get_entity_timeline(session, entity_type, entity_id, limit=limit)
 
 
 @router.get("/tasks/{task_id}/events", response_model=list[TaskEventRead])
 def get_task_events(
-    task_id: str, session: Session = Depends(get_db)
+    task_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[TaskEventRead]:
     try:
         return list_task_events(session, task_id)
@@ -111,7 +111,7 @@ def get_task_events(
     response_model=list[ScheduleHistoryRead],
 )
 def get_schedule_history(
-    schedule_id: str, session: Session = Depends(get_db)
+    schedule_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[ScheduleHistoryRead]:
     try:
         return list_schedule_history(session, schedule_id)
@@ -124,7 +124,7 @@ def get_schedule_history(
     response_model=list[VideoStatusHistoryRead],
 )
 def get_video_history(
-    video_id: str, session: Session = Depends(get_db)
+    video_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[VideoStatusHistoryRead]:
     try:
         return list_video_status_history(session, video_id)

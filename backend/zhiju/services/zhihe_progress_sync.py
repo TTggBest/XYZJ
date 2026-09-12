@@ -7,9 +7,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from zhiju.database import TenantSession
 from zhiju.models import Drama, DramaProductionState
 from zhiju.services.identity import _audit
 from zhiju.services.operations import normalize_drama_title
@@ -174,6 +176,8 @@ def sync_zhihe_progress(
     *,
     updated_after: datetime | None = None,
 ) -> dict[str, int]:
+    if not isinstance(session, TenantSession) or not session.info.get("tenant_id"):
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
     result = {
         "fetched": 0,
         "updated": 0,

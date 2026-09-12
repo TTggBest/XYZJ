@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.schemas.feishu_sync import FeishuSyncResult
 from zhiju.services.feishu_sync import (
     FeishuSyncError,
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/v3/feishu-sync", tags=["feishu-sync"])
 
 
 @router.post("/channel-schedules", response_model=FeishuSyncResult)
-def post_channel_schedule_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+def post_channel_schedule_sync(session: Session = Depends(get_tenant_db)) -> FeishuSyncResult:
     try:
         return sync_channel_schedules(session)
     except FeishuSyncError as exc:
@@ -26,7 +26,7 @@ def post_channel_schedule_sync(session: Session = Depends(get_db)) -> FeishuSync
 
 
 @router.post("/channels", response_model=FeishuSyncResult)
-def post_channel_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+def post_channel_sync(session: Session = Depends(get_tenant_db)) -> FeishuSyncResult:
     try:
         return sync_channels(session)
     except FeishuSyncError as exc:
@@ -34,7 +34,7 @@ def post_channel_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
 
 
 @router.post("/dramas", response_model=FeishuSyncResult)
-def post_drama_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+def post_drama_sync(session: Session = Depends(get_tenant_db)) -> FeishuSyncResult:
     try:
         return sync_dramas(session)
     except FeishuSyncError as exc:
@@ -42,7 +42,7 @@ def post_drama_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
 
 
 @router.post("/drama-languages", response_model=FeishuSyncResult)
-def post_drama_language_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+def post_drama_language_sync(session: Session = Depends(get_tenant_db)) -> FeishuSyncResult:
     try:
         return sync_drama_languages(session)
     except FeishuSyncError as exc:
@@ -50,7 +50,7 @@ def post_drama_language_sync(session: Session = Depends(get_db)) -> FeishuSyncRe
 
 
 @router.post("/work-orders", response_model=FeishuSyncResult)
-def post_work_order_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+def post_work_order_sync(session: Session = Depends(get_tenant_db)) -> FeishuSyncResult:
     try:
         return sync_work_orders(session)
     except FeishuSyncError as exc:
@@ -58,7 +58,7 @@ def post_work_order_sync(session: Session = Depends(get_db)) -> FeishuSyncResult
 
 
 @router.post("/operation-packages", response_model=FeishuSyncResult)
-def post_operation_package_sync(session: Session = Depends(get_db)) -> FeishuSyncResult:
+def post_operation_package_sync(session: Session = Depends(get_tenant_db)) -> FeishuSyncResult:
     try:
         return sync_operation_packages(session)
     except FeishuSyncError as exc:

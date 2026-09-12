@@ -4,9 +4,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint
-from sqlalchemy.orm import Session
 
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.app import app
 from zhiju.models import Drama, DramaProductionState, FeishuSyncRun
 from zhiju.services import feishu_sync
@@ -99,7 +98,8 @@ def test_operation_metadata_sync_parses_episode_count_and_duration(monkeypatch) 
     monkeypatch.setattr(feishu_sync, "_client", lambda: FakeClient())
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama = Drama(
             drama_number=-10,
@@ -130,7 +130,8 @@ def test_drama_library_rows_include_episode_count_and_duration() -> None:
     title = f"剧库元数据展示测试剧-{suffix}"
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama = Drama(
             drama_number=-11,
@@ -163,7 +164,8 @@ def test_drama_library_detail_includes_episode_count_and_duration() -> None:
     suffix = uuid4().hex[:12]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama = Drama(
             drama_number=-12,
@@ -237,7 +239,8 @@ def test_drama_feishu_deleted_status_excludes_production(monkeypatch) -> None:
     monkeypatch.setattr(feishu_sync, "_client", lambda: FakeClient())
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         feishu_sync.sync_dramas(session)
 
@@ -256,7 +259,8 @@ def test_drama_library_can_sort_by_comprehensive_score() -> None:
     suffix = uuid4().hex[:12]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         for index, score in enumerate((72, 96), start=1):
             title = f"综合评分排序测试剧-{suffix}-{index}"

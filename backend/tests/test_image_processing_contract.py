@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 
 from zhiju import models
 from zhiju.database import database_router
+from zhiju.database import TenantSession
+from zhiju.storage_scope import DEFAULT_EXISTING_TENANT_ID
+from sqlalchemy import create_engine
 from zhiju.models import ImageProcessingItem, MediaAsset
 from zhiju.services import image_processing
 from zhiju.services.image_processing import (
@@ -26,6 +29,16 @@ from zhiju.services.image_processing import (
     reveal_media_asset_folder,
     resolve_workspace_root,
 )
+
+
+@pytest.fixture(autouse=True)
+def image_orm_database(monkeypatch):
+    """These contract queries exercise ORM behavior, never production migrations."""
+    engine = create_engine("sqlite://")
+    models.Base.metadata.create_all(engine)
+    monkeypatch.setattr(database_router, "get_active_engine", lambda: engine)
+    yield engine
+    engine.dispose()
 
 
 def test_image_processing_routes_are_registered() -> None:
@@ -46,14 +59,14 @@ def test_image_processing_routes_are_registered() -> None:
     assert "get" in paths["/api/v3/media-assets/{asset_id}/thumbnail"]
     assert "get" in paths["/api/v3/media-assets/contexts"]
     assert "post" in paths["/api/v3/media-assets/{asset_id}/reveal"]
-    assert client.get("/api/v3/channels/logo-profiles").status_code == 200
+    assert client.get("/api/v3/channels/logo-profiles").status_code == 401
 
 
 def test_processing_run_history_is_counted_and_paged_within_the_selected_batch() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint", info={"tenant_id": "contract-tenant"})
     try:
         batch = models.ProductionBatch(
             batch_number=f"FS-HISTORY-{suffix}",
@@ -130,7 +143,7 @@ def test_media_asset_contexts_return_only_packages_with_images_and_small_fields(
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint", info={"tenant_id": "contract-tenant"})
     try:
         channel = models.Channel(
             youtube_channel_id=f"UC-MEDIA-{suffix}",
@@ -247,7 +260,7 @@ def test_batch_asset_coverage_includes_complete_incomplete_and_empty_packages() 
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint", info={"tenant_id": "contract-tenant"})
     try:
         channel = models.Channel(
             youtube_channel_id=f"UC-COVERAGE-{suffix}",
@@ -437,13 +450,13 @@ def test_media_gallery_filters_status_and_cycles_incomplete_groups() -> None:
 
 
 def test_workspace_root_uses_device_shared_root_for_relative_setting(tmp_path: Path) -> None:
-    assert resolve_workspace_root("images", tmp_path) == (tmp_path / "images").resolve()
-    assert resolve_workspace_root(str(tmp_path / "absolute"), None) == (tmp_path / "absolute").resolve()
+    assert resolve_workspace_root(DEFAULT_EXISTING_TENANT_ID, "images", tmp_path) == (tmp_path / "images").resolve()
+    assert resolve_workspace_root(DEFAULT_EXISTING_TENANT_ID, str(tmp_path / "absolute"), None) == (tmp_path / "absolute").resolve()
 
 
 def test_workspace_root_rejects_relative_setting_without_shared_root() -> None:
     try:
-        resolve_workspace_root("images", None)
+        resolve_workspace_root(DEFAULT_EXISTING_TENANT_ID, "images", None)
     except ValueError as exc:
         assert "ZHJ_SHARED_ROOT" in str(exc)
     else:
@@ -508,10 +521,11 @@ def test_generated_logo_is_registered_as_media_asset(tmp_path: Path) -> None:
     output_path = tmp_path / "02_标题1_16x9_logo.png"
     Image.new("RGB", (1280, 720), "green").save(output_path)
     session = Mock()
+    session.info = {"tenant_id": "contract-tenant"}
     session.scalar.return_value = None
     item = ImageProcessingItem(channel_id="channel-id", package_id="package-id")
 
-    asset = _register_logo_asset(session, item, output_path, "用户产物/logo.png")
+    asset = _register_logo_asset(session, item, output_path, "tenants/contract-tenant/用户产物/logo.png")
 
     assert isinstance(asset, MediaAsset)
     assert asset.asset_role == "thumbnail"
@@ -526,11 +540,12 @@ def test_imported_community_image_is_registered_as_media_asset(tmp_path: Path) -
     source_path = tmp_path / "08_社群2_1x1.jpg"
     Image.new("RGB", (1080, 1080), "blue").save(source_path)
     session = Mock()
+    session.info = {"tenant_id": "contract-tenant"}
     session.scalar.return_value = None
     item = ImageProcessingItem(channel_id="channel-id", package_id="package-id")
 
     asset = _register_imported_community_asset(
-        session, item, source_path, "用户产物/08_社群2_1x1.jpg"
+        session, item, source_path, "tenants/contract-tenant/用户产物/08_社群2_1x1.jpg"
     )
 
     assert isinstance(asset, MediaAsset)

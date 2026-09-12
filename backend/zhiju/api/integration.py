@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
 from zhiju.database import get_db
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.integration import (
     IntegrationAccountCreate,
     IntegrationAccountRead,
@@ -35,11 +37,17 @@ def _raise(exc: Exception) -> HTTPException:
 
 
 @router.get("/integrations", response_model=list[IntegrationRead])
-def get_integrations(session: Session = Depends(get_db)) -> list[IntegrationRead]:
+def get_integrations(
+    principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> list[IntegrationRead]:
     return list_integrations(session)
 
 
-@router.post("/integrations", response_model=IntegrationRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/integrations", response_model=IntegrationRead, status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_platform_permission)],
+)
 def post_integration(
     payload: IntegrationCreate, session: Session = Depends(get_db)
 ) -> IntegrationRead:
@@ -54,7 +62,7 @@ def post_integration(
     response_model=list[IntegrationAccountRead],
 )
 def get_integration_accounts(
-    integration_id: str, session: Session = Depends(get_db)
+    integration_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[IntegrationAccountRead]:
     try:
         return list_integration_accounts(session, integration_id)
@@ -70,7 +78,7 @@ def get_integration_accounts(
 def post_integration_account(
     integration_id: str,
     payload: IntegrationAccountCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> IntegrationAccountRead:
     try:
         return create_integration_account(session, integration_id, payload)
@@ -83,7 +91,7 @@ def post_integration_account(
     response_model=list[IntegrationCredentialRead],
 )
 def get_integration_credentials(
-    account_id: str, session: Session = Depends(get_db)
+    account_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[IntegrationCredentialRead]:
     try:
         return list_integration_credentials(session, account_id)
@@ -98,7 +106,7 @@ def get_integration_credentials(
 def put_integration_credential(
     account_id: str,
     payload: IntegrationCredentialUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> IntegrationCredentialRead:
     try:
         return upsert_integration_credential(session, account_id, payload)
@@ -113,10 +121,9 @@ def put_integration_credential(
 def post_integration_account_verify(
     account_id: str,
     payload: IntegrationAccountVerify,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> IntegrationAccountRead:
     try:
         return verify_integration_account(session, account_id, payload)
     except (IntegrationNotFoundError, ConflictError) as exc:
         raise _raise(exc) from exc
-

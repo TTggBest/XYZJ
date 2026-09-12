@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from zhiju.auth_context import Principal, get_current_principal
 from zhiju.database import get_db
-from zhiju.permissions import require_builder_device
+from zhiju.permissions import require_builder_device, require_platform_permission
 from zhiju.schemas.skill import (
     SkillCreate,
     SkillDetail,
@@ -44,6 +45,7 @@ def get_skills(
     skill_status: str | None = Query(default=None, alias="status"),
     category: str | None = None,
     query: str | None = None,
+    _principal: Principal = Depends(get_current_principal),
     session: Session = Depends(get_db),
 ) -> list[SkillRead]:
     return list_skills(
@@ -51,7 +53,12 @@ def get_skills(
     )
 
 
-@router.post("/skills", response_model=SkillRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/skills",
+    response_model=SkillRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_platform_permission)],
+)
 def post_skill(payload: SkillCreate, session: Session = Depends(get_db)) -> SkillRead:
     try:
         return create_skill(session, payload)
@@ -60,14 +67,22 @@ def post_skill(payload: SkillCreate, session: Session = Depends(get_db)) -> Skil
 
 
 @router.get("/skills/{skill_id}", response_model=SkillDetail)
-def get_skill(skill_id: str, session: Session = Depends(get_db)) -> SkillDetail:
+def get_skill(
+    skill_id: str,
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> SkillDetail:
     try:
         return get_skill_detail(session, skill_id)
     except SkillNotFoundError as exc:
         raise _raise(exc) from exc
 
 
-@router.patch("/skills/{skill_id}", response_model=SkillRead)
+@router.patch(
+    "/skills/{skill_id}",
+    response_model=SkillRead,
+    dependencies=[Depends(require_platform_permission)],
+)
 def patch_skill(
     skill_id: str, payload: SkillUpdate, session: Session = Depends(get_db)
 ) -> SkillRead:
@@ -81,7 +96,9 @@ def patch_skill(
     "/skills/{skill_id}/versions", response_model=list[SkillVersionRead]
 )
 def get_skill_versions(
-    skill_id: str, session: Session = Depends(get_db)
+    skill_id: str,
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
 ) -> list[SkillVersionRead]:
     try:
         return list_skill_versions(session, skill_id)
@@ -93,6 +110,7 @@ def get_skill_versions(
     "/skills/{skill_id}/versions",
     response_model=SkillVersionRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_platform_permission)],
 )
 def post_skill_version(
     skill_id: str,
@@ -109,7 +127,10 @@ def post_skill_version(
     "/skills/{skill_id}/versions/{version_id}", response_model=SkillVersionRead
 )
 def get_skill_version_detail(
-    skill_id: str, version_id: str, session: Session = Depends(get_db)
+    skill_id: str,
+    version_id: str,
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
 ) -> SkillVersionRead:
     try:
         return get_skill_version(session, skill_id, version_id)
@@ -118,7 +139,9 @@ def get_skill_version_detail(
 
 
 @router.put(
-    "/skills/{skill_id}/versions/{version_id}", response_model=SkillVersionRead
+    "/skills/{skill_id}/versions/{version_id}",
+    response_model=SkillVersionRead,
+    dependencies=[Depends(require_platform_permission)],
 )
 def put_skill_version(
     skill_id: str,
@@ -135,6 +158,7 @@ def put_skill_version(
 @router.post(
     "/skills/{skill_id}/versions/{version_id}/publish",
     response_model=SkillVersionRead,
+    dependencies=[Depends(require_platform_permission)],
 )
 def post_skill_version_publish(
     skill_id: str, version_id: str, session: Session = Depends(get_db)

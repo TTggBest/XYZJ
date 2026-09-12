@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from zhiju.auth_context import Principal, get_current_principal
 from zhiju.config import get_settings
 from zhiju.database import database_router
 from zhiju.realtime import broker, encode_sse, realtime_stream_url
@@ -26,16 +27,18 @@ def get_realtime_config() -> dict[str, object]:
     }
 
 
-@router.post("/events/publish")
-async def post_event(event: dict[str, object]) -> dict[str, bool]:
-    await broker.publish(event)
-    return {"published": True}
-
-
 @router.get("/events/stream")
-async def get_event_stream(request: Request) -> StreamingResponse:
+async def get_event_stream(
+    request: Request,
+    _principal: Principal = Depends(get_current_principal),
+) -> StreamingResponse:
+    principal = request.state.principal
+    tenant_id = principal.tenant_id
+    if tenant_id is None:
+        raise HTTPException(status_code=403, detail="请先选择主账号")
+
     async def events() -> AsyncIterator[str]:
-        queue = broker.subscribe()
+        queue = broker.subscribe(tenant_id=tenant_id)
         try:
             yield encode_sse({"event": "connected", "event_id": "connected"})
             while not await request.is_disconnected():
@@ -45,7 +48,7 @@ async def get_event_stream(request: Request) -> StreamingResponse:
                 except TimeoutError:
                     yield ": keepalive\n\n"
         finally:
-            broker.unsubscribe(queue)
+            broker.unsubscribe(tenant_id=tenant_id, queue=queue)
 
     return StreamingResponse(
         events(),
@@ -53,7 +56,6 @@ async def get_event_stream(request: Request) -> StreamingResponse:
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
             "X-Accel-Buffering": "no",
         },
     )

@@ -2,12 +2,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+import sqlalchemy as sa
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession
 from zhiju.models import (
-    AccountChannelAuthorization,
+    AccountChannelAuthorization, Base,
     Channel,
     ChannelPlaylist,
     GoogleAccount,
@@ -18,9 +18,11 @@ def test_authorized_channel_creates_youtube_playlist_and_backfills_link() -> Non
 
     suffix = uuid4().hex[:10]
     now = datetime.now(timezone.utc)
-    connection = database_router.get_active_engine().connect()
-    transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    engine = sa.create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = TenantSession(
+        bind=engine, info={"tenant_id": "tenant-test", "user_id": "user-test", "permissions": frozenset()},
+    )
 
     class Store:
         def get(self, service: str, account: str) -> str | None:
@@ -96,8 +98,7 @@ def test_authorized_channel_creates_youtube_playlist_and_backfills_link() -> Non
         assert created.status == "active"
     finally:
         session.close()
-        transaction.rollback()
-        connection.close()
+        engine.dispose()
 
 
 def test_youtube_playlist_creation_route_is_registered() -> None:

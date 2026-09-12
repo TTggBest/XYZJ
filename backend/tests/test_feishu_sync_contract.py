@@ -3,10 +3,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import Channel
 from zhiju.services import feishu_sync
 from zhiju.services.feishu_sync import (
@@ -51,7 +50,10 @@ def test_channel_sync_imports_chinese_meaning(monkeypatch) -> None:
 
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(
+        bind=connection, join_transaction_mode="create_savepoint",
+        info={"tenant_id": "tenant-feishu-contract"},
+    )
     try:
         feishu_sync.sync_channels(session)
         channel = session.scalar(select(Channel).where(Channel.youtube_channel_id == channel_id))

@@ -4,6 +4,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from zhiju.models import (
     Channel,
@@ -26,6 +27,7 @@ from zhiju.models import (
     CommunityPostAsset,
     MediaAsset,
     OperationPackage,
+    ProductionBatch,
     WorkOrder,
     PackageCoverVariant,
     YoutubeAnalyticsBreakdown,
@@ -50,6 +52,8 @@ from zhiju.schemas.channel import (
 )
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.settings import list_channel_initialization_rules
+from zhiju.tenant_repository import require_tenant_entity
+from zhiju.storage_scope import require_tenant_storage_key
 
 
 class NotFoundError(Exception):
@@ -57,11 +61,8 @@ class NotFoundError(Exception):
 
 
 def _channel(session: Session, channel_id: str, *, lock: bool = False) -> Channel:
-    statement = select(Channel).where(Channel.id == channel_id, Channel.deleted_at.is_(None))
-    if lock:
-        statement = statement.with_for_update()
-    channel = session.scalar(statement)
-    if channel is None:
+    channel = require_tenant_entity(session, Channel, channel_id, lock=lock)
+    if channel.deleted_at is not None:
         raise NotFoundError("频道不存在")
     return channel
 
@@ -381,7 +382,7 @@ def apply_channel_initialization_draft(
         applied_modules.append("播放列表")
 
     analysis_report = (
-        session.get(ChannelAnalysisReport, draft.applied_report_id)
+        require_tenant_entity(session, ChannelAnalysisReport, draft.applied_report_id)
         if draft.applied_report_id
         else None
     )
@@ -421,7 +422,7 @@ def apply_channel_initialization_draft(
         applied_modules.append("初始分析报告")
 
     dna_version = (
-        session.get(ChannelDnaVersion, draft.applied_dna_version_id)
+        require_tenant_entity(session, ChannelDnaVersion, draft.applied_dna_version_id)
         if draft.applied_dna_version_id
         else None
     )
@@ -790,14 +791,19 @@ def _validate_report_evidence(
         "schedule": ChannelScheduleEntry,
         "channel_dna": ChannelDnaVersion,
     }
-    entity = session.get(model_by_type[source_type], source_entity_id)
+    model = model_by_type[source_type]
+    if source_type in {"channel_metric", "schedule", "channel_dna"}:
+        entity = require_tenant_entity(session, model, source_entity_id)
+    else:
+        entity = session.scalar(select(model).where(model.id == source_entity_id))
     if entity is None:
-        raise ConflictError(f"分析证据不存在: {source_type}/{source_entity_id}")
+        raise HTTPException(status_code=404, detail="数据不存在")
     if source_type == "video_metric":
-        video = session.get(YoutubeVideo, entity.video_id)
+        video = session.scalar(select(YoutubeVideo).where(YoutubeVideo.id == entity.video_id))
         evidence_channel_id = video.channel_id if video else None
     else:
         evidence_channel_id = entity.channel_id
+    _channel(session, evidence_channel_id)
     if evidence_channel_id != channel_id:
         raise ConflictError("分析证据不属于当前频道")
 
@@ -873,6 +879,10 @@ def create_dna_version(
     session: Session, channel_id: str, payload: ChannelDnaVersionCreate
 ) -> tuple[ChannelDnaVersion, list[ChannelDnaSignal]]:
     _channel(session, channel_id, lock=True)
+    if payload.analysis_report_id:
+        report = require_tenant_entity(session, ChannelAnalysisReport, payload.analysis_report_id)
+        if report.channel_id != channel_id:
+            raise NotFoundError("频道分析报告不存在")
     next_version = (
         session.scalar(
             select(func.coalesce(func.max(ChannelDnaVersion.version_number), 0)).where(
@@ -941,16 +951,15 @@ def list_dna_versions(session: Session, channel_id: str) -> list[dict[str, objec
 
 
 def register_media_asset(session: Session, payload: MediaAssetCreate) -> MediaAsset:
+    storage_key = require_tenant_storage_key(session.info["tenant_id"], payload.storage_key.strip())
     if payload.channel_id:
         _channel(session, payload.channel_id)
     if payload.operation_package_id:
-        package = session.get(OperationPackage, payload.operation_package_id)
-        if package is None:
-            raise NotFoundError("运营包不存在")
+        package = require_tenant_entity(session, OperationPackage, payload.operation_package_id)
+        _channel(session, package.channel_id)
         if payload.channel_id and package.channel_id != payload.channel_id:
             raise ConflictError("媒体资产频道与运营包频道不一致")
     provider = payload.storage_provider.strip().lower()
-    storage_key = payload.storage_key.strip()
     existing = session.scalar(
         select(MediaAsset).where(
             MediaAsset.storage_provider == provider,
@@ -989,8 +998,8 @@ def _require_channel_profile_asset(
 ) -> None:
     if asset_id is None:
         return
-    asset = session.get(MediaAsset, asset_id)
-    if asset is None or asset.deleted_at is not None:
+    asset = require_tenant_entity(session, MediaAsset, asset_id)
+    if asset.deleted_at is not None:
         raise ConflictError(f"{label}资产不存在")
     if (
         asset.channel_id != channel_id
@@ -1002,13 +1011,7 @@ def _require_channel_profile_asset(
 
 
 def _media_asset(session: Session, asset_id: str, *, lock: bool = False) -> MediaAsset:
-    statement = select(MediaAsset).where(MediaAsset.id == asset_id)
-    if lock:
-        statement = statement.with_for_update()
-    row = session.scalar(statement)
-    if row is None:
-        raise NotFoundError("媒体资产不存在")
-    return row
+    return require_tenant_entity(session, MediaAsset, asset_id, lock=lock)
 
 
 def list_media_assets(
@@ -1024,6 +1027,12 @@ def list_media_assets(
     include_deleted: bool = False,
     limit: int = 200,
 ) -> list[MediaAsset]:
+    if channel_id:
+        require_tenant_entity(session, Channel, channel_id)
+    if operation_package_id:
+        require_tenant_entity(session, OperationPackage, operation_package_id)
+    if batch_id:
+        require_tenant_entity(session, ProductionBatch, batch_id)
     statement = select(MediaAsset)
     if batch_id is not None:
         statement = (

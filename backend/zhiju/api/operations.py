@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
+from zhiju.auth_context import get_current_principal, get_tenant_db
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.operations import (
     CadenceTemplateRead,
     CadenceTemplateUpdate,
@@ -81,7 +83,8 @@ def _raise(exc: Exception) -> HTTPException:
     return HTTPException(status_code=404 if isinstance(exc, NotFoundError) else 409, detail=str(exc))
 
 
-@router.get("/cadence-templates", response_model=list[CadenceTemplateRead])
+@router.get("/cadence-templates", response_model=list[CadenceTemplateRead],
+            dependencies=[Depends(get_current_principal)])
 def get_cadence_templates(session: Session = Depends(get_db)) -> list[CadenceTemplateRead]:
     return list_cadence_templates(session)
 
@@ -89,6 +92,7 @@ def get_cadence_templates(session: Session = Depends(get_db)) -> list[CadenceTem
 @router.put(
     "/cadence-templates/{daily_publish_count}",
     response_model=CadenceTemplateRead,
+    dependencies=[Depends(require_platform_permission)],
 )
 def put_cadence_template(
     daily_publish_count: int,
@@ -105,7 +109,7 @@ def put_cadence_template(
 def patch_channel_cadence(
     channel_id: str,
     payload: ChannelCadenceUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> dict[str, object]:
     try:
         channel = update_channel_cadence(
@@ -124,7 +128,7 @@ def patch_channel_cadence(
 @router.get("/cadence-overview", response_model=list[ChannelCadenceOverview])
 def get_cadence_overview(
     on_date: date,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ChannelCadenceOverview]:
     try:
         return list_cadence_overview(session, on_date=on_date)
@@ -133,12 +137,12 @@ def get_cadence_overview(
 
 
 @router.get("/dramas", response_model=list[DramaRead])
-def get_dramas(session: Session = Depends(get_db)) -> list[DramaRead]:
+def get_dramas(session: Session = Depends(get_tenant_db)) -> list[DramaRead]:
     return list_dramas(session)
 
 
 @router.post("/dramas", response_model=DramaRead, status_code=status.HTTP_201_CREATED)
-def post_drama(payload: DramaCreate, session: Session = Depends(get_db)) -> DramaRead:
+def post_drama(payload: DramaCreate, session: Session = Depends(get_tenant_db)) -> DramaRead:
     try:
         return create_drama(session, payload)
     except ConflictError as exc:
@@ -146,7 +150,7 @@ def post_drama(payload: DramaCreate, session: Session = Depends(get_db)) -> Dram
 
 
 @router.get("/dramas/match", response_model=DramaRead | None)
-def get_drama_match(title: str = Query(min_length=1), session: Session = Depends(get_db)) -> DramaRead | None:
+def get_drama_match(title: str = Query(min_length=1), session: Session = Depends(get_tenant_db)) -> DramaRead | None:
     return match_drama(session, title)
 
 
@@ -156,7 +160,7 @@ def get_drama_match(title: str = Query(min_length=1), session: Session = Depends
 )
 def get_drama_translations(
     drama_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[DramaTranslationRead]:
     try:
         return list_drama_translations(session, drama_id=drama_id)
@@ -172,7 +176,7 @@ def put_drama_translation(
     drama_id: str,
     language_id: str,
     payload: DramaTranslationUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaTranslationRead:
     try:
         return upsert_drama_translation(
@@ -190,7 +194,7 @@ def get_translation_matrix(
     language_id: str | None = None,
     translation_status: str | None = None,
     asset_status: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[DramaTranslationRead]:
     return list_drama_translations(
         session,
@@ -208,7 +212,7 @@ def get_translation_matrix_view(
     drama_status: str | None = None,
     language_code: list[str] | None = Query(default=None),
     include_inactive_languages: bool = False,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[DramaTranslationMatrixRow]:
     return list_drama_translation_matrix(
         session,
@@ -218,12 +222,14 @@ def get_translation_matrix_view(
     )
 
 
-@router.get("/languages", response_model=list[LanguageRead])
+@router.get("/languages", response_model=list[LanguageRead],
+            dependencies=[Depends(get_current_principal)])
 def get_languages(session: Session = Depends(get_db)) -> list[LanguageRead]:
     return list_languages(session)
 
 
-@router.post("/languages", response_model=LanguageRead, status_code=status.HTTP_201_CREATED)
+@router.post("/languages", response_model=LanguageRead, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_platform_permission)])
 def post_language(payload: LanguageCreate, session: Session = Depends(get_db)) -> LanguageRead:
     try:
         return create_language(session, payload)
@@ -232,7 +238,7 @@ def post_language(payload: LanguageCreate, session: Session = Depends(get_db)) -
 
 
 @router.get("/channels/{channel_id}/playlists", response_model=list[PlaylistRead])
-def get_playlists(channel_id: str, session: Session = Depends(get_db)) -> list[PlaylistRead]:
+def get_playlists(channel_id: str, session: Session = Depends(get_tenant_db)) -> list[PlaylistRead]:
     try:
         return list_playlists(session, channel_id)
     except (NotFoundError, ConflictError) as exc:
@@ -244,7 +250,7 @@ def get_playlists(channel_id: str, session: Session = Depends(get_db)) -> list[P
     response_model=PlaylistRead,
     status_code=status.HTTP_201_CREATED,
 )
-def post_playlist(channel_id: str, payload: PlaylistCreate, session: Session = Depends(get_db)) -> PlaylistRead:
+def post_playlist(channel_id: str, payload: PlaylistCreate, session: Session = Depends(get_tenant_db)) -> PlaylistRead:
     try:
         return create_playlist(session, channel_id, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -259,7 +265,7 @@ def patch_playlist(
     channel_id: str,
     playlist_id: str,
     payload: PlaylistUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PlaylistRead:
     try:
         return update_playlist(session, channel_id, playlist_id, payload)
@@ -268,7 +274,7 @@ def patch_playlist(
 
 
 @router.get("/channels/{channel_id}/publish-slots", response_model=list[PublishSlotRead])
-def get_publish_slots(channel_id: str, session: Session = Depends(get_db)) -> list[PublishSlotRead]:
+def get_publish_slots(channel_id: str, session: Session = Depends(get_tenant_db)) -> list[PublishSlotRead]:
     try:
         return list_publish_slots(session, channel_id)
     except (NotFoundError, ConflictError) as exc:
@@ -280,7 +286,7 @@ def get_publish_slots(channel_id: str, session: Session = Depends(get_db)) -> li
     response_model=list[PublishSlotChannelOverview],
 )
 def get_publish_slot_overview(
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[PublishSlotChannelOverview]:
     return list_publish_slot_overview(session)
 
@@ -291,7 +297,7 @@ def get_publish_slot_overview(
     status_code=status.HTTP_201_CREATED,
 )
 def post_publish_slot(
-    channel_id: str, payload: PublishSlotCreate, session: Session = Depends(get_db)
+    channel_id: str, payload: PublishSlotCreate, session: Session = Depends(get_tenant_db)
 ) -> PublishSlotRead:
     try:
         return create_publish_slot(session, channel_id, payload)
@@ -307,7 +313,7 @@ def patch_publish_slot(
     channel_id: str,
     publish_slot_id: str,
     payload: PublishSlotCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PublishSlotRead:
     try:
         return update_publish_slot(session, channel_id, publish_slot_id, payload)
@@ -322,7 +328,7 @@ def patch_publish_slot(
 def get_community_slots(
     channel_id: str,
     include_archived: bool = False,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[CommunitySlotRead]:
     try:
         return list_community_slots(
@@ -342,7 +348,7 @@ def get_community_slots(
 def post_community_slot(
     channel_id: str,
     payload: CommunitySlotCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> CommunitySlotRead:
     try:
         return create_community_slot(session, channel_id, payload)
@@ -357,7 +363,7 @@ def post_community_slot(
 def patch_community_slot_status(
     community_slot_id: str,
     payload: CommunitySlotStatusChange,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> CommunitySlotRead:
     try:
         return change_community_slot_status(
@@ -376,7 +382,7 @@ def get_schedules(
     date_from: date | None = None,
     date_to: date | None = None,
     schedule_status: str | None = Query(default=None, alias="status"),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ScheduleRead]:
     return list_schedules(
         session,
@@ -388,7 +394,7 @@ def get_schedules(
 
 
 @router.get("/schedules/eligible-dramas", response_model=list[DramaRead])
-def get_schedulable_dramas(session: Session = Depends(get_db)) -> list[DramaRead]:
+def get_schedulable_dramas(session: Session = Depends(get_tenant_db)) -> list[DramaRead]:
     return list_schedulable_dramas(session)
 
 
@@ -399,7 +405,7 @@ def get_channel_schedule_page(
     sort_order: Literal["asc", "desc"] = "asc",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelSchedulePage:
     if page_size not in {50, 100, 150}:
         raise HTTPException(
@@ -423,7 +429,7 @@ def get_schedule_overview(
     date_to: date | None = None,
     schedule_status: str | None = Query(default=None, alias="status"),
     has_task: bool | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ScheduleOverview]:
     return list_schedule_overview(
         session,
@@ -440,7 +446,7 @@ def get_schedule_overview(
     response_model=ScheduleRead,
     status_code=status.HTTP_201_CREATED,
 )
-def post_schedule(channel_id: str, payload: ScheduleCreate, session: Session = Depends(get_db)) -> ScheduleRead:
+def post_schedule(channel_id: str, payload: ScheduleCreate, session: Session = Depends(get_tenant_db)) -> ScheduleRead:
     try:
         return create_schedule(session, channel_id, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -451,7 +457,7 @@ def post_schedule(channel_id: str, payload: ScheduleCreate, session: Session = D
 def patch_schedule_status(
     schedule_id: str,
     payload: ScheduleStatusChange,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ScheduleRead:
     try:
         return change_schedule_status(session, schedule_id, payload.status, payload.reason)
@@ -463,7 +469,7 @@ def patch_schedule_status(
 def patch_schedule_source_video(
     schedule_id: str,
     payload: SourceVideoUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ScheduleRead:
     try:
         return update_schedule_source_video(session, schedule_id, payload)
@@ -477,7 +483,7 @@ def patch_schedule_source_video(
 )
 def get_schedule_candidates(
     schedule_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ScheduleCandidateRead]:
     try:
         return list_schedule_candidates(session, schedule_id)
@@ -493,7 +499,7 @@ def get_schedule_candidates(
 def post_schedule_candidate(
     schedule_id: str,
     payload: ScheduleCandidateCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ScheduleCandidateRead:
     try:
         return create_schedule_candidate(session, schedule_id, payload)
@@ -509,7 +515,7 @@ def post_select_schedule_candidate(
     schedule_id: str,
     candidate_id: str,
     payload: ScheduleCandidateSelect,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ScheduleRead:
     try:
         return select_schedule_candidate(

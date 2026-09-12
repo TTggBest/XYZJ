@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from zhiju import models
 from zhiju.app import app
 from zhiju.database import database_router
+from zhiju.database import TenantSession
+from test_image_processing_contract import image_orm_database
 from zhiju.schemas.channel import MediaAssetCreate
 from zhiju.services.channel import list_media_assets
 
@@ -48,7 +50,7 @@ def test_media_assets_can_be_filtered_by_production_batch() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint", info={"tenant_id": "contract-tenant"})
     try:
         channel = models.Channel(
             youtube_channel_id=f"UC-ASSET-BATCH-{suffix}",

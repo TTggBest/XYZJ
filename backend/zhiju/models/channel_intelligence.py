@@ -18,10 +18,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
-class MediaAsset(IdMixin, TimestampMixin, Base):
+class MediaAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "media_assets"
     __table_args__ = (
         CheckConstraint("asset_type IN ('image','video','audio','document','other')", name="valid_asset_type"),
@@ -31,14 +31,14 @@ class MediaAsset(IdMixin, TimestampMixin, Base):
         ),
         CheckConstraint("status IN ('pending','ready','failed','archived','deleted')", name="valid_status"),
         CheckConstraint("file_size_bytes >= 0", name="file_size_nonnegative"),
-        UniqueConstraint("storage_provider", "storage_key", name="uq_media_assets_storage_location"),
+        UniqueConstraint("tenant_id", "storage_provider", "storage_key", name="uq_media_assets_tenant_storage"),
         Index("ix_media_assets_channel_status", "channel_id", "status"),
         Index("ix_media_assets_sha256", "sha256"),
         {"comment": "图片、视频和文档等媒体资产元数据"},
     )
 
-    channel_id: Mapped[str | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), comment="所属频道内部ID")
-    operation_package_id: Mapped[str | None] = mapped_column(ForeignKey("operation_packages.id", ondelete="SET NULL"), comment="所属运营包ID")
+    channel_id: Mapped[str | None] = mapped_column(String(36), comment="所属频道内部ID")
+    operation_package_id: Mapped[str | None] = mapped_column(String(36), comment="所属运营包ID")
     storage_provider: Mapped[str] = mapped_column(String(40), nullable=False, comment="存储提供方，如local或s3")
     storage_key: Mapped[str] = mapped_column(String(600), nullable=False, comment="存储系统内稳定对象键")
     original_filename: Mapped[str | None] = mapped_column(String(500), comment="上传时原始文件名")
@@ -58,7 +58,7 @@ class MediaAsset(IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="软删除时间")
 
 
-class ChannelProfile(IdMixin, TimestampMixin, Base):
+class ChannelProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_profiles"
     __table_args__ = (
         CheckConstraint("status IN ('draft','active','archived')", name="valid_status"),
@@ -66,9 +66,9 @@ class ChannelProfile(IdMixin, TimestampMixin, Base):
         {"comment": "频道当前展示与定位档案"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
-    avatar_asset_id: Mapped[str | None] = mapped_column(ForeignKey("media_assets.id", ondelete="SET NULL"), comment="当前头像资产ID")
-    banner_asset_id: Mapped[str | None] = mapped_column(ForeignKey("media_assets.id", ondelete="SET NULL"), comment="当前Banner资产ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    avatar_asset_id: Mapped[str | None] = mapped_column(String(36), comment="当前头像资产ID")
+    banner_asset_id: Mapped[str | None] = mapped_column(String(36), comment="当前Banner资产ID")
     description: Mapped[str | None] = mapped_column(Text, comment="频道说明")
     language: Mapped[str | None] = mapped_column(String(20), comment="频道展示语言")
     positioning: Mapped[str | None] = mapped_column(Text, comment="频道定位说明")
@@ -80,7 +80,7 @@ class ChannelProfile(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft", comment="档案状态")
 
 
-class ChannelInitializationDraft(IdMixin, TimestampMixin, Base):
+class ChannelInitializationDraft(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_initialization_drafts"
     __table_args__ = (
         UniqueConstraint("channel_id", name="uq_channel_initialization_drafts_channel_id"),
@@ -88,20 +88,20 @@ class ChannelInitializationDraft(IdMixin, TimestampMixin, Base):
     )
 
     channel_id: Mapped[str] = mapped_column(
-        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID"
+        nullable=False, comment="频道内部ID"
     )
     input_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, comment="初始化输入快照")
     output_draft: Mapped[dict] = mapped_column(JSON, nullable=False, comment="初始化模块输出草稿")
     applied_report_id: Mapped[str | None] = mapped_column(
-        ForeignKey("channel_analysis_reports.id", ondelete="SET NULL"), comment="已应用的初始分析报告ID"
+        comment="已应用的初始分析报告ID"
     )
     applied_dna_version_id: Mapped[str | None] = mapped_column(
-        ForeignKey("channel_dna_versions.id", ondelete="SET NULL"), comment="已应用的频道运营参考版本ID"
+        comment="已应用的频道运营参考版本ID"
     )
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最近应用时间")
 
 
-class ChannelPinnedCommentTemplate(IdMixin, TimestampMixin, Base):
+class ChannelPinnedCommentTemplate(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_pinned_comment_templates"
     __table_args__ = (
         CheckConstraint(
@@ -125,7 +125,6 @@ class ChannelPinnedCommentTemplate(IdMixin, TimestampMixin, Base):
     )
 
     channel_id: Mapped[str] = mapped_column(
-        ForeignKey("channels.id", ondelete="CASCADE"),
         nullable=False,
         comment="所属频道内部ID",
     )
@@ -137,7 +136,7 @@ class ChannelPinnedCommentTemplate(IdMixin, TimestampMixin, Base):
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="结束生效时间")
 
 
-class ChannelBrandingAsset(IdMixin, TimestampMixin, Base):
+class ChannelBrandingAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_branding_assets"
     __table_args__ = (
         CheckConstraint("role IN ('avatar','banner','watermark','community_default')", name="valid_role"),
@@ -146,15 +145,15 @@ class ChannelBrandingAsset(IdMixin, TimestampMixin, Base):
         {"comment": "频道装潢资产使用历史"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
-    asset_id: Mapped[str] = mapped_column(ForeignKey("media_assets.id", ondelete="RESTRICT"), nullable=False, comment="媒体资产ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    asset_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="媒体资产ID")
     role: Mapped[str] = mapped_column(String(30), nullable=False, comment="装潢资产用途")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft", comment="使用状态")
     effective_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="生效时间")
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="失效时间")
 
 
-class ChannelKeyword(IdMixin, TimestampMixin, Base):
+class ChannelKeyword(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_keywords"
     __table_args__ = (
         CheckConstraint("keyword_type IN ('keyword','tag')", name="valid_keyword_type"),
@@ -165,7 +164,7 @@ class ChannelKeyword(IdMixin, TimestampMixin, Base):
         {"comment": "频道关键词与标签明细"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     keyword: Mapped[str] = mapped_column(String(255), nullable=False, comment="关键词或标签正文")
     keyword_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="词条类型")
     language: Mapped[str] = mapped_column(String(20), nullable=False, comment="词条语言")
@@ -176,7 +175,7 @@ class ChannelKeyword(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="词条状态")
 
 
-class ChannelAnalysisReport(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisReport(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_reports"
     __table_args__ = (
         CheckConstraint("report_type IN ('initial','periodic','manual','incident')", name="valid_report_type"),
@@ -187,7 +186,7 @@ class ChannelAnalysisReport(IdMixin, TimestampMixin, Base):
         {"comment": "频道分析报告及其历史版本"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="频道内分析报告版本号")
     report_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="报告类型")
     period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="分析周期开始时间")
@@ -203,7 +202,7 @@ class ChannelAnalysisReport(IdMixin, TimestampMixin, Base):
     generated_by: Mapped[str] = mapped_column(String(40), nullable=False, server_default="system", comment="报告生成方式")
 
 
-class ChannelAnalysisTopicScore(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisTopicScore(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_topic_scores"
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="score_range"),
@@ -214,7 +213,7 @@ class ChannelAnalysisTopicScore(IdMixin, TimestampMixin, Base):
         {"comment": "频道分析报告中的题材评分"},
     )
 
-    report_id: Mapped[str] = mapped_column(ForeignKey("channel_analysis_reports.id", ondelete="CASCADE"), nullable=False, comment="分析报告ID")
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="分析报告ID")
     topic: Mapped[str] = mapped_column(String(255), nullable=False, comment="题材或内容方向")
     score: Mapped[Decimal] = mapped_column(Numeric(6, 5), nullable=False, comment="题材评分，0到1")
     trend: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unknown", comment="上升、稳定、下降或未知")
@@ -222,7 +221,7 @@ class ChannelAnalysisTopicScore(IdMixin, TimestampMixin, Base):
     evidence_summary: Mapped[str | None] = mapped_column(Text, comment="题材评分证据摘要")
 
 
-class ChannelAnalysisKeywordScore(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisKeywordScore(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_keyword_scores"
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="score_range"),
@@ -233,7 +232,7 @@ class ChannelAnalysisKeywordScore(IdMixin, TimestampMixin, Base):
         {"comment": "频道分析报告中的关键词评分"},
     )
 
-    report_id: Mapped[str] = mapped_column(ForeignKey("channel_analysis_reports.id", ondelete="CASCADE"), nullable=False, comment="分析报告ID")
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="分析报告ID")
     keyword: Mapped[str] = mapped_column(String(255), nullable=False, comment="关键词正文")
     language: Mapped[str] = mapped_column(String(20), nullable=False, comment="关键词语言")
     score: Mapped[Decimal] = mapped_column(Numeric(6, 5), nullable=False, comment="关键词评分，0到1")
@@ -242,7 +241,7 @@ class ChannelAnalysisKeywordScore(IdMixin, TimestampMixin, Base):
     evidence_summary: Mapped[str | None] = mapped_column(Text, comment="关键词评分证据摘要")
 
 
-class ChannelAudienceProfile(IdMixin, TimestampMixin, Base):
+class ChannelAudienceProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_audience_profiles"
     __table_args__ = (
         CheckConstraint("profile_type IN ('country','device','traffic_source','active_time','age_group','gender','viewer_type','behavior','genre')", name="valid_profile_type"),
@@ -253,7 +252,7 @@ class ChannelAudienceProfile(IdMixin, TimestampMixin, Base):
         {"comment": "频道分析报告中的结构化用户画像"},
     )
 
-    report_id: Mapped[str] = mapped_column(ForeignKey("channel_analysis_reports.id", ondelete="CASCADE"), nullable=False, comment="分析报告ID")
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="分析报告ID")
     profile_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="国家、设备、流量来源或行为等画像类型")
     segment_value: Mapped[str] = mapped_column(String(255), nullable=False, comment="画像分群值")
     share: Mapped[Decimal | None] = mapped_column(Numeric(8, 5), comment="该分群占比，0到1")
@@ -262,7 +261,7 @@ class ChannelAudienceProfile(IdMixin, TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text, comment="画像业务解释")
 
 
-class ChannelStrategyRecommendation(IdMixin, TimestampMixin, Base):
+class ChannelStrategyRecommendation(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_strategy_recommendations"
     __table_args__ = (
         CheckConstraint("category IN ('content','schedule','title','cover','description','community','playlist','risk')", name="valid_category"),
@@ -273,7 +272,7 @@ class ChannelStrategyRecommendation(IdMixin, TimestampMixin, Base):
         {"comment": "频道分析报告中的结构化策略建议"},
     )
 
-    report_id: Mapped[str] = mapped_column(ForeignKey("channel_analysis_reports.id", ondelete="CASCADE"), nullable=False, comment="分析报告ID")
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="分析报告ID")
     category: Mapped[str] = mapped_column(String(30), nullable=False, comment="内容、排期、标题、封面等建议类别")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, comment="建议优先级")
     recommendation: Mapped[str] = mapped_column(Text, nullable=False, comment="可执行建议正文")
@@ -282,7 +281,7 @@ class ChannelStrategyRecommendation(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="proposed", comment="建议采用状态")
 
 
-class ChannelAnalysisEvidence(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisEvidence(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_evidence"
     __table_args__ = (
         CheckConstraint("source_type IN ('channel_metric','video_metric','analytics_breakdown','youtube_video','comment','operation_package','schedule','channel_dna','manual')", name="valid_source_type"),
@@ -292,7 +291,7 @@ class ChannelAnalysisEvidence(IdMixin, TimestampMixin, Base):
         {"comment": "频道分析报告使用的数据库证据关联"},
     )
 
-    report_id: Mapped[str] = mapped_column(ForeignKey("channel_analysis_reports.id", ondelete="CASCADE"), nullable=False, comment="分析报告ID")
+    report_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="分析报告ID")
     source_type: Mapped[str] = mapped_column(String(40), nullable=False, comment="证据业务实体类型")
     source_entity_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="证据业务实体稳定ID")
     evidence_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="证据对应业务时间")
@@ -300,7 +299,7 @@ class ChannelAnalysisEvidence(IdMixin, TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text, comment="证据摘要")
 
 
-class ChannelDnaVersion(IdMixin, TimestampMixin, Base):
+class ChannelDnaVersion(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_dna_versions"
     __table_args__ = (
         CheckConstraint("status IN ('draft','active','superseded','archived')", name="valid_status"),
@@ -309,8 +308,8 @@ class ChannelDnaVersion(IdMixin, TimestampMixin, Base):
         {"comment": "可追溯的频道DNA版本"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
-    analysis_report_id: Mapped[str | None] = mapped_column(ForeignKey("channel_analysis_reports.id", ondelete="SET NULL"), comment="形成该版本的分析报告ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    analysis_report_id: Mapped[str | None] = mapped_column(String(36), comment="形成该版本的分析报告ID")
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="频道内递增版本号")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft", comment="DNA版本状态")
     language: Mapped[str] = mapped_column(String(20), nullable=False, comment="频道语言")
@@ -332,7 +331,7 @@ class ChannelDnaVersion(IdMixin, TimestampMixin, Base):
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="失效时间")
 
 
-class ChannelDnaSignal(IdMixin, TimestampMixin, Base):
+class ChannelDnaSignal(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_dna_signals"
     __table_args__ = (
         CheckConstraint(
@@ -346,9 +345,37 @@ class ChannelDnaSignal(IdMixin, TimestampMixin, Base):
         {"comment": "频道DNA中的高低表现关键词和剧情模式"},
     )
 
-    dna_version_id: Mapped[str] = mapped_column(ForeignKey("channel_dna_versions.id", ondelete="CASCADE"), nullable=False, comment="频道DNA版本ID")
+    dna_version_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道DNA版本ID")
     signal_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="信号类型")
     value: Mapped[str] = mapped_column(String(500), nullable=False, comment="关键词或剧情模式正文")
     weight: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False, server_default="0.5000", comment="信号权重，0到1")
     rank_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="同类信号排序")
     evidence_summary: Mapped[str | None] = mapped_column(Text, comment="形成该判断的证据摘要")
+
+
+configure_tenant_relations(
+    (
+        ("channel_analysis_reports", "channel_id", "channels", "CASCADE"),
+        ("channel_keywords", "channel_id", "channels", "CASCADE"),
+        ("channel_pinned_comment_templates", "channel_id", "channels", "CASCADE"),
+        ("channel_analysis_evidence", "report_id", "channel_analysis_reports", "CASCADE"),
+        ("channel_analysis_keyword_scores", "report_id", "channel_analysis_reports", "CASCADE"),
+        ("channel_analysis_topic_scores", "report_id", "channel_analysis_reports", "CASCADE"),
+        ("channel_audience_profiles", "report_id", "channel_analysis_reports", "CASCADE"),
+        ("channel_dna_versions", "analysis_report_id", "channel_analysis_reports", "RESTRICT"),
+        ("channel_dna_versions", "channel_id", "channels", "CASCADE"),
+        ("channel_strategy_recommendations", "report_id", "channel_analysis_reports", "CASCADE"),
+        ("channel_dna_signals", "dna_version_id", "channel_dna_versions", "CASCADE"),
+        ("channel_initialization_drafts", "applied_dna_version_id", "channel_dna_versions", "RESTRICT"),
+        ("channel_initialization_drafts", "applied_report_id", "channel_analysis_reports", "RESTRICT"),
+        ("channel_initialization_drafts", "channel_id", "channels", "CASCADE"),
+        ("media_assets", "channel_id", "channels", "RESTRICT"),
+        ("media_assets", "operation_package_id", "operation_packages", "RESTRICT"),
+        ("channel_branding_assets", "asset_id", "media_assets", "RESTRICT"),
+        ("channel_branding_assets", "channel_id", "channels", "CASCADE"),
+        ("channel_profiles", "avatar_asset_id", "media_assets", "RESTRICT"),
+        ("channel_profiles", "banner_asset_id", "media_assets", "RESTRICT"),
+        ("channel_profiles", "channel_id", "channels", "CASCADE"),
+    ),
+    parent_tables=("channel_analysis_reports", "channel_dna_versions", "media_assets"),
+)

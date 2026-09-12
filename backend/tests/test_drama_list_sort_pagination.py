@@ -2,6 +2,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from zhiju.app import app
+from zhiju.auth_context import Principal, get_current_principal
+
+
+@pytest.fixture(autouse=True)
+def authenticated_tenant(monkeypatch):
+    principal = Principal(
+        user_id="test-user", tenant_id="00000000-0000-4000-8000-000000000001",
+        membership_role="viewer", platform_role=None, device_id=None,
+        device_trust_level="normal", permissions=frozenset(),
+    )
+    monkeypatch.setitem(app.dependency_overrides, get_current_principal, lambda: principal)
 
 
 @pytest.mark.parametrize(

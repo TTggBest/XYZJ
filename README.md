@@ -7,15 +7,13 @@
 - Web/API：`http://127.0.0.1:19732`
 - API 文档：`http://127.0.0.1:19732/docs`
 
-## 多设备实时状态
+## 实时状态
 
-智矩使用 SSE 通知多台设备刷新共用 MySQL 中的最新状态，不做定时轮询。
+浏览器使用已登录会话订阅当前同源 API 的 SSE；成功业务写入由处理该请求的 API 进程按租户发布变更通知。
 
 - 生产运行包每次启动时按本机 hostname 查询 `devices` 表，自动取得 `builder`、`studio` 或 `worker` 角色。
-- Studio 自动监听 `0.0.0.0` 并作为 SSE 中心；其他生产设备自动使用 `http://192.168.8.8:19732`。
-- 本机开发：`ZHJ_DEVICE_ROLE=builder`，`ZHJ_REALTIME_HUB_URL` 留空。
-
-SSE 只发送变更通知，页面收到后仍通过本机 API 从 MySQL 读取业务数据。
+- 所有角色的 `ZHJ_REALTIME_HUB_URL` 都留空；浏览器不跨 origin 连接另一台设备的 SSE。
+- SSE 只是界面刷新加速通道，MySQL 仍是唯一业务事实源；断线或跨进程通知不可用时，刷新页面从 API 重读权威数据。
 - 智矩 MySQL：`127.0.0.1:33306`
 - 数据库：`zhiju_dev`
 - 配置：`.env`，不进入版本管理

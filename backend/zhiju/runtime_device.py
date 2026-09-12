@@ -37,11 +37,9 @@ def runtime_values_for_device(device: RuntimeDevice, *, home: str) -> dict[str, 
     if device.device_role == "studio":
         shared_root = Path(home) / "Documents" / "XYData" / "XYZJ"
         host = "0.0.0.0"
-        hub_url = ""
     else:
         shared_root = Path("/Volumes/XYData/XYZJ")
         host = "127.0.0.1"
-        hub_url = "http://192.168.8.8:19732"
     return {
         "ZHJ_ENV": "production",
         "ZHJ_HOST": host,
@@ -50,7 +48,7 @@ def runtime_values_for_device(device: RuntimeDevice, *, home: str) -> dict[str, 
         "ZHJ_DEVICE_ID": device.id,
         "ZHJ_DEVICE_ROLE": device.device_role,
         "ZHJ_DEVICE_KEY": device.device_key,
-        "ZHJ_REALTIME_HUB_URL": hub_url,
+        "ZHJ_REALTIME_HUB_URL": "",
         "ZHJ_SHARED_ROOT": str(shared_root),
         "ZHJ_ARTIFACT_ROOT": str(shared_root / "artifacts"),
     }

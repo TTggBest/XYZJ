@@ -1,9 +1,8 @@
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 from uuid import uuid4
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import Channel, ChannelDramaType
 from zhiju.schemas.channel import ChannelDetailRead, ChannelHubUpdate
 from zhiju.services.channel import update_channel_hub
@@ -51,7 +50,8 @@ def test_channel_hub_update_persists_editable_fields() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama_type = ChannelDramaType(
             code=f"hub-{suffix}", name=f"频道类型-{suffix}", status="active"

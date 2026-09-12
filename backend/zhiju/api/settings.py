@@ -6,12 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
 from zhiju.database import (
     can_switch_database_environment,
     database_router,
     get_db,
     upgrade_production_database,
 )
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.identity import DeviceRead, DeviceRegister
 from zhiju.schemas.settings import (
     AppIconSettingRead,
@@ -50,14 +52,14 @@ router = APIRouter(prefix="/v3", tags=["settings"])
     response_model=list[ChannelInitializationRuleRead],
 )
 def get_channel_initialization_rules(
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ChannelInitializationRuleRead]:
     return list_channel_initialization_rules(session)
 
 
 @router.get("/settings/channel-drama-types", response_model=list[ChannelDramaTypeRead])
 def get_channel_drama_types(
-    include_disabled: bool = False, session: Session = Depends(get_db)
+    include_disabled: bool = False, session: Session = Depends(get_tenant_db)
 ) -> list[ChannelDramaTypeRead]:
     return list_channel_drama_types(session, include_disabled=include_disabled)
 
@@ -68,7 +70,7 @@ def get_channel_drama_types(
     status_code=status.HTTP_201_CREATED,
 )
 def post_channel_drama_type(
-    payload: ChannelDramaTypeCreate, session: Session = Depends(get_db)
+    payload: ChannelDramaTypeCreate, session: Session = Depends(get_tenant_db)
 ) -> ChannelDramaTypeRead:
     try:
         return create_channel_drama_type(session, payload)
@@ -82,7 +84,7 @@ def post_channel_drama_type(
 def put_channel_drama_type(
     type_id: str,
     payload: ChannelDramaTypeUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelDramaTypeRead:
     try:
         return update_channel_drama_type(session, type_id, payload)
@@ -93,12 +95,22 @@ def put_channel_drama_type(
 
 
 @router.get("/settings/runtime", response_model=RuntimeOverview)
-def get_runtime_settings(session: Session = Depends(get_db)) -> RuntimeOverview:
+def get_runtime_settings(
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> RuntimeOverview:
     return RuntimeOverview.model_validate(runtime_overview(session))
 
 
-@router.put("/settings/runtime/environment", response_model=RuntimeOverview)
-def put_runtime_environment(payload: RuntimeEnvironmentUpdate) -> RuntimeOverview:
+@router.put(
+    "/settings/runtime/environment",
+    response_model=RuntimeOverview,
+    dependencies=[Depends(require_platform_permission)],
+)
+def put_runtime_environment(
+    payload: RuntimeEnvironmentUpdate,
+    _session: Session = Depends(get_db),
+) -> RuntimeOverview:
     try:
         if payload.environment == "production":
             upgrade_production_database()
@@ -115,11 +127,18 @@ def put_runtime_environment(payload: RuntimeEnvironmentUpdate) -> RuntimeOvervie
 
 
 @router.get("/devices", response_model=list[DeviceRead])
-def get_devices(session: Session = Depends(get_db)) -> list[DeviceRead]:
+def get_devices(
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> list[DeviceRead]:
     return list_devices(session)
 
 
-@router.post("/devices/register-current", response_model=DeviceRead)
+@router.post(
+    "/devices/register-current",
+    response_model=DeviceRead,
+    dependencies=[Depends(require_platform_permission)],
+)
 def post_current_device(session: Session = Depends(get_db)) -> DeviceRead:
     hostname = socket.gethostname()
     payload = DeviceRegister(
@@ -136,7 +155,10 @@ def post_current_device(session: Session = Depends(get_db)) -> DeviceRead:
 
 
 @router.get("/runtime-packages", response_model=list[RuntimePackageBuildRead])
-def get_runtime_packages(session: Session = Depends(get_db)) -> list[RuntimePackageBuildRead]:
+def get_runtime_packages(
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> list[RuntimePackageBuildRead]:
     return list_runtime_packages(session)
 
 
@@ -144,13 +166,18 @@ def get_runtime_packages(session: Session = Depends(get_db)) -> list[RuntimePack
     "/runtime-packages/build",
     response_model=RuntimePackageBuildRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_platform_permission)],
 )
 def post_runtime_package(session: Session = Depends(get_db)) -> RuntimePackageBuildRead:
     return build_runtime_package(session)
 
 
 @router.get("/runtime-packages/{build_id}/download")
-def download_runtime_package(build_id: str, session: Session = Depends(get_db)) -> StreamingResponse:
+def download_runtime_package(
+    build_id: str,
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> StreamingResponse:
     try:
         build = get_current_runtime_package(session, build_id)
     except ValueError as exc:
@@ -164,11 +191,18 @@ def download_runtime_package(build_id: str, session: Session = Depends(get_db)) 
 
 
 @router.get("/settings/app-icon", response_model=AppIconSettingRead)
-def get_app_icon(session: Session = Depends(get_db)) -> AppIconSettingRead:
+def get_app_icon(
+    _principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> AppIconSettingRead:
     return get_app_icon_setting(session)
 
 
-@router.put("/settings/app-icon", response_model=AppIconSettingRead)
+@router.put(
+    "/settings/app-icon",
+    response_model=AppIconSettingRead,
+    dependencies=[Depends(require_platform_permission)],
+)
 def put_app_icon(payload: AppIconUpload, session: Session = Depends(get_db)) -> AppIconSettingRead:
     try:
         return upload_app_icon(session, payload.filename, payload.data_url)
@@ -176,6 +210,10 @@ def put_app_icon(payload: AppIconUpload, session: Session = Depends(get_db)) -> 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post("/settings/app-icon/restore-default", response_model=AppIconSettingRead)
+@router.post(
+    "/settings/app-icon/restore-default",
+    response_model=AppIconSettingRead,
+    dependencies=[Depends(require_platform_permission)],
+)
 def post_restore_app_icon(session: Session = Depends(get_db)) -> AppIconSettingRead:
     return restore_default_app_icon(session)

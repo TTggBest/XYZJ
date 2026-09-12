@@ -11,7 +11,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from zhiju.models.base import new_id
@@ -23,6 +24,10 @@ from zhiju.models.identity import (
     OAuthGrant,
     OAuthGrantScope,
 )
+from zhiju.models.integration import OAuthAuthorizationState
+from zhiju.auth_context import Principal
+from zhiju.services.channel import NotFoundError
+from zhiju.services.identity import ConflictError
 
 
 YOUTUBE_OAUTH_SCOPES = (
@@ -57,41 +62,78 @@ class OAuthClientConfig:
 
 
 @dataclass(frozen=True)
-class PendingOAuthState:
+class OAuthTenantContext:
+    tenant_id: str
+    user_id: str
+    session_id: str
     channel_id: str
-    expires_at: datetime
 
 
-class OAuthStateStore:
-    def __init__(
-        self,
-        *,
-        ttl_seconds: int = 600,
-        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-    ) -> None:
-        self.ttl_seconds = ttl_seconds
-        self._clock = clock
-        self._states: dict[str, PendingOAuthState] = {}
-        self._lock = threading.Lock()
+def create_oauth_state(
+    session: Session,
+    principal: Principal,
+    channel_id: str,
+    *,
+    now: datetime | None = None,
+    ttl_seconds: int = 600,
+) -> str:
+    if not principal.tenant_id or not principal.session_id:
+        raise ValueError("当前登录会话缺少OAuth授权上下文")
+    channel = session.get(Channel, channel_id)
+    if channel is None or channel.deleted_at is not None:
+        raise NotFoundError("频道不存在")
+    current_time = now or datetime.now(timezone.utc)
+    opaque_state = secrets.token_urlsafe(32)
+    session.add(OAuthAuthorizationState(
+        opaque_state=opaque_state,
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_id=principal.session_id,
+        channel_id=channel.id,
+        expires_at=current_time + timedelta(seconds=ttl_seconds),
+    ))
+    session.commit()
+    return opaque_state
 
-    def create(self, channel_id: str) -> str:
-        state = secrets.token_urlsafe(32)
-        pending = PendingOAuthState(
-            channel_id=channel_id,
-            expires_at=self._clock() + timedelta(seconds=self.ttl_seconds),
+
+def consume_oauth_state(
+    session: Session,
+    opaque_state: str,
+    *,
+    now: datetime | None = None,
+) -> OAuthTenantContext:
+    current_time = now or datetime.now(timezone.utc)
+    row = session.scalar(select(OAuthAuthorizationState).where(
+        OAuthAuthorizationState.opaque_state == opaque_state,
+    ))
+    if row is None or row.consumed_at is not None:
+        raise ValueError("授权状态无效或已经使用")
+    expires_at = row.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < current_time:
+        raise ValueError("授权状态已过期，请重新发起授权")
+    result = session.execute(
+        update(OAuthAuthorizationState)
+        .where(
+            OAuthAuthorizationState.id == row.id,
+            OAuthAuthorizationState.consumed_at.is_(None),
+            OAuthAuthorizationState.expires_at >= current_time,
         )
-        with self._lock:
-            self._states[state] = pending
-        return state
-
-    def consume(self, state: str) -> PendingOAuthState:
-        with self._lock:
-            pending = self._states.pop(state, None)
-        if pending is None:
-            raise ValueError("授权状态无效或已经使用")
-        if pending.expires_at < self._clock():
-            raise ValueError("授权状态已过期，请重新发起授权")
-        return pending
+        .values(consumed_at=current_time)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise ValueError("授权状态无效或已经使用")
+    context = OAuthTenantContext(
+        tenant_id=row.tenant_id,
+        user_id=row.user_id,
+        session_id=row.session_id,
+        channel_id=row.channel_id,
+    )
+    session.commit()
+    return context
 
 
 class MacOSKeychainSecretStore:
@@ -423,7 +465,11 @@ def complete_channel_authorization(
             last_verified_at=now,
         )
         session.add(account)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            session.rollback()
+            raise ConflictError("该Google账号或YouTube频道无法在当前主账号授权") from exc
     else:
         account.status = "active"
         account.authorization_status = "authorized"

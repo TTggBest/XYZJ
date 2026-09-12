@@ -6,11 +6,10 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint, UniqueConstraint
-from sqlalchemy.orm import Session
 
 from zhiju import models
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -211,7 +210,8 @@ def test_manual_cloud_download_completion_starts_parameter_normalization() -> No
     suffix = uuid4().hex[:12]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama = models.Drama(
             drama_number=-2,
@@ -244,7 +244,8 @@ def test_excluding_production_preserves_node_progress_and_can_be_restored() -> N
     suffix = uuid4().hex[:12]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama = models.Drama(
             drama_number=-3,
@@ -285,7 +286,8 @@ def test_feishu_language_coverage_cannot_be_deleted_manually() -> None:
     suffix = uuid4().hex[:12]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         drama = models.Drama(
             drama_number=-1,

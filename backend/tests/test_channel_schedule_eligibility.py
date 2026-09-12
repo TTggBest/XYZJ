@@ -2,9 +2,8 @@ from datetime import date, time
 from uuid import uuid4
 
 import pytest
-from sqlalchemy.orm import Session
 
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import Channel, ChannelPublishSlot, Drama, DramaProductionState
 from zhiju.schemas.operations import ScheduleCreate
 from zhiju.services import operations
@@ -43,7 +42,8 @@ def test_schedulable_dramas_only_returns_completed_nonexcluded_active_dramas() -
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         completed = _drama(suffix, "complete", -int(f"1{suffix[:8]}", 16))
         incomplete = _drama(suffix, "incomplete", -int(f"2{suffix[:8]}", 16))
@@ -86,7 +86,8 @@ def test_create_schedule_rejects_drama_before_production_completion() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-SCHEDULE-{suffix}",

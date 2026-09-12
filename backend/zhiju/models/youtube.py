@@ -20,10 +20,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
-class YoutubeVideo(IdMixin, TimestampMixin, Base):
+class YoutubeVideo(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_videos"
     __table_args__ = (
         CheckConstraint("privacy_status IN ('public','private','unlisted')", name="valid_privacy_status"),
@@ -37,10 +37,10 @@ class YoutubeVideo(IdMixin, TimestampMixin, Base):
     )
 
     youtube_video_id: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, comment="YouTube视频外部ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="所属频道内部ID")
-    operation_package_id: Mapped[str | None] = mapped_column(ForeignKey("operation_packages.id", ondelete="SET NULL"), comment="来源运营包ID")
-    drama_id: Mapped[str | None] = mapped_column(ForeignKey("dramas.id", ondelete="SET NULL"), comment="关联剧目内部ID")
-    schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="SET NULL"), comment="关联排期ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="所属频道内部ID")
+    operation_package_id: Mapped[str | None] = mapped_column(String(36), comment="来源运营包ID")
+    drama_id: Mapped[str | None] = mapped_column(String(36), comment="关联剧目内部ID")
+    schedule_id: Mapped[str | None] = mapped_column(String(36), comment="关联排期ID")
     title: Mapped[str] = mapped_column(String(500), nullable=False, comment="YouTube当前标题")
     description: Mapped[str | None] = mapped_column(Text, comment="YouTube当前说明")
     url: Mapped[str] = mapped_column(String(1000), nullable=False, comment="YouTube视频地址")
@@ -56,7 +56,7 @@ class YoutubeVideo(IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="确认从YouTube删除的时间")
 
 
-class YoutubeVideoPlaylistMembership(IdMixin, TimestampMixin, Base):
+class YoutubeVideoPlaylistMembership(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_video_playlist_memberships"
     __table_args__ = (
         CheckConstraint("status IN ('active','removed')", name="valid_status"),
@@ -68,8 +68,8 @@ class YoutubeVideoPlaylistMembership(IdMixin, TimestampMixin, Base):
         {"comment": "YouTube视频实际播放列表归属"},
     )
 
-    video_id: Mapped[str] = mapped_column(ForeignKey("youtube_videos.id", ondelete="CASCADE"), nullable=False, comment="视频内部ID")
-    playlist_id: Mapped[str] = mapped_column(ForeignKey("channel_playlists.id", ondelete="RESTRICT"), nullable=False, comment="播放列表内部ID")
+    video_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="视频内部ID")
+    playlist_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="播放列表内部ID")
     youtube_playlist_item_id: Mapped[str | None] = mapped_column(String(100), comment="YouTube播放列表条目外部ID")
     position_number: Mapped[int | None] = mapped_column(Integer, comment="YouTube播放列表内位置")
     score: Mapped[Decimal | None] = mapped_column(Numeric(18, 5), comment="当前动态排序综合评分")
@@ -78,7 +78,7 @@ class YoutubeVideoPlaylistMembership(IdMixin, TimestampMixin, Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后同步时间")
 
 
-class YoutubePlaylistOrderHistory(IdMixin, Base):
+class YoutubePlaylistOrderHistory(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "youtube_playlist_order_history"
     __table_args__ = (
         CheckConstraint("old_position IS NULL OR old_position >= 0", name="old_position_nonnegative"),
@@ -92,9 +92,9 @@ class YoutubePlaylistOrderHistory(IdMixin, Base):
         {"comment": "播放列表视频位置、评分和归属状态变更历史"},
     )
 
-    membership_id: Mapped[str] = mapped_column(ForeignKey("youtube_video_playlist_memberships.id", ondelete="CASCADE"), nullable=False, comment="视频播放列表归属ID")
-    playlist_id: Mapped[str] = mapped_column(ForeignKey("channel_playlists.id", ondelete="CASCADE"), nullable=False, comment="播放列表内部ID")
-    video_id: Mapped[str] = mapped_column(ForeignKey("youtube_videos.id", ondelete="CASCADE"), nullable=False, comment="视频内部ID")
+    membership_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="视频播放列表归属ID")
+    playlist_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="播放列表内部ID")
+    video_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="视频内部ID")
     old_position: Mapped[int | None] = mapped_column(Integer, comment="变更前位置")
     new_position: Mapped[int | None] = mapped_column(Integer, comment="变更后位置")
     old_score: Mapped[Decimal | None] = mapped_column(Numeric(18, 5), comment="变更前排序评分")
@@ -107,14 +107,14 @@ class YoutubePlaylistOrderHistory(IdMixin, Base):
     changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="变更时间")
 
 
-class YoutubeVideoStatusHistory(IdMixin, Base):
+class YoutubeVideoStatusHistory(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "youtube_video_status_history"
     __table_args__ = (
         Index("ix_youtube_video_status_history_video_time", "video_id", "changed_at"),
         {"comment": "YouTube视频发布状态变化历史"},
     )
 
-    video_id: Mapped[str] = mapped_column(ForeignKey("youtube_videos.id", ondelete="CASCADE"), nullable=False, comment="视频内部ID")
+    video_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="视频内部ID")
     old_publish_status: Mapped[str | None] = mapped_column(String(20), comment="变化前发布状态")
     new_publish_status: Mapped[str] = mapped_column(String(20), nullable=False, comment="变化后发布状态")
     old_privacy_status: Mapped[str | None] = mapped_column(String(20), comment="变化前隐私状态")
@@ -124,7 +124,7 @@ class YoutubeVideoStatusHistory(IdMixin, Base):
     changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="状态变化时间")
 
 
-class YoutubeComment(IdMixin, TimestampMixin, Base):
+class YoutubeComment(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_comments"
     __table_args__ = (
         CheckConstraint("reply_status IN ('unreplied','suggested','replied','ignored','failed')", name="valid_reply_status"),
@@ -136,9 +136,9 @@ class YoutubeComment(IdMixin, TimestampMixin, Base):
     )
 
     youtube_comment_id: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, comment="YouTube评论外部ID")
-    video_id: Mapped[str] = mapped_column(ForeignKey("youtube_videos.id", ondelete="CASCADE"), nullable=False, comment="所属视频内部ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="所属频道内部ID")
-    parent_comment_id: Mapped[str | None] = mapped_column(ForeignKey("youtube_comments.id", ondelete="CASCADE"), comment="父评论内部ID")
+    video_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="所属视频内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="所属频道内部ID")
+    parent_comment_id: Mapped[str | None] = mapped_column(String(36), comment="父评论内部ID")
     author_channel_id: Mapped[str | None] = mapped_column(String(100), comment="评论人YouTube频道ID")
     author_display_name: Mapped[str] = mapped_column(String(255), nullable=False, comment="评论人显示昵称")
     original_text: Mapped[str] = mapped_column(Text, nullable=False, comment="原评论正文")
@@ -156,7 +156,7 @@ class YoutubeComment(IdMixin, TimestampMixin, Base):
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最后同步时间")
 
 
-class YoutubeCommentReply(IdMixin, TimestampMixin, Base):
+class YoutubeCommentReply(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_comment_replies"
     __table_args__ = (
         CheckConstraint("generation_method IN ('ai','manual','template')", name="valid_generation_method"),
@@ -166,7 +166,7 @@ class YoutubeCommentReply(IdMixin, TimestampMixin, Base):
         {"comment": "YouTube评论回复版本与发布状态"},
     )
 
-    comment_id: Mapped[str] = mapped_column(ForeignKey("youtube_comments.id", ondelete="CASCADE"), nullable=False, comment="被回复评论内部ID")
+    comment_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="被回复评论内部ID")
     youtube_reply_id: Mapped[str | None] = mapped_column(String(120), unique=True, comment="发布后的YouTube回复ID")
     reply_text: Mapped[str] = mapped_column(Text, nullable=False, comment="频道语言回复正文")
     reply_translation: Mapped[str | None] = mapped_column(Text, comment="回复中文翻译")
@@ -177,7 +177,7 @@ class YoutubeCommentReply(IdMixin, TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, comment="发布失败脱敏信息")
 
 
-class YoutubeChannelDailyMetric(IdMixin, TimestampMixin, Base):
+class YoutubeChannelDailyMetric(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_channel_daily_metrics"
     __table_args__ = (
         UniqueConstraint("channel_id", "metric_date", name="uq_youtube_channel_daily_metrics_day"),
@@ -187,7 +187,7 @@ class YoutubeChannelDailyMetric(IdMixin, TimestampMixin, Base):
         {"comment": "YouTube频道每日Analytics历史快照"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     metric_date: Mapped[date] = mapped_column(Date, nullable=False, comment="指标所属日期")
     views: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0", comment="观看次数")
     watch_time_minutes: Mapped[Decimal] = mapped_column(Numeric(18, 3), nullable=False, server_default="0", comment="观看时长分钟")
@@ -198,7 +198,7 @@ class YoutubeChannelDailyMetric(IdMixin, TimestampMixin, Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="本快照同步时间")
 
 
-class YoutubeVideoDailyMetric(IdMixin, TimestampMixin, Base):
+class YoutubeVideoDailyMetric(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_video_daily_metrics"
     __table_args__ = (
         UniqueConstraint("video_id", "metric_date", name="uq_youtube_video_daily_metrics_day"),
@@ -209,7 +209,7 @@ class YoutubeVideoDailyMetric(IdMixin, TimestampMixin, Base):
         {"comment": "YouTube视频每日Analytics历史快照"},
     )
 
-    video_id: Mapped[str] = mapped_column(ForeignKey("youtube_videos.id", ondelete="CASCADE"), nullable=False, comment="视频内部ID")
+    video_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="视频内部ID")
     metric_date: Mapped[date] = mapped_column(Date, nullable=False, comment="指标所属日期")
     views: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0", comment="观看次数")
     impressions: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0", comment="展示次数")
@@ -222,7 +222,7 @@ class YoutubeVideoDailyMetric(IdMixin, TimestampMixin, Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="本快照同步时间")
 
 
-class YoutubeAnalyticsBreakdown(IdMixin, TimestampMixin, Base):
+class YoutubeAnalyticsBreakdown(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_analytics_breakdowns"
     __table_args__ = (
         CheckConstraint("scope_type IN ('channel','video')", name="valid_scope_type"),
@@ -237,8 +237,8 @@ class YoutubeAnalyticsBreakdown(IdMixin, TimestampMixin, Base):
 
     scope_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="频道级或视频级")
     scope_entity_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道ID或视频ID组成的非空作用域键")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
-    video_id: Mapped[str | None] = mapped_column(ForeignKey("youtube_videos.id", ondelete="CASCADE"), comment="视频内部ID，频道级为空")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    video_id: Mapped[str | None] = mapped_column(String(36), comment="视频内部ID，频道级为空")
     metric_date: Mapped[date] = mapped_column(Date, nullable=False, comment="指标所属日期")
     dimension_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="国家、设备或流量来源等维度")
     dimension_value: Mapped[str] = mapped_column(String(255), nullable=False, comment="维度值")
@@ -249,7 +249,7 @@ class YoutubeAnalyticsBreakdown(IdMixin, TimestampMixin, Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="本指标同步时间")
 
 
-class SyncWatermark(IdMixin, TimestampMixin, Base):
+class SyncWatermark(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "sync_watermarks"
     __table_args__ = (
         CheckConstraint("status IN ('idle','running','completed','failed')", name="valid_status"),
@@ -258,7 +258,7 @@ class SyncWatermark(IdMixin, TimestampMixin, Base):
         {"comment": "按频道和数据类型隔离的YouTube同步水位"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     data_type: Mapped[str] = mapped_column(String(60), nullable=False, comment="视频、评论、频道指标等同步类型")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="idle", comment="同步状态")
     cursor_value: Mapped[str | None] = mapped_column(String(1000), comment="第三方分页或增量游标")
@@ -272,19 +272,20 @@ class SyncWatermark(IdMixin, TimestampMixin, Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="同步租约到期时间")
 
 
-class ApiRequestLog(IdMixin, Base):
+class ApiRequestLog(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "api_request_logs"
     __table_args__ = (
         CheckConstraint("result IN ('success','failure','cancelled')", name="valid_result"),
         CheckConstraint("quota_units >= 0", name="quota_nonnegative"),
+        UniqueConstraint("tenant_id", "request_key", name="uq_api_request_logs_tenant_request"),
         Index("ix_api_request_logs_channel_time", "channel_id", "requested_at"),
         Index("ix_api_request_logs_data_type_time", "data_type", "requested_at"),
         {"comment": "YouTube API请求与结果日志"},
     )
 
-    request_key: Mapped[str] = mapped_column(String(180), nullable=False, unique=True, comment="调用方生成的API请求幂等键")
-    channel_id: Mapped[str | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), comment="关联频道内部ID")
-    authorization_id: Mapped[str | None] = mapped_column(ForeignKey("account_channel_authorizations.id", ondelete="SET NULL"), comment="使用的频道授权关系ID")
+    request_key: Mapped[str] = mapped_column(String(180), nullable=False, comment="调用方生成的API请求幂等键")
+    channel_id: Mapped[str | None] = mapped_column(String(36), comment="关联频道内部ID")
+    authorization_id: Mapped[str | None] = mapped_column(String(36), comment="使用的频道授权关系ID")
     data_type: Mapped[str] = mapped_column(String(60), nullable=False, comment="请求对应的数据类型")
     endpoint: Mapped[str] = mapped_column(String(255), nullable=False, comment="YouTube API端点")
     http_method: Mapped[str] = mapped_column(String(10), nullable=False, comment="HTTP方法")
@@ -298,7 +299,7 @@ class ApiRequestLog(IdMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="请求结束时间")
 
 
-class QuotaUsageLog(IdMixin, Base):
+class QuotaUsageLog(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "quota_usage_logs"
     __table_args__ = (
         UniqueConstraint("api_request_log_id", name="uq_quota_usage_logs_request"),
@@ -307,10 +308,43 @@ class QuotaUsageLog(IdMixin, Base):
         {"comment": "YouTube API配额消耗明细"},
     )
 
-    api_request_log_id: Mapped[str] = mapped_column(ForeignKey("api_request_logs.id", ondelete="CASCADE"), nullable=False, comment="API请求日志ID")
-    channel_id: Mapped[str | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), comment="关联频道内部ID")
-    account_id: Mapped[str | None] = mapped_column(ForeignKey("google_accounts.id", ondelete="SET NULL"), comment="配额所属Google账号ID")
+    api_request_log_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="API请求日志ID")
+    channel_id: Mapped[str | None] = mapped_column(String(36), comment="关联频道内部ID")
+    account_id: Mapped[str | None] = mapped_column(String(36), comment="配额所属Google账号ID")
     quota_date: Mapped[date] = mapped_column(Date, nullable=False, comment="YouTube配额统计日期")
     endpoint: Mapped[str] = mapped_column(String(255), nullable=False, comment="消耗配额的API端点")
     units: Mapped[int] = mapped_column(Integer, nullable=False, comment="消耗配额单位")
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="记录时间")
+
+
+configure_tenant_relations(
+    (
+        ("sync_watermarks", "channel_id", "channels", "CASCADE"),
+        ("youtube_channel_daily_metrics", "channel_id", "channels", "CASCADE"),
+        ("api_request_logs", "authorization_id", "account_channel_authorizations", "RESTRICT"),
+        ("api_request_logs", "channel_id", "channels", "RESTRICT"),
+        ("quota_usage_logs", "account_id", "google_accounts", "RESTRICT"),
+        ("quota_usage_logs", "api_request_log_id", "api_request_logs", "CASCADE"),
+        ("quota_usage_logs", "channel_id", "channels", "RESTRICT"),
+        ("youtube_videos", "channel_id", "channels", "RESTRICT"),
+        ("youtube_videos", "drama_id", "dramas", "RESTRICT"),
+        ("youtube_videos", "operation_package_id", "operation_packages", "RESTRICT"),
+        ("youtube_videos", "schedule_id", "channel_schedule_entries", "RESTRICT"),
+        ("youtube_analytics_breakdowns", "channel_id", "channels", "CASCADE"),
+        ("youtube_analytics_breakdowns", "video_id", "youtube_videos", "CASCADE"),
+        ("youtube_comments", "channel_id", "channels", "RESTRICT"),
+        ("youtube_comments", "parent_comment_id", "youtube_comments", "CASCADE"),
+        ("youtube_comments", "video_id", "youtube_videos", "CASCADE"),
+        ("youtube_video_daily_metrics", "video_id", "youtube_videos", "CASCADE"),
+        ("youtube_video_playlist_memberships", "playlist_id", "channel_playlists", "RESTRICT"),
+        ("youtube_video_playlist_memberships", "video_id", "youtube_videos", "CASCADE"),
+        ("youtube_video_status_history", "video_id", "youtube_videos", "CASCADE"),
+        ("youtube_comment_replies", "comment_id", "youtube_comments", "CASCADE"),
+        ("youtube_playlist_order_history", "membership_id", "youtube_video_playlist_memberships", "CASCADE"),
+        ("youtube_playlist_order_history", "playlist_id", "channel_playlists", "CASCADE"),
+        ("youtube_playlist_order_history", "video_id", "youtube_videos", "CASCADE"),
+    ),
+    parent_tables=(
+        "api_request_logs", "youtube_comments", "youtube_video_playlist_memberships", "youtube_videos",
+    ),
+)

@@ -20,24 +20,25 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
-class ProductionBatch(IdMixin, TimestampMixin, Base):
+class ProductionBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "production_batches"
     __table_args__ = (
         CheckConstraint("source IN ('native','feishu')", name="valid_source"),
+        UniqueConstraint("tenant_id", "batch_number", name="uq_production_batches_tenant_number"),
         Index("ix_production_batches_date_source", "production_date", "source"),
         {"comment": "生产任务的稳定批次"},
     )
 
-    batch_number: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, comment="对外批次号")
+    batch_number: Mapped[str] = mapped_column(String(80), nullable=False, comment="对外批次号")
     production_date: Mapped[date] = mapped_column(Date, nullable=False, comment="批次生产日期")
     source: Mapped[str] = mapped_column(String(20), nullable=False, comment="批次来源")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="批次状态")
 
 
-class FeishuSyncRun(IdMixin, TimestampMixin, Base):
+class FeishuSyncRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "feishu_sync_runs"
     __table_args__ = (
         CheckConstraint("sync_type IN ('work_orders','operation_packages','channels','dramas','drama_languages','channel_schedules')", name="valid_sync_type"),
@@ -60,30 +61,31 @@ class FeishuSyncRun(IdMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="完成时间")
 
 
-class OperationTask(IdMixin, TimestampMixin, Base):
+class OperationTask(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "operation_tasks"
     __table_args__ = (
         CheckConstraint("source IN ('manual','schedule','import')", name="valid_source"),
         CheckConstraint("status IN ('pending_dispatch','dispatched','processing','completed','failed','cancelled')", name="valid_status"),
         CheckConstraint("community_count >= 0", name="community_count_nonnegative"),
         UniqueConstraint("schedule_id", name="uq_operation_tasks_schedule_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_operation_tasks_tenant_idempotency"),
         Index("ix_operation_tasks_date_status", "task_date", "status"),
         Index("ix_operation_tasks_channel_status", "channel_id", "status"),
         {"comment": "今日任务及历史任务主记录"},
     )
 
-    schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="RESTRICT"), comment="来源排期ID")
-    batch_id: Mapped[str | None] = mapped_column(ForeignKey("production_batches.id", ondelete="RESTRICT"), comment="生产批次ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="剧目内部ID")
-    publish_slot_id: Mapped[str | None] = mapped_column(ForeignKey("channel_publish_slots.id", ondelete="RESTRICT"), comment="发布时间档位ID")
-    playlist_id: Mapped[str | None] = mapped_column(ForeignKey("channel_playlists.id", ondelete="SET NULL"), comment="计划播放列表ID")
+    schedule_id: Mapped[str | None] = mapped_column(String(36), comment="来源排期ID")
+    batch_id: Mapped[str | None] = mapped_column(String(36), comment="生产批次ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
+    publish_slot_id: Mapped[str | None] = mapped_column(String(36), comment="发布时间档位ID")
+    playlist_id: Mapped[str | None] = mapped_column(String(36), comment="计划播放列表ID")
     task_date: Mapped[date] = mapped_column(Date, nullable=False, comment="任务生产日期")
     target_publish_date: Mapped[date] = mapped_column(Date, nullable=False, comment="目标发布日期")
     community_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0", comment="Community生产数量")
     source: Mapped[str] = mapped_column(String(20), nullable=False, comment="任务来源")
     status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="pending_dispatch", comment="任务状态")
-    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True, comment="任务创建幂等键")
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, comment="任务创建幂等键")
     source_video_id: Mapped[str | None] = mapped_column(String(32), comment="来源视频Video ID")
     source_video_url: Mapped[str | None] = mapped_column(String(1000), comment="来源剧目视频地址")
     source_row_number: Mapped[int | None] = mapped_column(Integer, comment="来源飞书表格原始行号")
@@ -92,14 +94,14 @@ class OperationTask(IdMixin, TimestampMixin, Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, comment="任务失败原因")
 
 
-class TaskEvent(IdMixin, Base):
+class TaskEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "task_events"
     __table_args__ = (
         Index("ix_task_events_task_time", "task_id", "occurred_at"),
         {"comment": "任务状态变化历史"},
     )
 
-    task_id: Mapped[str] = mapped_column(ForeignKey("operation_tasks.id", ondelete="CASCADE"), nullable=False, comment="任务ID")
+    task_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="任务ID")
     old_status: Mapped[str | None] = mapped_column(String(30), comment="变化前状态")
     new_status: Mapped[str] = mapped_column(String(30), nullable=False, comment="变化后状态")
     reason: Mapped[str] = mapped_column(Text, nullable=False, comment="状态变化原因")
@@ -108,7 +110,7 @@ class TaskEvent(IdMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="事件时间")
 
 
-class WorkOrder(IdMixin, TimestampMixin, Base):
+class WorkOrder(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "work_orders"
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','completed','failed','cancelled')", name="valid_status"),
@@ -119,16 +121,16 @@ class WorkOrder(IdMixin, TimestampMixin, Base):
         {"comment": "任务下发后生成的生产工单"},
     )
 
-    task_id: Mapped[str] = mapped_column(ForeignKey("operation_tasks.id", ondelete="RESTRICT"), nullable=False, comment="来源任务ID")
-    batch_id: Mapped[str | None] = mapped_column(ForeignKey("production_batches.id", ondelete="RESTRICT"), comment="生产批次ID")
-    schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="RESTRICT"), comment="来源排期ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="剧目内部ID")
+    task_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="来源任务ID")
+    batch_id: Mapped[str | None] = mapped_column(String(36), comment="生产批次ID")
+    schedule_id: Mapped[str | None] = mapped_column(String(36), comment="来源排期ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
     channel_dna_version_id: Mapped[str | None] = mapped_column(
-        ForeignKey("channel_dna_versions.id", ondelete="SET NULL"), comment="工单继承的频道运营参考版本ID"
+        comment="工单继承的频道运营参考版本ID"
     )
-    publish_slot_id: Mapped[str | None] = mapped_column(ForeignKey("channel_publish_slots.id", ondelete="RESTRICT"), comment="发布时间档位ID")
-    playlist_id: Mapped[str | None] = mapped_column(ForeignKey("channel_playlists.id", ondelete="SET NULL"), comment="计划播放列表ID")
+    publish_slot_id: Mapped[str | None] = mapped_column(String(36), comment="发布时间档位ID")
+    playlist_id: Mapped[str | None] = mapped_column(String(36), comment="计划播放列表ID")
     production_date: Mapped[date] = mapped_column(Date, nullable=False, comment="生产日期")
     target_publish_date: Mapped[date] = mapped_column(Date, nullable=False, comment="目标发布日期")
     community_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0", comment="Community生产数量")
@@ -139,7 +141,7 @@ class WorkOrder(IdMixin, TimestampMixin, Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, comment="失败原因")
 
 
-class OperationPackage(IdMixin, TimestampMixin, Base):
+class OperationPackage(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "operation_packages"
     __table_args__ = (
         CheckConstraint(
@@ -152,12 +154,12 @@ class OperationPackage(IdMixin, TimestampMixin, Base):
         {"comment": "某剧目、频道和工单的一版运营包"},
     )
 
-    work_order_id: Mapped[str] = mapped_column(ForeignKey("work_orders.id", ondelete="RESTRICT"), nullable=False, comment="生产工单ID")
-    batch_id: Mapped[str | None] = mapped_column(ForeignKey("production_batches.id", ondelete="RESTRICT"), comment="生产批次ID")
-    schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="RESTRICT"), comment="来源排期ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
-    drama_id: Mapped[str] = mapped_column(ForeignKey("dramas.id", ondelete="RESTRICT"), nullable=False, comment="剧目内部ID")
-    channel_dna_version_id: Mapped[str | None] = mapped_column(ForeignKey("channel_dna_versions.id", ondelete="SET NULL"), comment="生产时采用的频道DNA版本ID")
+    work_order_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="生产工单ID")
+    batch_id: Mapped[str | None] = mapped_column(String(36), comment="生产批次ID")
+    schedule_id: Mapped[str | None] = mapped_column(String(36), comment="来源排期ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    drama_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="剧目内部ID")
+    channel_dna_version_id: Mapped[str | None] = mapped_column(String(36), comment="生产时采用的频道DNA版本ID")
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", comment="工单内运营包版本号")
     status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="building", comment="运营包状态")
     source_complete: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1", comment="飞书源数据是否完整")
@@ -168,7 +170,7 @@ class OperationPackage(IdMixin, TimestampMixin, Base):
     review_note: Mapped[str | None] = mapped_column(Text, comment="最终审核意见")
 
 
-class PackageOutputCopyState(IdMixin, TimestampMixin, Base):
+class PackageOutputCopyState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_output_copy_states"
     __table_args__ = (
         CheckConstraint(
@@ -180,26 +182,26 @@ class PackageOutputCopyState(IdMixin, TimestampMixin, Base):
         {"comment": "运营包当前产物的人工复制进度"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     output_type: Mapped[str] = mapped_column(String(30), nullable=False, comment="被复制的产物类型")
     output_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="被复制的当前产物ID")
     copied_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="最近复制成功时间")
 
 
-class ProductionNodeRun(IdMixin, TimestampMixin, Base):
+class ProductionNodeRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "production_node_runs"
     __table_args__ = (
         CheckConstraint("node_type IN ('search','title','cover','description','community','merge')", name="valid_node_type"),
         CheckConstraint("status IN ('pending','queued','running','completed','failed','skipped','cancelled')", name="valid_status"),
         CheckConstraint("attempt_number >= 1", name="attempt_positive"),
         UniqueConstraint("work_order_id", "node_type", "attempt_number", name="uq_production_node_runs_attempt"),
-        UniqueConstraint("idempotency_key", name="uq_production_node_runs_idempotency_key"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_production_node_runs_tenant_idempotency"),
         Index("ix_production_node_runs_work_order_status", "work_order_id", "status", "node_type"),
         {"comment": "生产工单各节点的每次运行尝试"},
     )
 
-    work_order_id: Mapped[str] = mapped_column(ForeignKey("work_orders.id", ondelete="CASCADE"), nullable=False, comment="生产工单ID")
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    work_order_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="生产工单ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     node_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="生产节点类型")
     sequence_number: Mapped[int] = mapped_column(SmallInteger, nullable=False, comment="节点顺序")
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="该节点尝试次数")
@@ -212,7 +214,7 @@ class ProductionNodeRun(IdMixin, TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, comment="脱敏错误信息")
 
 
-class PackageTitle(IdMixin, TimestampMixin, Base):
+class PackageTitle(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_titles"
     __table_args__ = (
         CheckConstraint("status IN ('generated','selected','rejected','superseded')", name="valid_status"),
@@ -222,7 +224,7 @@ class PackageTitle(IdMixin, TimestampMixin, Base):
         {"comment": "运营包标题候选及重生版本"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     variant_number: Mapped[int] = mapped_column(SmallInteger, nullable=False, comment="A/B候选编号")
     generation_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", comment="该候选生成版本")
     localized_title: Mapped[str] = mapped_column(String(500), nullable=False, comment="频道语言标题")
@@ -233,7 +235,7 @@ class PackageTitle(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="generated", comment="标题状态")
 
 
-class PackageDescription(IdMixin, TimestampMixin, Base):
+class PackageDescription(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_descriptions"
     __table_args__ = (
         CheckConstraint("status IN ('generated','selected','rejected','superseded')", name="valid_status"),
@@ -242,7 +244,7 @@ class PackageDescription(IdMixin, TimestampMixin, Base):
         {"comment": "运营包说明及其重生版本"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="说明版本号")
     language: Mapped[str] = mapped_column(String(20), nullable=False, comment="说明语言")
     localized_text: Mapped[str] = mapped_column(Text, nullable=False, comment="频道语言说明正文")
@@ -253,7 +255,7 @@ class PackageDescription(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="generated", comment="说明状态")
 
 
-class PackageCoverVariant(IdMixin, TimestampMixin, Base):
+class PackageCoverVariant(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_cover_variants"
     __table_args__ = (
         CheckConstraint("aspect_ratio IN ('4:5','16:9')", name="valid_aspect_ratio"),
@@ -264,18 +266,18 @@ class PackageCoverVariant(IdMixin, TimestampMixin, Base):
         {"comment": "与标题候选一一对应的4:5和16:9封面版本"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
-    title_id: Mapped[str] = mapped_column(ForeignKey("package_titles.id", ondelete="CASCADE"), nullable=False, comment="对应标题候选ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
+    title_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="对应标题候选ID")
     aspect_ratio: Mapped[str] = mapped_column(String(10), nullable=False, comment="封面比例")
     generation_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", comment="该比例生成版本")
     creative_prompt: Mapped[str] = mapped_column(Text, nullable=False, comment="封面生成提示词")
-    asset_id: Mapped[str | None] = mapped_column(ForeignKey("media_assets.id", ondelete="SET NULL"), comment="生成后的图片资产ID")
+    asset_id: Mapped[str | None] = mapped_column(String(36), comment="生成后的图片资产ID")
     score: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), comment="封面评分")
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否最终采用")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="prompt_ready", comment="封面状态")
 
 
-class PackageCommunityPost(IdMixin, TimestampMixin, Base):
+class PackageCommunityPost(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_community_posts"
     __table_args__ = (
         CheckConstraint("status IN ('generated','selected','rejected','superseded','published')", name="valid_status"),
@@ -285,7 +287,7 @@ class PackageCommunityPost(IdMixin, TimestampMixin, Base):
         {"comment": "运营包Community文案版本"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     sequence_number: Mapped[int] = mapped_column(SmallInteger, nullable=False, comment="Community序号")
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", comment="文案版本号")
     language: Mapped[str] = mapped_column(String(20), nullable=False, comment="文案语言")
@@ -297,7 +299,7 @@ class PackageCommunityPost(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="generated", comment="Community文案状态")
 
 
-class CommunityPostAsset(IdMixin, TimestampMixin, Base):
+class CommunityPostAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "community_post_assets"
     __table_args__ = (
         CheckConstraint("position_number >= 1", name="position_positive"),
@@ -306,12 +308,12 @@ class CommunityPostAsset(IdMixin, TimestampMixin, Base):
         {"comment": "Community帖子与一张或多张图片的关联"},
     )
 
-    community_post_id: Mapped[str] = mapped_column(ForeignKey("package_community_posts.id", ondelete="CASCADE"), nullable=False, comment="Community帖子ID")
-    asset_id: Mapped[str] = mapped_column(ForeignKey("media_assets.id", ondelete="RESTRICT"), nullable=False, comment="媒体资产ID")
+    community_post_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="Community帖子ID")
+    asset_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="媒体资产ID")
     position_number: Mapped[int] = mapped_column(SmallInteger, nullable=False, comment="图片顺序")
 
 
-class PackagePlaylistAssignment(IdMixin, TimestampMixin, Base):
+class PackagePlaylistAssignment(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_playlist_assignments"
     __table_args__ = (
         CheckConstraint("status IN ('candidate','selected','rejected')", name="valid_status"),
@@ -319,21 +321,21 @@ class PackagePlaylistAssignment(IdMixin, TimestampMixin, Base):
         {"comment": "运营包播放列表候选与最终选择"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
-    playlist_id: Mapped[str] = mapped_column(ForeignKey("channel_playlists.id", ondelete="RESTRICT"), nullable=False, comment="播放列表ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
+    playlist_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="播放列表ID")
     rank_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="候选排序")
     rationale: Mapped[str | None] = mapped_column(Text, comment="推荐理由")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="candidate", comment="选择状态")
 
 
-class PackageCreativeSlot(IdMixin, TimestampMixin, Base):
+class PackageCreativeSlot(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_creative_slots"
     __table_args__ = (
         UniqueConstraint("package_id", name="uq_package_creative_slots_package_id"),
         {"comment": "运营包各创意维度的统一定位"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     character_focus: Mapped[str | None] = mapped_column(Text, comment="人物焦点")
     plot_focus: Mapped[str | None] = mapped_column(Text, comment="剧情焦点")
     emotion: Mapped[str | None] = mapped_column(Text, comment="情绪方向")
@@ -345,7 +347,7 @@ class PackageCreativeSlot(IdMixin, TimestampMixin, Base):
     community_angle: Mapped[str | None] = mapped_column(Text, comment="Community角度")
 
 
-class PackageArtifact(IdMixin, TimestampMixin, Base):
+class PackageArtifact(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_artifacts"
     __table_args__ = (
         CheckConstraint("artifact_format IN ('md','json')", name="valid_artifact_format"),
@@ -355,7 +357,7 @@ class PackageArtifact(IdMixin, TimestampMixin, Base):
         {"comment": "由数据库内容派生的MD或JSON运营包文件"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     artifact_format: Mapped[str] = mapped_column(String(10), nullable=False, comment="导出文件格式")
     generation_number: Mapped[int] = mapped_column(Integer, nullable=False, comment="导出版本号")
     storage_provider: Mapped[str] = mapped_column(String(40), nullable=False, comment="存储提供方")
@@ -366,7 +368,7 @@ class PackageArtifact(IdMixin, TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, comment="脱敏错误信息")
 
 
-class PackageValidationResult(IdMixin, TimestampMixin, Base):
+class PackageValidationResult(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_validation_results"
     __table_args__ = (
         CheckConstraint("result IN ('pass','warning','fail')", name="valid_result"),
@@ -375,7 +377,7 @@ class PackageValidationResult(IdMixin, TimestampMixin, Base):
         {"comment": "运营包各项自动检测结果"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="运营包ID")
     validator_code: Mapped[str] = mapped_column(String(100), nullable=False, comment="检测器代码")
     node_type: Mapped[str | None] = mapped_column(String(20), comment="关联生产节点")
     field_reference: Mapped[str | None] = mapped_column(String(255), comment="关联字段定位")
@@ -385,7 +387,7 @@ class PackageValidationResult(IdMixin, TimestampMixin, Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="检测时间")
 
 
-class PackageSimilarityCheck(IdMixin, TimestampMixin, Base):
+class PackageSimilarityCheck(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_similarity_checks"
     __table_args__ = (
         CheckConstraint("result IN ('pass','warning','fail')", name="valid_result"),
@@ -398,8 +400,8 @@ class PackageSimilarityCheck(IdMixin, TimestampMixin, Base):
         {"comment": "运营包与历史运营包的相似度检测"},
     )
 
-    package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="当前运营包ID")
-    compared_package_id: Mapped[str] = mapped_column(ForeignKey("operation_packages.id", ondelete="CASCADE"), nullable=False, comment="对比运营包ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="当前运营包ID")
+    compared_package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="对比运营包ID")
     title_similarity: Mapped[Decimal | None] = mapped_column(Numeric(6, 5), comment="标题相似度，0到1")
     cover_similarity: Mapped[Decimal | None] = mapped_column(Numeric(6, 5), comment="封面相似度，0到1")
     description_similarity: Mapped[Decimal | None] = mapped_column(Numeric(6, 5), comment="说明相似度，0到1")
@@ -408,7 +410,7 @@ class PackageSimilarityCheck(IdMixin, TimestampMixin, Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="检测时间")
 
 
-class SystemEvent(IdMixin, Base):
+class SystemEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "system_events"
     __table_args__ = (
         Index("ix_system_events_entity_time", "entity_type", "entity_id", "occurred_at"),
@@ -423,3 +425,52 @@ class SystemEvent(IdMixin, Base):
     actor_type: Mapped[str] = mapped_column(String(40), nullable=False, comment="操作者类型")
     actor_id: Mapped[str | None] = mapped_column(String(36), comment="操作者ID")
     occurred_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="事件发生时间")
+
+
+configure_tenant_relations(
+    (
+        ("operation_tasks", "batch_id", "production_batches", "RESTRICT"),
+        ("operation_tasks", "channel_id", "channels", "RESTRICT"),
+        ("operation_tasks", "drama_id", "dramas", "RESTRICT"),
+        ("operation_tasks", "playlist_id", "channel_playlists", "RESTRICT"),
+        ("operation_tasks", "publish_slot_id", "channel_publish_slots", "RESTRICT"),
+        ("operation_tasks", "schedule_id", "channel_schedule_entries", "RESTRICT"),
+        ("task_events", "task_id", "operation_tasks", "CASCADE"),
+        ("work_orders", "batch_id", "production_batches", "RESTRICT"),
+        ("work_orders", "channel_dna_version_id", "channel_dna_versions", "RESTRICT"),
+        ("work_orders", "channel_id", "channels", "RESTRICT"),
+        ("work_orders", "drama_id", "dramas", "RESTRICT"),
+        ("work_orders", "playlist_id", "channel_playlists", "RESTRICT"),
+        ("work_orders", "publish_slot_id", "channel_publish_slots", "RESTRICT"),
+        ("work_orders", "schedule_id", "channel_schedule_entries", "RESTRICT"),
+        ("work_orders", "task_id", "operation_tasks", "RESTRICT"),
+        ("operation_packages", "batch_id", "production_batches", "RESTRICT"),
+        ("operation_packages", "channel_dna_version_id", "channel_dna_versions", "RESTRICT"),
+        ("operation_packages", "channel_id", "channels", "RESTRICT"),
+        ("operation_packages", "drama_id", "dramas", "RESTRICT"),
+        ("operation_packages", "schedule_id", "channel_schedule_entries", "RESTRICT"),
+        ("operation_packages", "work_order_id", "work_orders", "RESTRICT"),
+        ("package_artifacts", "package_id", "operation_packages", "CASCADE"),
+        ("package_community_posts", "package_id", "operation_packages", "CASCADE"),
+        ("package_creative_slots", "package_id", "operation_packages", "CASCADE"),
+        ("package_descriptions", "package_id", "operation_packages", "CASCADE"),
+        ("package_output_copy_states", "package_id", "operation_packages", "CASCADE"),
+        ("package_playlist_assignments", "package_id", "operation_packages", "CASCADE"),
+        ("package_playlist_assignments", "playlist_id", "channel_playlists", "RESTRICT"),
+        ("package_similarity_checks", "compared_package_id", "operation_packages", "CASCADE"),
+        ("package_similarity_checks", "package_id", "operation_packages", "CASCADE"),
+        ("package_titles", "package_id", "operation_packages", "CASCADE"),
+        ("package_validation_results", "package_id", "operation_packages", "CASCADE"),
+        ("production_node_runs", "package_id", "operation_packages", "CASCADE"),
+        ("production_node_runs", "work_order_id", "work_orders", "CASCADE"),
+        ("community_post_assets", "asset_id", "media_assets", "RESTRICT"),
+        ("community_post_assets", "community_post_id", "package_community_posts", "CASCADE"),
+        ("package_cover_variants", "asset_id", "media_assets", "RESTRICT"),
+        ("package_cover_variants", "package_id", "operation_packages", "CASCADE"),
+        ("package_cover_variants", "title_id", "package_titles", "CASCADE"),
+    ),
+    parent_tables=(
+        "operation_packages", "operation_tasks", "package_community_posts", "package_titles",
+        "production_batches", "work_orders",
+    ),
+)

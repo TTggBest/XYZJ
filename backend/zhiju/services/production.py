@@ -22,6 +22,7 @@ from zhiju.models import (
 from zhiju.schemas.production import TaskCreate
 from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError, _audit
+from zhiju.tenant_repository import require_tenant_entity
 
 
 NODE_SEQUENCE = ("search", "title", "cover", "description", "community", "merge")
@@ -48,7 +49,7 @@ def _native_batch(session: Session, production_date) -> ProductionBatch:
 
 
 def _require_productive_channel(session: Session, channel_id: str) -> Channel:
-    channel = session.get(Channel, channel_id)
+    channel = require_tenant_entity(session, Channel, channel_id)
     if channel is None or channel.deleted_at is not None:
         raise NotFoundError("频道不存在")
     if channel.status in {"paused", "archived", "deleted"}:
@@ -95,7 +96,7 @@ def create_task(session: Session, payload: TaskCreate) -> OperationTask:
     existing = session.scalar(select(OperationTask).where(OperationTask.idempotency_key == payload.idempotency_key))
     if existing is not None:
         return existing
-    schedule = session.get(ChannelScheduleEntry, payload.schedule_id)
+    schedule = require_tenant_entity(session, ChannelScheduleEntry, payload.schedule_id)
     if schedule is None:
         raise NotFoundError("排期不存在")
     if schedule.status not in {"planned", "reserved", "confirmed"}:
@@ -169,7 +170,7 @@ def _latest_nodes(session: Session, work_order_id: str) -> list[ProductionNodeRu
 
 
 def _detail(session: Session, work_order: WorkOrder) -> dict[str, object]:
-    task = session.get(OperationTask, work_order.task_id)
+    task = require_tenant_entity(session, OperationTask, work_order.task_id)
     package = session.scalar(
         select(OperationPackage)
         .where(OperationPackage.work_order_id == work_order.id)
@@ -181,7 +182,7 @@ def _detail(session: Session, work_order: WorkOrder) -> dict[str, object]:
 
 
 def dispatch_task(session: Session, task_id: str) -> dict[str, object]:
-    task = session.scalar(select(OperationTask).where(OperationTask.id == task_id).with_for_update())
+    task = require_tenant_entity(session, OperationTask, task_id, lock=True)
     if task is None:
         raise NotFoundError("任务不存在")
     _require_productive_channel(session, task.channel_id)
@@ -191,7 +192,7 @@ def dispatch_task(session: Session, task_id: str) -> dict[str, object]:
     if task.status != "pending_dispatch":
         raise ConflictError("只有待下发任务可以下发")
     now = datetime.now(timezone.utc)
-    schedule = session.get(ChannelScheduleEntry, task.schedule_id) if task.schedule_id else None
+    schedule = require_tenant_entity(session, ChannelScheduleEntry, task.schedule_id) if task.schedule_id else None
     dna_version_id = schedule.channel_dna_version_id if schedule else None
     if dna_version_id is None:
         active_dna = session.scalar(
@@ -538,13 +539,14 @@ def list_task_overview(
 
 
 def get_work_order_detail(session: Session, work_order_id: str) -> dict[str, object]:
-    work_order = session.get(WorkOrder, work_order_id)
+    work_order = require_tenant_entity(session, WorkOrder, work_order_id)
     if work_order is None:
         raise NotFoundError("工单不存在")
     return _detail(session, work_order)
 
 
 def _latest_node(session: Session, work_order_id: str, node_type: str, *, lock: bool = False) -> ProductionNodeRun:
+    require_tenant_entity(session, WorkOrder, work_order_id)
     statement = (
         select(ProductionNodeRun)
         .where(ProductionNodeRun.work_order_id == work_order_id, ProductionNodeRun.node_type == node_type)
@@ -565,8 +567,8 @@ def start_node(session: Session, work_order_id: str, node_type: str, worker_key:
     node = _latest_node(session, work_order_id, node_type, lock=True)
     if node.status != "queued":
         raise ConflictError("只有已排队节点可以开始")
-    work_order = session.get(WorkOrder, work_order_id)
-    task = session.get(OperationTask, work_order.task_id) if work_order else None
+    work_order = require_tenant_entity(session, WorkOrder, work_order_id)
+    task = require_tenant_entity(session, OperationTask, work_order.task_id)
     if work_order is None or task is None:
         raise NotFoundError("工单关联任务不存在")
     _require_productive_channel(session, work_order.channel_id)
@@ -602,9 +604,9 @@ def finish_node(
     node = _latest_node(session, work_order_id, node_type, lock=True)
     if node.status != "running":
         raise ConflictError("只有运行中的节点可以结束")
-    work_order = session.get(WorkOrder, work_order_id)
-    task = session.get(OperationTask, work_order.task_id) if work_order else None
-    package = session.get(OperationPackage, node.package_id)
+    work_order = require_tenant_entity(session, WorkOrder, work_order_id)
+    task = require_tenant_entity(session, OperationTask, work_order.task_id)
+    package = require_tenant_entity(session, OperationPackage, node.package_id)
     if work_order is None or task is None or package is None:
         raise NotFoundError("节点关联数据不存在")
     if success and node_type == "merge" and not allow_merge:
@@ -665,7 +667,7 @@ def finish_node(
 
 
 def review_package(session: Session, package_id: str, decision: str, note: str | None) -> OperationPackage:
-    package = session.scalar(select(OperationPackage).where(OperationPackage.id == package_id).with_for_update())
+    package = require_tenant_entity(session, OperationPackage, package_id, lock=True)
     if package is None:
         raise NotFoundError("运营包不存在")
     if package.status != "review_pending":
@@ -685,11 +687,11 @@ def review_package(session: Session, package_id: str, decision: str, note: str |
 def retry_node(session: Session, work_order_id: str, node_type: str, reason: str) -> dict[str, object]:
     if node_type not in NODE_SEQUENCE:
         raise NotFoundError("生产节点不存在")
-    work_order = session.scalar(select(WorkOrder).where(WorkOrder.id == work_order_id).with_for_update())
+    work_order = require_tenant_entity(session, WorkOrder, work_order_id, lock=True)
     if work_order is None:
         raise NotFoundError("工单不存在")
     _require_productive_channel(session, work_order.channel_id)
-    task = session.get(OperationTask, work_order.task_id)
+    task = require_tenant_entity(session, OperationTask, work_order.task_id)
     package = session.scalar(
         select(OperationPackage).where(OperationPackage.work_order_id == work_order.id).order_by(OperationPackage.version_number.desc())
     )

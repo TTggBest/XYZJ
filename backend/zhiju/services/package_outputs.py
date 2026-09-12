@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from zhiju.config import get_settings
+from zhiju.storage_scope import tenant_object_prefix
 from zhiju.models import (
     Channel,
     ChannelPlaylist,
@@ -49,10 +50,11 @@ from zhiju.schemas.production import (
 )
 from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError, _audit
+from zhiju.tenant_repository import require_tenant_entity, require_tenant_entities
 
 
 def _package(session: Session, package_id: str) -> OperationPackage:
-    package = session.get(OperationPackage, package_id)
+    package = require_tenant_entity(session, OperationPackage, package_id)
     if package is None:
         raise NotFoundError("运营包不存在")
     return package
@@ -130,7 +132,7 @@ def write_covers(session: Session, package_id: str, payload: CoverBatchWrite) ->
     package = _package(session, package_id)
     node = _running_node(session, package, "cover")
     title_ids = {item.title_id for item in payload.covers}
-    titles = list(session.scalars(select(PackageTitle).where(PackageTitle.id.in_(title_ids))))
+    titles = require_tenant_entities(session, PackageTitle, title_ids)
     if len(titles) != len(title_ids) or any(title.package_id != package.id for title in titles):
         raise ConflictError("封面关联了不属于当前运营包的标题")
     pairs = {(next(title.variant_number for title in titles if title.id == item.title_id), item.aspect_ratio) for item in payload.covers}
@@ -138,7 +140,7 @@ def write_covers(session: Session, package_id: str, payload: CoverBatchWrite) ->
     if pairs != expected or len(payload.covers) != 6:
         raise ConflictError("封面必须为三个标题各提交一张 4:5 和一张 16:9")
     asset_ids = {item.asset_id for item in payload.covers if item.asset_id}
-    assets = list(session.scalars(select(MediaAsset).where(MediaAsset.id.in_(asset_ids)))) if asset_ids else []
+    assets = require_tenant_entities(session, MediaAsset, asset_ids)
     assets_by_id = {asset.id: asset for asset in assets}
     if len(assets) != len(asset_ids) or any(
         asset.operation_package_id != package.id
@@ -194,6 +196,9 @@ def write_covers(session: Session, package_id: str, payload: CoverBatchWrite) ->
 def write_description(session: Session, package_id: str, payload: DescriptionWrite) -> PackageDescription:
     package = _package(session, package_id)
     node = _running_node(session, package, "description")
+    playlist = require_tenant_entity(session, ChannelPlaylist, payload.playlist_id) if payload.playlist_id else None
+    if playlist is not None and playlist.channel_id != package.channel_id:
+        raise ConflictError("播放列表不属于当前频道")
     if session.scalar(
         select(PackageDescription.id).where(
             PackageDescription.package_id == package.id,
@@ -221,10 +226,7 @@ def write_description(session: Session, package_id: str, payload: DescriptionWri
         **values,
     )
     session.add(row)
-    if payload.playlist_id:
-        playlist = session.get(ChannelPlaylist, payload.playlist_id)
-        if playlist is None or playlist.channel_id != package.channel_id:
-            raise ConflictError("播放列表不属于当前频道")
+    if playlist is not None:
         for assignment in session.scalars(
             select(PackagePlaylistAssignment).where(PackagePlaylistAssignment.package_id == package.id)
         ):
@@ -284,7 +286,7 @@ def _community_payload(session: Session, rows: list[PackageCommunityPost]) -> li
 def write_community(session: Session, package_id: str, payload: CommunityBatchWrite) -> list[dict[str, object]]:
     package = _package(session, package_id)
     node = _running_node(session, package, "community")
-    work_order = session.get(WorkOrder, package.work_order_id)
+    work_order = require_tenant_entity(session, WorkOrder, package.work_order_id)
     if work_order is None:
         raise NotFoundError("运营包关联工单不存在")
     sequences = [item.sequence_number for item in payload.posts]
@@ -297,19 +299,8 @@ def write_community(session: Session, package_id: str, payload: CommunityBatchWr
         ).limit(1)
     ):
         raise ConflictError("当前社群节点尝试已经写入结果")
-    previous = list(
-        session.scalars(
-            select(PackageCommunityPost).where(
-                PackageCommunityPost.package_id == package.id,
-                PackageCommunityPost.selected.is_(True),
-            )
-        )
-    )
-    for row in previous:
-        row.selected = False
-        row.status = "superseded"
     asset_ids = {asset_id for item in payload.posts for asset_id in item.asset_ids}
-    assets = list(session.scalars(select(MediaAsset).where(MediaAsset.id.in_(asset_ids)))) if asset_ids else []
+    assets = require_tenant_entities(session, MediaAsset, asset_ids)
     if len(assets) != len(asset_ids) or any(
         asset.operation_package_id != package.id
         or asset.asset_type != "image"
@@ -319,6 +310,12 @@ def write_community(session: Session, package_id: str, payload: CommunityBatchWr
         for asset in assets
     ):
         raise ConflictError("社群配图必须是属于当前运营包的可用社群图片资产")
+    previous = list(session.scalars(select(PackageCommunityPost).where(
+        PackageCommunityPost.package_id == package.id, PackageCommunityPost.selected.is_(True),
+    )))
+    for row in previous:
+        row.selected = False
+        row.status = "superseded"
     rows = [
         PackageCommunityPost(
             package_id=package.id,
@@ -538,6 +535,11 @@ def get_package_copy_progress(session: Session, package_id: str) -> dict[str, ob
 
 def mark_package_output_copied(session: Session, package_id: str, payload: PackageCopyMark) -> dict[str, object]:
     package = _package(session, package_id)
+    output_model = {
+        "title": PackageTitle, "cover": PackageCoverVariant, "description": PackageDescription,
+        "community_text": PackageCommunityPost, "community_image": PackageCommunityPost,
+    }[payload.output_type]
+    require_tenant_entity(session, output_model, payload.output_id)
     if not package.source_complete:
         raise ConflictError(package.source_incomplete_reason or "飞书源数据不完整，暂不可操作")
     targets = _current_package_copy_targets(session, package_id)
@@ -723,7 +725,7 @@ def list_package_operation_overview(
             _copy_targets(package_titles, package_covers, package_description, package_communities),
             copied_by_package.get(package.id, set()),
         )
-        publish_slot = session.get(ChannelPublishSlot, task.publish_slot_id) if task.publish_slot_id else None
+        publish_slot = require_tenant_entity(session, ChannelPublishSlot, task.publish_slot_id) if task.publish_slot_id else None
         planned_local_time = (
             schedule.planned_local_time
             if schedule
@@ -782,7 +784,7 @@ def list_package_operation_overview(
 def validate_node_output(session: Session, node: ProductionNodeRun) -> None:
     package = _package(session, node.package_id)
     if node.node_type == "search":
-        drama = session.get(Drama, package.drama_id)
+        drama = require_tenant_entity(session, Drama, package.drama_id)
         if drama is None or not drama.content_summary:
             raise ConflictError("搜索节点未将剧情资料写入本地剧库")
     elif node.node_type == "title":
@@ -797,7 +799,7 @@ def validate_node_output(session: Session, node: ProductionNodeRun) -> None:
         if not session.scalar(select(PackageDescription.id).where(PackageDescription.package_id == package.id, PackageDescription.version_number == node.attempt_number)):
             raise ConflictError("说明节点缺少本次尝试的说明结果")
     elif node.node_type == "community":
-        work_order = session.get(WorkOrder, package.work_order_id)
+        work_order = require_tenant_entity(session, WorkOrder, package.work_order_id)
         count = len(list(session.scalars(select(PackageCommunityPost.id).where(PackageCommunityPost.package_id == package.id, PackageCommunityPost.version_number == node.attempt_number))))
         if work_order is None or count != work_order.community_count:
             raise ConflictError("社群节点结果数量与工单不一致")
@@ -812,10 +814,10 @@ def _json_safe(value):
 
 
 def _selected_snapshot(session: Session, package: OperationPackage) -> dict[str, object]:
-    work_order = session.get(WorkOrder, package.work_order_id)
-    channel = session.get(Channel, package.channel_id)
-    drama = session.get(Drama, package.drama_id)
-    schedule = session.get(ChannelScheduleEntry, package.schedule_id) if package.schedule_id else None
+    work_order = require_tenant_entity(session, WorkOrder, package.work_order_id)
+    channel = require_tenant_entity(session, Channel, package.channel_id)
+    drama = require_tenant_entity(session, Drama, package.drama_id)
+    schedule = require_tenant_entity(session, ChannelScheduleEntry, package.schedule_id) if package.schedule_id else None
     if work_order is None or channel is None or drama is None:
         raise ConflictError("运营包基础关联数据不完整")
     if session.scalar(
@@ -858,7 +860,7 @@ def _selected_snapshot(session: Session, package: OperationPackage) -> dict[str,
     ):
         raise ConflictError("运营包仍有未解决的失败检测项")
     playlist_assignment = session.scalar(select(PackagePlaylistAssignment).where(PackagePlaylistAssignment.package_id == package.id, PackagePlaylistAssignment.status == "selected"))
-    playlist = session.get(ChannelPlaylist, playlist_assignment.playlist_id) if playlist_assignment else None
+    playlist = require_tenant_entity(session, ChannelPlaylist, playlist_assignment.playlist_id) if playlist_assignment else None
     creative = session.scalar(select(PackageCreativeSlot).where(PackageCreativeSlot.package_id == package.id))
     aliases = list(session.scalars(select(DramaAlias).where(DramaAlias.drama_id == drama.id).order_by(DramaAlias.alias)))
     terms = list(session.scalars(select(DramaCoreTerm).where(DramaCoreTerm.drama_id == drama.id).order_by(DramaCoreTerm.term_type, DramaCoreTerm.term)))
@@ -959,7 +961,7 @@ def merge_package(session: Session, package_id: str) -> dict[str, object]:
     snapshot = _selected_snapshot(session, package)
     generation = node.attempt_number
     root = Path(get_settings().artifact_root)
-    relative_dir = Path(package.id) / f"generation-{generation}"
+    relative_dir = Path(tenant_object_prefix(package.tenant_id)) / package.id / f"generation-{generation}"
     output_dir = root / relative_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     json_bytes = json.dumps(snapshot, ensure_ascii=False, indent=2, default=_json_safe).encode("utf-8")

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
 class RuntimePackageBuild(IdMixin, TimestampMixin, Base):
@@ -40,9 +40,12 @@ class AppIconSetting(TimestampMixin, Base):
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近应用时间")
 
 
-class ImageWorkspaceSetting(TimestampMixin, Base):
+class ImageWorkspaceSetting(TenantOwnedMixin, TimestampMixin, Base):
     __tablename__ = "image_workspace_settings"
-    __table_args__ = ({"comment": "图片生产共享根目录设置"},)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", name="uq_image_workspace_settings_tenant"),
+        {"comment": "每租户图片生产根目录设置"},
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="固定设置主键")
     root_path: Mapped[str] = mapped_column(String(1000), nullable=False, comment="共享根目录下的相对路径或本机绝对路径")
@@ -50,23 +53,25 @@ class ImageWorkspaceSetting(TimestampMixin, Base):
     output_dir_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default="用户产物", comment="可清理的用户产物目录名")
 
 
-class ChannelDramaType(IdMixin, TimestampMixin, Base):
+class ChannelDramaType(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_drama_types"
     __table_args__ = (
         CheckConstraint("status IN ('active','disabled')", name="valid_status"),
         CheckConstraint("sort_order >= 0", name="sort_order_nonnegative"),
+        UniqueConstraint("tenant_id", "code", name="uq_channel_drama_types_tenant_code"),
+        UniqueConstraint("tenant_id", "name", name="uq_channel_drama_types_tenant_name"),
         Index("ix_channel_drama_types_status_sort", "status", "sort_order"),
         {"comment": "频道短剧类型可编辑配置"},
     )
 
-    code: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, comment="稳定编码")
-    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, comment="显示名称")
+    code: Mapped[str] = mapped_column(String(80), nullable=False, comment="稳定编码")
+    name: Mapped[str] = mapped_column(String(120), nullable=False, comment="显示名称")
     description: Mapped[str | None] = mapped_column(Text, comment="业务说明")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", comment="显示顺序")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="配置状态")
 
 
-class ChannelLogoProfile(IdMixin, TimestampMixin, Base):
+class ChannelLogoProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_logo_profiles"
     __table_args__ = (
         CheckConstraint("status IN ('calibrated','failed')", name="valid_status"),
@@ -74,7 +79,7 @@ class ChannelLogoProfile(IdMixin, TimestampMixin, Base):
         {"comment": "频道左右Logo与模板自动校准配置"},
     )
 
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="频道内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
     status: Mapped[str] = mapped_column(String(20), nullable=False, comment="校准状态")
     left_logo_path: Mapped[str] = mapped_column(String(1000), nullable=False, comment="左Logo相对图片根目录路径")
     right_logo_path: Mapped[str] = mapped_column(String(1000), nullable=False, comment="右Logo相对图片根目录路径")
@@ -85,7 +90,7 @@ class ChannelLogoProfile(IdMixin, TimestampMixin, Base):
     calibrated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近自动校准时间")
 
 
-class ImageProcessingRun(IdMixin, TimestampMixin, Base):
+class ImageProcessingRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "image_processing_runs"
     __table_args__ = (
         CheckConstraint("status IN ('processing','classified','partially_classified','logo_ready','partially_generated','failed')", name="valid_status"),
@@ -93,7 +98,7 @@ class ImageProcessingRun(IdMixin, TimestampMixin, Base):
         {"comment": "批次图片分类与Logo生成运行记录"},
     )
 
-    batch_id: Mapped[str] = mapped_column(ForeignKey("production_batches.id", ondelete="RESTRICT"), nullable=False, comment="生产批次ID")
+    batch_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="生产批次ID")
     status: Mapped[str] = mapped_column(String(30), nullable=False, comment="处理状态")
     total_files: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", comment="导入图片数")
     matched_files: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", comment="成功分类图片数")
@@ -104,7 +109,7 @@ class ImageProcessingRun(IdMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最近处理完成时间")
 
 
-class ImageProcessingItem(IdMixin, TimestampMixin, Base):
+class ImageProcessingItem(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "image_processing_items"
     __table_args__ = (
         CheckConstraint("match_status IN ('matched','unmatched','ambiguous')", name="valid_match_status"),
@@ -112,15 +117,29 @@ class ImageProcessingItem(IdMixin, TimestampMixin, Base):
         {"comment": "单张导入图片的分类与Logo成品记录"},
     )
 
-    run_id: Mapped[str] = mapped_column(ForeignKey("image_processing_runs.id", ondelete="CASCADE"), nullable=False, comment="图片处理运行ID")
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="图片处理运行ID")
     original_filename: Mapped[str] = mapped_column(String(500), nullable=False, comment="用户上传时文件名")
     stored_path: Mapped[str] = mapped_column(String(1000), nullable=False, comment="分类后相对图片根目录路径")
     match_status: Mapped[str] = mapped_column(String(20), nullable=False, comment="图片匹配状态")
     match_method: Mapped[str | None] = mapped_column(String(40), comment="文件名匹配方式")
     image_role: Mapped[str | None] = mapped_column(String(40), comment="封面或社群图标准位")
-    package_id: Mapped[str | None] = mapped_column(ForeignKey("operation_packages.id", ondelete="SET NULL"), comment="匹配运营包ID")
-    channel_id: Mapped[str | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), comment="匹配频道ID")
-    drama_id: Mapped[str | None] = mapped_column(ForeignKey("dramas.id", ondelete="SET NULL"), comment="匹配剧目ID")
-    schedule_id: Mapped[str | None] = mapped_column(ForeignKey("channel_schedule_entries.id", ondelete="SET NULL"), comment="匹配排期ID")
+    package_id: Mapped[str | None] = mapped_column(String(36), comment="匹配运营包ID")
+    channel_id: Mapped[str | None] = mapped_column(String(36), comment="匹配频道ID")
+    drama_id: Mapped[str | None] = mapped_column(String(36), comment="匹配剧目ID")
+    schedule_id: Mapped[str | None] = mapped_column(String(36), comment="匹配排期ID")
     output_path: Mapped[str | None] = mapped_column(String(1000), comment="Logo成品相对图片根目录路径")
     error_message: Mapped[str | None] = mapped_column(Text, comment="未匹配或生成失败原因")
+
+
+configure_tenant_relations(
+    (
+        ("channel_logo_profiles", "channel_id", "channels", "CASCADE"),
+        ("image_processing_runs", "batch_id", "production_batches", "RESTRICT"),
+        ("image_processing_items", "channel_id", "channels", "RESTRICT"),
+        ("image_processing_items", "drama_id", "dramas", "RESTRICT"),
+        ("image_processing_items", "package_id", "operation_packages", "RESTRICT"),
+        ("image_processing_items", "run_id", "image_processing_runs", "CASCADE"),
+        ("image_processing_items", "schedule_id", "channel_schedule_entries", "RESTRICT"),
+    ),
+    parent_tables=("image_processing_runs",),
+)
