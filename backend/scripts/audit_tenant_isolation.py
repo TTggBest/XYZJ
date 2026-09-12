@@ -19,12 +19,21 @@ from zhiju.models import Base
 EXPECTED_DATABASE = "zhiju_dev"
 GLOBAL_TABLES = frozenset(
     {
+        "app_icon_settings",
         "app_users",
         "auth_events",
         "auth_sessions",
         "device_user_bindings",
+        "devices",
+        "integrations",
+        "languages",
         "permissions",
+        "publish_cadence_template_slots",
         "role_permissions",
+        "runtime_package_builds",
+        "schema_comments",
+        "skills",
+        "skill_versions",
         "tenant_memberships",
         "tenants",
     }

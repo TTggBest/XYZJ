@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table, create_engine
 
+import scripts.audit_tenant_isolation as tenant_audit
 from scripts.audit_tenant_isolation import (
     _orphan_count,
     read_development_database_url,
@@ -67,3 +68,25 @@ def test_preflight_counts_self_referential_foreign_keys_without_alias_collision(
         assert _orphan_count(engine, users, constraint) == 0
     finally:
         engine.dispose()
+
+
+def test_preflight_does_not_report_shared_global_tables_as_tenant_blockers(monkeypatch) -> None:
+    monkeypatch.setattr(tenant_audit, "_alembic_heads", lambda: ["head"])
+    monkeypatch.setattr(tenant_audit, "_table_count", lambda _engine, _table: 1)
+    monkeypatch.setattr(tenant_audit, "_orphan_count", lambda _engine, _table, _constraint: 0)
+    monkeypatch.setattr(tenant_audit, "_duplicate_group_count", lambda _engine, _table, _columns: 0)
+
+    report = tenant_audit.build_preflight_report(object())
+    shared_global_tables = {
+        "app_icon_settings",
+        "devices",
+        "integrations",
+        "languages",
+        "publish_cadence_template_slots",
+        "runtime_package_builds",
+        "schema_comments",
+        "skills",
+        "skill_versions",
+    }
+
+    assert shared_global_tables.isdisjoint(report["rows_without_derivable_tenant"])
