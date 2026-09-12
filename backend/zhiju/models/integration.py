@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
 class Integration(IdMixin, TimestampMixin, Base):
@@ -21,7 +21,7 @@ class Integration(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="集成状态")
 
 
-class IntegrationAccount(IdMixin, TimestampMixin, Base):
+class IntegrationAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "integration_accounts"
     __table_args__ = (
         CheckConstraint("status IN ('pending','active','expired','revoked','error','disabled')", name="valid_status"),
@@ -53,4 +53,3 @@ class IntegrationCredential(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="凭证状态")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="凭证失效时间")
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后验证时间")
-

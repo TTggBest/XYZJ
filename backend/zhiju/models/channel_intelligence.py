@@ -18,10 +18,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
-class MediaAsset(IdMixin, TimestampMixin, Base):
+class MediaAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "media_assets"
     __table_args__ = (
         CheckConstraint("asset_type IN ('image','video','audio','document','other')", name="valid_asset_type"),

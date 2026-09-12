@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
 class Device(IdMixin, TimestampMixin, Base):
@@ -52,7 +52,7 @@ class Device(IdMixin, TimestampMixin, Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后在线时间")
 
 
-class GoogleAccount(IdMixin, TimestampMixin, Base):
+class GoogleAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "google_accounts"
     __table_args__ = (
         CheckConstraint("status IN ('active','disabled','revoked')", name="valid_status"),
@@ -106,7 +106,7 @@ class OAuthGrantScope(Base):
     grant: Mapped[OAuthGrant] = relationship(back_populates="scopes")
 
 
-class Channel(IdMixin, TimestampMixin, Base):
+class Channel(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channels"
     __table_args__ = (
         CheckConstraint(

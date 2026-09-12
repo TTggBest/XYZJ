@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
 class YoutubeVideo(IdMixin, TimestampMixin, Base):
@@ -272,7 +272,7 @@ class SyncWatermark(IdMixin, TimestampMixin, Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="同步租约到期时间")
 
 
-class ApiRequestLog(IdMixin, Base):
+class ApiRequestLog(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "api_request_logs"
     __table_args__ = (
         CheckConstraint("result IN ('success','failure','cancelled')", name="valid_result"),
@@ -298,7 +298,7 @@ class ApiRequestLog(IdMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="请求结束时间")
 
 
-class QuotaUsageLog(IdMixin, Base):
+class QuotaUsageLog(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "quota_usage_logs"
     __table_args__ = (
         UniqueConstraint("api_request_log_id", name="uq_quota_usage_logs_request"),

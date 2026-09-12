@@ -4,10 +4,10 @@ from sqlalchemy import DateTime, Index, String, Text
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin
 
 
-class AuditEvent(IdMixin, Base):
+class AuditEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "audit_events"
     __table_args__ = (
         Index("ix_audit_events_entity_time", "entity_type", "entity_id", "occurred_at"),

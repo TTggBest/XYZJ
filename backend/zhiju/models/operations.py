@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
 class Language(IdMixin, TimestampMixin, Base):
@@ -40,7 +40,7 @@ class Language(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="语言状态")
 
 
-class Drama(IdMixin, TimestampMixin, Base):
+class Drama(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "dramas"
     __table_args__ = (
         CheckConstraint("status IN ('active','expired','blocked','archived')", name="valid_status"),

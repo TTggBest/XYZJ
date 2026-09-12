@@ -20,10 +20,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
-class ProductionBatch(IdMixin, TimestampMixin, Base):
+class ProductionBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "production_batches"
     __table_args__ = (
         CheckConstraint("source IN ('native','feishu')", name="valid_source"),
@@ -37,7 +37,7 @@ class ProductionBatch(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="批次状态")
 
 
-class FeishuSyncRun(IdMixin, TimestampMixin, Base):
+class FeishuSyncRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "feishu_sync_runs"
     __table_args__ = (
         CheckConstraint("sync_type IN ('work_orders','operation_packages','channels','dramas','drama_languages','channel_schedules')", name="valid_sync_type"),
@@ -408,7 +408,7 @@ class PackageSimilarityCheck(IdMixin, TimestampMixin, Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="检测时间")
 
 
-class SystemEvent(IdMixin, Base):
+class SystemEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "system_events"
     __table_args__ = (
         Index("ix_system_events_entity_time", "entity_type", "entity_id", "occurred_at"),

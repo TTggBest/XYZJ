@@ -30,7 +30,9 @@ class IdMixin:
 
 class TenantOwnedMixin:
     # Nullable while existing business tables are migrated in later tasks.
-    tenant_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    tenant_id: Mapped[str | None] = mapped_column(
+        String(36), index=True, nullable=True, comment="所属主账号ID"
+    )
 
 
 class TimestampMixin:

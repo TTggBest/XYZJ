@@ -3,10 +3,10 @@ from datetime import date, datetime
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
-class DemoDataBatch(IdMixin, TimestampMixin, Base):
+class DemoDataBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "demo_data_batches"
     __table_args__ = (
         CheckConstraint("status IN ('active','deleted')", name="valid_status"),

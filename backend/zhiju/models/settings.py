@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
 class RuntimePackageBuild(IdMixin, TimestampMixin, Base):
@@ -40,7 +40,7 @@ class AppIconSetting(TimestampMixin, Base):
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近应用时间")
 
 
-class ImageWorkspaceSetting(TimestampMixin, Base):
+class ImageWorkspaceSetting(TenantOwnedMixin, TimestampMixin, Base):
     __tablename__ = "image_workspace_settings"
     __table_args__ = ({"comment": "图片生产共享根目录设置"},)
 
@@ -50,7 +50,7 @@ class ImageWorkspaceSetting(TimestampMixin, Base):
     output_dir_name: Mapped[str] = mapped_column(String(120), nullable=False, server_default="用户产物", comment="可清理的用户产物目录名")
 
 
-class ChannelDramaType(IdMixin, TimestampMixin, Base):
+class ChannelDramaType(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_drama_types"
     __table_args__ = (
         CheckConstraint("status IN ('active','disabled')", name="valid_status"),
