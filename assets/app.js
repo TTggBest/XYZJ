@@ -1363,6 +1363,7 @@
         const model = state.accountModel;
         const record = action === "edit-tenant" ? model.tenants.find(item => item.id === id) : action === "revoke-binding" ? model.bindings.find(item => item.id === id) : model.users.find(item => item.id === id);
         openModal(accountCenter.titles[action], accountCenter.form(action, model, record));
+        accountCenter.syncLeaseMode(el("accountAdminForm"));
         el("modalBody").querySelector("input:not([type=hidden]), select")?.focus();
       } catch (error) { notify(error.message, true); }
       return;
@@ -1790,6 +1791,7 @@
   });
 
   document.addEventListener("change", async event => {
+    if (event.target.name === "lease_mode") accountCenter.syncLeaseMode(event.target.form);
     if (["scheduleDate", "cadenceDate", "taskDate", "workDate", "packageDate"].includes(event.target.id)) { state.date = event.target.value || localDate(); state.dateManuallySet = true; await loadView(state.view); }
     if (event.target.id === "scheduleChannelFilter") { state.scheduleChannelId = event.target.value; state.scheduleFullPage = 1; await loadView("schedules"); }
     if (event.target.id === "packageChannel") { state.packageChannel = event.target.value; await loadView("packages"); }

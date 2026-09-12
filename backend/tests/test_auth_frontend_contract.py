@@ -191,7 +191,7 @@ const context={tenantId:'t1',users:[{id:'u1',role_code:'owner',platform_role:nul
 const command=center.command('edit-user',{user_id:'u1',display_name:'负责人',login_name:'owner',status:'active',lease_expires_at:'',suspended_reason:''},context);
 assert.equal(command.path,'/platform/tenants/t1/users/u1');assert.equal(command.options.method,'PATCH');
 assert.deepEqual(JSON.parse(command.options.body),{display_name:'负责人',login_name:'owner',status:'active',lease_expires_at:null,suspended_reason:null});
-const create=center.command('new-tenant',{company_name:'甲公司',short_name:'甲',status:'active',lease_expires_at:'2030-01-02T12:00',owner_display_name:'李',owner_login_name:'li',owner_password:'fixture-only',owner_lease_expires_at:'',contact_name:'李',contact_phone:'',plan_code:'',remark:''},{});
+const create=center.command('new-tenant',{company_name:'甲公司',short_name:'甲',status:'active',lease_mode:'fixed',lease_expires_at:'2030-01-02T12:00',owner_display_name:'李',owner_login_name:'li',owner_password:'fixture-only',contact_name:'李',contact_phone:'',plan_code:'',remark:''},{});
 const body=JSON.parse(create.options.body);assert.equal(create.path,'/platform/tenants');
 assert.match(body.lease_expires_at,/Z$/);assert.equal(body.owner.password,'fixture-only');assert.equal(body.owner.lease_expires_at,null);
 assert.equal(Object.hasOwn(body,'owner_password'),false);
@@ -233,7 +233,7 @@ process.env.TZ='UTC';await auth.resolveBootstrap(async()=>superUser);
 const center=require(process.argv[1]+'/assets/account-center.js');
 const company={...tenant,status:'active',lease_expires_at:'2030-01-02T12:00:45.789Z'};
 const context={tenantId:'t2',tenants:[company,{id:'t2',lease_expires_at:'2031-01-01T12:00:00Z'}]};
-const values={tenant_id:'t1',company_name:'甲公司新名称',short_name:'甲',status:'active',lease_expires_at:'2030-01-02T12:00'};
+const values={tenant_id:'t1',company_name:'甲公司新名称',short_name:'甲',status:'active',lease_mode:'fixed',lease_expires_at:'2030-01-02T12:00'};
 const unchanged=center.command('edit-tenant',values,context);
 assert.equal(unchanged.path,'/platform/tenants/t1');
 assert.equal(JSON.parse(unchanged.options.body).company_name,'甲公司新名称');
@@ -249,10 +249,34 @@ await auth.resolveBootstrap(async()=>superUser);const center=require(process.arg
 const create=center.form('new-tenant',{});assert.match(create,/name="owner_login_name"/);
 assert.match(create,/name="owner_password"[^>]*type="password"/);
 assert.match(create,/name="lease_expires_at"[^>]*required/);
+assert.match(create,/公司简称（系统显示）/);assert.match(create,/负责人登录账号（手机号或用户名）/);
+assert.match(create,/无限（买断）/);assert.doesNotMatch(create,/name="owner_lease_expires_at"/);
 const edit=center.form('edit-user',{tenantId:'t1',users:[]},{id:'u1',display_name:'负责人',role_code:'owner',status:'active',platform_role:null});
 assert.doesNotMatch(edit,/name="role_code"/);assert.doesNotMatch(edit,/name="password"/);
 const reset=center.form('reset-password',{},{id:'u2',display_name:'运营',role_code:'operator',platform_role:null});
 assert.match(reset,/autocomplete="new-password"/);assert.match(reset,/会话/);
+""")
+
+
+def test_perpetual_company_lease_is_explicit_and_owner_inherits_it():
+    run_node("""
+await auth.resolveBootstrap(async()=>superUser);const center=require(process.argv[1]+'/assets/account-center.js');
+const values={company_name:'筱宇电子商务',short_name:'筱宇商务',status:'active',lease_mode:'perpetual',lease_expires_at:'',owner_display_name:'吕文利',owner_login_name:'13140997731',owner_password:'fixture-only',contact_name:'吕文利',contact_phone:'13140997731',plan_code:'',remark:''};
+const command=center.command('new-tenant',values,{});const body=JSON.parse(command.options.body);
+assert.equal(body.lease_expires_at,'9999-12-31T23:59:59.000Z');
+assert.equal(body.owner.lease_expires_at,null);
+const html=center.render({tenants:[{...tenant,status:'active',lease_expires_at:body.lease_expires_at}],tenantId:'t1',users:[],bindings:[]});
+assert.match(html,/无限（买断）/);
+""")
+
+
+def test_company_lease_mode_disables_date_only_for_perpetual_choice():
+    run_node("""
+const center=require(process.argv[1]+'/assets/account-center.js');
+const label={hidden:false};const date={value:'2030-01-01T00:00',disabled:false,required:true,closest:()=>label};
+const form={elements:{lease_mode:{value:'perpetual'},lease_expires_at:date}};
+center.syncLeaseMode(form);assert.equal(date.disabled,true);assert.equal(date.required,false);assert.equal(date.value,'');assert.equal(label.hidden,true);
+form.elements.lease_mode.value='fixed';center.syncLeaseMode(form);assert.equal(date.disabled,false);assert.equal(date.required,true);assert.equal(label.hidden,false);
 """)
 
 

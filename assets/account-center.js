@@ -5,13 +5,15 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (auth) {
   "use strict";
 
+  const PERPETUAL_LEASE = "9999-12-31T23:59:59.000Z";
   const titles = { "new-tenant": "创建主账号和负责人", "edit-tenant": "编辑公司资料", "transfer-owner": "转交主账号负责人", "new-user": "创建子账号", "edit-user": "编辑用户", "reset-password": "重置用户密码", "revoke-binding": "撤销设备绑定" };
   const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
   const nullable = value => value?.trim() || null;
   const lease = value => value ? new Date(value).toISOString() : null;
-  const time = value => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "继承主账号";
+  const isPerpetual = value => Boolean(value) && new Date(value).getUTCFullYear() === 9999;
+  const time = value => isPerpetual(value) ? "无限（买断）" : value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "继承主账号";
   const status = (value, expiresAt) => value === "active" ? (expiresAt && new Date(expiresAt) <= new Date() ? "已到期" : "启用") : value === "revoked" ? "已撤销" : "停用";
-  const localTime = value => { if (!value) return ""; const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  const localTime = value => { if (!value || isPerpetual(value)) return ""; const date = new Date(value); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   const button = (action, text, id = "", danger = false) => `<button type="button" class="button button-${danger ? "danger" : "secondary"} button-small" data-account-action="${action}" data-id="${esc(id)}">${esc(text)}</button>`;
   const input = (name, title, value = "", type = "text", required = false, extra = "") => `<label class="field"><span>${esc(title)}</span><input class="input" name="${name}" type="${type}" value="${esc(value)}" ${required ? "required" : ""} ${extra}></label>`;
   const select = (name, title, values, selected) => `<label class="field"><span>${esc(title)}</span><select class="select" name="${name}" required>${values.map(([value, label]) => `<option value="${esc(value)}" ${value === selected ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>`;
@@ -19,6 +21,18 @@
   const roleInput = (name, title, value) => select(name, title, auth.managedRoles.map(role => [role, auth.roleLabel(role)]), value || "operator");
   const grid = (headers, rows) => `<div class="table-wrap"><table class="data-table account-table"><thead><tr>${headers.map(item => `<th>${esc(item)}</th>`).join("")}</tr></thead><tbody>${rows.length ? rows.join("") : `<tr><td colspan="${headers.length}">暂无记录</td></tr>`}</tbody></table></div>`;
   const section = (title, description, body, actions = "") => `<section class="section"><header class="section-head"><div class="section-title"><h2>${esc(title)}</h2><p>${esc(description)}</p></div><div class="account-row-actions">${actions}</div></header>${body}</section>`;
+
+  function syncLeaseMode(form) {
+    const mode = form?.elements?.lease_mode;
+    const date = form?.elements?.lease_expires_at;
+    if (!mode || !date) return;
+    const perpetual = mode.value === "perpetual";
+    date.disabled = perpetual;
+    date.required = !perpetual;
+    if (perpetual) date.value = "";
+    const field = date.closest?.("label");
+    if (field) field.hidden = perpetual;
+  }
 
   async function load(request, selectedTenantId = "") {
     const rights = auth.access();
@@ -58,14 +72,16 @@
     let body = "";
     if (["new-tenant", "edit-tenant", "transfer-owner"].includes(action) && !rights.tenants) throw new Error("没有平台管理权限");
     if (action === "new-tenant" || action === "edit-tenant") {
-      body = input("company_name", "公司全称", record.company_name, "text", true, 'maxlength="255"') + input("short_name", "主账号简称", record.short_name, "text", true, 'maxlength="120"') +
-        statusInput("status", "主账号状态", record.status) + input("lease_expires_at", "主账号租约到期（本地时间）", localTime(record.lease_expires_at), "datetime-local", true) +
+      const perpetual = isPerpetual(record.lease_expires_at);
+      body = input("company_name", "公司全称", record.company_name, "text", true, 'maxlength="255"') + input("short_name", "公司简称（系统显示）", record.short_name, "text", true, 'maxlength="120"') +
+        statusInput("status", "主账号状态", record.status) + select("lease_mode", "公司租约", [["fixed", "按日期到期"], ["perpetual", "无限（买断）"]], perpetual ? "perpetual" : "fixed") +
+        input("lease_expires_at", "租约到期（本地时间）", localTime(record.lease_expires_at), "datetime-local", !perpetual, perpetual ? "disabled" : "") +
         input("contact_name", "联系人", record.contact_name, "text", false, 'maxlength="120"') + input("contact_phone", "联系电话", record.contact_phone, "tel", false, 'maxlength="40"') +
         input("plan_code", "套餐代码（可选）", record.plan_code, "text", false, 'maxlength="60"') + input("remark", "备注", record.remark);
       if (action === "edit-tenant") body += input("tenant_id", "", record.id, "hidden") + input("suspended_reason", "停用原因", record.suspended_reason, "text", false, 'maxlength="500"');
       else body += `<p class="field-wide account-form-note">同一步创建这家公司的负责人登录账号。</p>` +
-        input("owner_display_name", "负责人姓名", "", "text", true, 'maxlength="120"') + input("owner_login_name", "负责人登录名", "", "text", true, 'autocomplete="off" maxlength="120"') +
-        input("owner_password", "负责人初始密码", "", "password", true, 'autocomplete="new-password" maxlength="1024"') + input("owner_lease_expires_at", "负责人租约（可留空）", "", "datetime-local");
+        input("owner_display_name", "负责人姓名", "", "text", true, 'maxlength="120"') + input("owner_login_name", "负责人登录账号（手机号或用户名）", "", "text", true, 'autocomplete="off" maxlength="120"') +
+        input("owner_password", "负责人初始密码", "", "password", true, 'autocomplete="new-password" maxlength="1024"') + `<p class="field-wide account-form-note">负责人默认继承公司租约，无需单独设置到期时间。</p>`;
     } else if (action === "new-user" || action === "edit-user") {
       if (!rights.manageUsers || (action === "edit-user" && !auth.canManageUser(record))) throw new Error("没有管理此用户的权限");
       body = input("display_name", "姓名", record.display_name, "text", true, 'maxlength="120"') + input("login_name", "登录名", record.login_name, "text", true, 'autocomplete="off" maxlength="120"') +
@@ -95,13 +111,16 @@
     if (["new-tenant", "edit-tenant", "transfer-owner"].includes(action) && !rights.tenants) throw new Error("没有平台管理权限");
     if (action === "new-tenant" || action === "edit-tenant") {
       path = "/platform/tenants";
-      body = { company_name: values.company_name.trim(), short_name: values.short_name.trim(), status: values.status, lease_expires_at: lease(values.lease_expires_at), contact_name: nullable(values.contact_name), contact_phone: nullable(values.contact_phone), plan_code: nullable(values.plan_code), remark: nullable(values.remark) };
-      if (action === "new-tenant") body.owner = { display_name: values.owner_display_name.trim(), login_name: values.owner_login_name.trim(), password: values.owner_password, lease_expires_at: lease(values.owner_lease_expires_at) };
+      const leaseExpiresAt = values.lease_mode === "perpetual" ? PERPETUAL_LEASE : lease(values.lease_expires_at);
+      if (!leaseExpiresAt) throw new Error("请选择公司租约到期时间");
+      body = { company_name: values.company_name.trim(), short_name: values.short_name.trim(), status: values.status, lease_expires_at: leaseExpiresAt, contact_name: nullable(values.contact_name), contact_phone: nullable(values.contact_phone), plan_code: nullable(values.plan_code), remark: nullable(values.remark) };
+      if (action === "new-tenant") body.owner = { display_name: values.owner_display_name.trim(), login_name: values.owner_login_name.trim(), password: values.owner_password, lease_expires_at: null };
       else {
         const tenantId = values.tenant_id || model.tenantId;
         const tenant = model.tenants?.find(item => item.id === tenantId);
         path += `/${encodeURIComponent(tenantId)}`; method = "PATCH"; body.suspended_reason = nullable(values.suspended_reason);
-        if (tenant && values.lease_expires_at === localTime(tenant.lease_expires_at)) delete body.lease_expires_at;
+        const currentMode = isPerpetual(tenant?.lease_expires_at) ? "perpetual" : "fixed";
+        if (tenant && values.lease_mode === currentMode && (currentMode === "perpetual" || values.lease_expires_at === localTime(tenant.lease_expires_at))) delete body.lease_expires_at;
       }
     } else if (["new-user", "edit-user", "reset-password"].includes(action)) {
       if (!rights.manageUsers) throw new Error("没有用户管理权限");
@@ -133,5 +152,5 @@
     } else throw new Error("不支持此账号操作");
     return { path, options: { method, body: JSON.stringify(body) } };
   }
-  return { titles, load, render, form, command };
+  return { titles, load, render, form, command, syncLeaseMode };
 });
