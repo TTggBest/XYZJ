@@ -6,12 +6,63 @@ from pathlib import Path
 import subprocess
 import sys
 from threading import RLock
+from typing import TYPE_CHECKING
 
-from sqlalchemy import create_engine, text
+from fastapi import HTTPException
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine, make_url
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import ORMExecuteState, Session, sessionmaker, with_loader_criteria
 
 from zhiju.config import APP_ROOT, get_settings
+from zhiju.models.base import TenantOwnedMixin
+from zhiju.tenant_repository import require_tenant_entities
+
+if TYPE_CHECKING:
+    from zhiju.auth_context import Principal
+
+
+class TenantSession(Session):
+    """Business unit of work bound to one resolved principal's tenant."""
+
+
+@event.listens_for(TenantSession, "do_orm_execute")
+def _scope_tenant_statement(state: ORMExecuteState) -> None:
+    if state.is_update and state.bind_mapper is not None and issubclass(
+        state.bind_mapper.class_, TenantOwnedMixin,
+    ):
+        # Bulk UPDATE bypasses before_flush; ownership is immutable here too.
+        assignments = list(state.statement._values or {})
+        assignments.extend(key for key, _ in state.statement._ordered_values or ())
+        parameters = state.parameters or {}
+        parameter_sets = parameters if isinstance(parameters, list) else [parameters]
+        if any(getattr(key, "key", key) == "tenant_id" for key in assignments) or any(
+            "tenant_id" in values for values in parameter_sets
+        ):
+            raise HTTPException(status_code=403, detail="不能更改数据所属主账号")
+        if state.is_executemany:
+            # SQLAlchemy's bulk-by-PK path does not apply loader criteria.
+            require_tenant_entities(
+                state.session, state.bind_mapper.class_,
+                [values["id"] for values in parameter_sets], lock=True,
+            )
+    if state.is_select or state.is_update or state.is_delete:
+        tenant_id = state.session.info["tenant_id"]
+        state.statement = state.statement.options(with_loader_criteria(
+            TenantOwnedMixin, lambda model: model.tenant_id == tenant_id, include_aliases=True,
+        ))
+
+
+@event.listens_for(TenantSession, "before_flush")
+def _validate_tenant_objects(session: TenantSession, flush_context, instances) -> None:
+    tenant_id = session.info["tenant_id"]
+    for obj in session.new | session.dirty | session.deleted:
+        if not isinstance(obj, TenantOwnedMixin):
+            continue
+        if obj in session.new and obj.tenant_id is None:
+            obj.tenant_id = tenant_id
+        history = inspect(obj).attrs.tenant_id.history
+        if obj.tenant_id != tenant_id or any(old != tenant_id for old in history.deleted):
+            raise HTTPException(status_code=403, detail="不能写入其他主账号的数据")
 
 
 PRODUCTION_CONFIG_CANDIDATES = (
@@ -194,5 +245,19 @@ def can_switch_database_environment() -> bool:
 
 
 def get_db() -> Generator[Session, None, None]:
+    """Unscoped sessions for authentication, platform management and bootstrap."""
     with database_router.open_session() as session:
         yield session
+
+
+def open_tenant_session(principal: Principal) -> TenantSession:
+    if not principal.tenant_id:
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
+    return TenantSession(
+        bind=database_router.get_active_engine(), autoflush=False, expire_on_commit=False,
+        info={
+            "tenant_id": principal.tenant_id,
+            "user_id": principal.user_id,
+            "permissions": principal.permissions,
+        },
+    )

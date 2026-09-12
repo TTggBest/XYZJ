@@ -159,6 +159,14 @@ def test_active_session_resolves_real_actor_current_tenant_and_role_permissions(
     assert require_permission("channel.manage")(principal) is principal
 
 
+@pytest.mark.parametrize("resolve", [get_optional_principal, get_current_principal])
+def test_resolved_principal_is_cached_for_response_event_publishing(context, resolve):
+    req = request(extra_headers=[(b"x-tenant-id", b"other-tenant")])
+    principal = resolve(req, context.db)
+    assert getattr(req.state, "principal", None) is principal
+    assert req.state.principal.tenant_id == "tenant"
+
+
 @pytest.mark.parametrize("token", [None, "", "unknown-token"])
 def test_missing_or_unknown_session_is_optional_but_current_requires_login(context, token):
     assert get_optional_principal(request(token), context.db) is None

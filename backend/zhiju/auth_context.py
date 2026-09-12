@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -7,7 +8,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.database import TenantSession, get_db, open_tenant_session
 from zhiju.models import (
     AppUser,
     AuthSession,
@@ -44,7 +45,9 @@ def get_optional_principal(
     allow_heartbeat = not session.in_transaction()
     # Authentication reads must not flush business changes pending in the caller.
     with session.no_autoflush:
-        return _resolve_principal(request, session, allow_heartbeat=allow_heartbeat)
+        principal = _resolve_principal(request, session, allow_heartbeat=allow_heartbeat)
+    request.state.principal = principal
+    return principal
 
 
 def _resolve_principal(
@@ -132,3 +135,10 @@ def get_current_principal(
     if principal is None:
         raise HTTPException(status_code=401, detail="请先登录")
     return principal
+
+
+def get_tenant_db(
+    principal: Principal = Depends(get_current_principal),
+) -> Generator[TenantSession, None, None]:
+    with open_tenant_session(principal) as session:
+        yield session

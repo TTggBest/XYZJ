@@ -28,6 +28,11 @@ class IdMixin:
     )
 
 
+class TenantOwnedMixin:
+    # Nullable while existing business tables are migrated in later tasks.
+    tenant_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, comment="创建时间"
