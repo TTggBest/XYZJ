@@ -318,7 +318,7 @@ const count=paths.length;await page.document.emit('visibilitychange');await page
 """)
 
 
-def test_environment_switch_clears_source_database_login_before_showing_target_login():
+def test_environment_switch_keeps_shared_super_admin_name_for_target_login():
     run_node("""
 const paths=[];
 const runtimeUser={...superUser,permissions:[...superUser.permissions,'platform.environment.manage']};
@@ -335,15 +335,54 @@ const page=start(process.argv[1],auth,async(path,options)=>{
   return new Response('[]');
 });
 for(let i=0;i<5;i++)await page.tick();
-page.nodes.get('loginName').value='auth_test_super';
+page.nodes.get('loginName').value='xyzj0222';
 const button={dataset:{action:'switch-database-environment',environment:'production'},disabled:false,closest:()=>null};
 await page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
 for(let i=0;i<3;i++)await page.tick();
 assert.equal(auth.current(),null);
 assert.equal(page.nodes.get('appShell').hidden,true);
 assert.equal(page.nodes.get('loginShell').hidden,false);
-assert.equal(page.nodes.get('loginName').value,'');
+assert.equal(page.nodes.get('loginName').value,'xyzj0222');
 assert.equal(paths.filter(path=>path==='/api/v3/settings/runtime/environment').length,1);
+""")
+
+
+def test_login_keeps_password_until_server_confirms_success_for_browser_password_manager():
+    run_node("""
+let finishLogin;
+const stored=new Map();
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const page=start(process.argv[1],auth,async(path)=>{
+  if(path==='/api/v3/auth/me')return new Response('{"detail":"请先登录"}',{status:401});
+  if(path==='/api/v3/auth/login')return new Promise(resolve=>{finishLogin=()=>resolve(new Response(JSON.stringify(principal)));});
+  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+  if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+  return new Response('[]');
+},{localStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)}});
+for(let i=0;i<4;i++)await page.tick();
+page.nodes.get('loginName').value='xyzj0222';page.nodes.get('loginPassword').value='browser-managed-secret';
+const submitting=page.nodes.get('loginForm').emit('submit');
+await page.tick();
+assert.equal(page.nodes.get('loginPassword').value,'browser-managed-secret');
+finishLogin();await submitting;for(let i=0;i<3;i++)await page.tick();
+assert.equal(page.nodes.get('loginPassword').value,'');
+assert.equal(page.nodes.get('loginShell').hidden,true);
+assert.equal(stored.get('zhiju.auth.login_name'),'xyzj0222');
+assert.equal([...stored.keys()].some(key=>key.includes('password')),false);
+""")
+
+
+def test_login_page_restores_last_successful_login_name_only():
+    run_node("""
+const stored=new Map([['zhiju.auth.login_name','xyzj0222']]);
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const page=start(process.argv[1],auth,async(path)=>new Response('{"detail":"请先登录"}',{status:401}),{
+  localStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)}
+});
+for(let i=0;i<4;i++)await page.tick();
+assert.equal(page.nodes.get('loginName').value,'xyzj0222');
+assert.equal(page.nodes.get('loginPassword').value,'');
 """)
 
 

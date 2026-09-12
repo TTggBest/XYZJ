@@ -148,7 +148,7 @@
     root.classList.remove("is-workspace-scroll-locked");
     closeAccountMenu();
     el("appShell").hidden = true; el("loginShell").hidden = false;
-    el("loginName").value = ""; el("loginPassword").value = ""; el("loginError").hidden = true;
+    el("loginPassword").value = ""; el("loginError").hidden = true;
     setLoginBusy(false); el("loginName").focus();
   }
   function renderAccount() {
@@ -1986,9 +1986,13 @@
   el("loginForm").addEventListener("submit", async event => {
     event.preventDefault(); if (el("loginSubmit").disabled) return;
     setLoginBusy(true, "正在登录…"); el("loginError").hidden = true;
-    const pending = auth.login(api, el("loginName").value, el("loginPassword").value);
-    el("loginPassword").value = "";
-    try { await pending; await startApplication(); }
+    const loginName = el("loginName").value.trim();
+    const pending = auth.login(api, loginName, el("loginPassword").value);
+    try {
+      await pending;
+      localStorage.setItem("zhiju.auth.login_name", loginName);
+      await startApplication(); el("loginPassword").value = "";
+    }
     catch (error) { if (error.name !== "AbortError") { el("loginError").textContent = error.message; el("loginError").hidden = false; } }
     finally { setLoginBusy(false); }
   });
@@ -2064,6 +2068,7 @@
     }
   });
 
+  el("loginName").value = localStorage.getItem("zhiju.auth.login_name") || "";
   if (localStorage.getItem("zhiju.nav.collapsed") === "1" && window.innerWidth > 760) el("appShell").classList.add("is-collapsed");
   updateScrollTopButton();
   bootstrapAuth(); renderIcons();
