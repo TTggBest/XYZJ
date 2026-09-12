@@ -1,10 +1,14 @@
 from datetime import date
+from dataclasses import replace
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
+from zhiju.database import get_db, open_tenant_session
+from zhiju.models import ProductionNodeRun
 from zhiju.schemas.production import (
     CommunityBatchWrite,
     CommunityPostRead,
@@ -72,6 +76,30 @@ from zhiju.services.package_outputs import (
 router = APIRouter(prefix="/v3", tags=["production"])
 
 
+def get_node_db(
+    work_order_id: str,
+    node_type: str,
+    principal: Principal = Depends(get_current_principal),
+    bootstrap: Session = Depends(get_db),
+):
+    """Restore the legacy internal node context from the persisted attempt.
+
+    This keeps the existing work-order/node protocol. It is not a Phase 2
+    Worker credential or lease, and the logged-in caller must own the attempt.
+    """
+    if not principal.tenant_id:
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
+    node = bootstrap.execute(
+        select(ProductionNodeRun.id, ProductionNodeRun.tenant_id)
+        .where(ProductionNodeRun.work_order_id == work_order_id, ProductionNodeRun.node_type == node_type)
+        .order_by(ProductionNodeRun.attempt_number.desc()).limit(1)
+    ).first()
+    if node is None or not node.tenant_id or node.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="生产节点不存在")
+    with open_tenant_session(replace(principal, tenant_id=node.tenant_id)) as session:
+        yield session
+
+
 def _raise(exc: Exception) -> HTTPException:
     return HTTPException(status_code=404 if isinstance(exc, NotFoundError) else 409, detail=str(exc))
 
@@ -81,13 +109,13 @@ def get_tasks(
     task_date: date | None = None,
     channel_id: str | None = None,
     task_status: str | None = Query(default=None, alias="status"),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[TaskRead]:
     return list_tasks(session, task_date=task_date, channel_id=channel_id, status=task_status)
 
 
 @router.post("/tasks", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
-def post_task(payload: TaskCreate, session: Session = Depends(get_db)) -> TaskRead:
+def post_task(payload: TaskCreate, session: Session = Depends(get_tenant_db)) -> TaskRead:
     try:
         return create_task(session, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -100,7 +128,7 @@ def get_task_overview(
     channel_id: str | None = None,
     task_status: str | None = Query(default=None, alias="status"),
     source: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[TaskOverview]:
     return list_task_overview(
         session,
@@ -112,7 +140,7 @@ def get_task_overview(
 
 
 @router.post("/tasks/{task_id}/dispatch", response_model=WorkOrderDetail)
-def post_task_dispatch(task_id: str, session: Session = Depends(get_db)) -> WorkOrderDetail:
+def post_task_dispatch(task_id: str, session: Session = Depends(get_tenant_db)) -> WorkOrderDetail:
     try:
         return dispatch_task(session, task_id)
     except (NotFoundError, ConflictError) as exc:
@@ -123,7 +151,7 @@ def post_task_dispatch(task_id: str, session: Session = Depends(get_db)) -> Work
 def patch_task_source_video(
     task_id: str,
     payload: SourceVideoUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> TaskRead:
     try:
         return update_task_source_video(session, task_id, payload)
@@ -135,7 +163,7 @@ def patch_task_source_video(
 def get_work_orders(
     production_date: date | None = None,
     work_order_status: str | None = Query(default=None, alias="status"),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[WorkOrderRead]:
     return list_work_orders(session, production_date=production_date, status=work_order_status)
 
@@ -146,7 +174,7 @@ def get_work_order_overview(
     channel_id: str | None = None,
     work_order_status: str | None = Query(default=None, alias="status"),
     package_status: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[WorkOrderOverview]:
     return list_work_order_overview(
         session,
@@ -158,7 +186,7 @@ def get_work_order_overview(
 
 
 @router.get("/work-orders/{work_order_id}", response_model=WorkOrderDetail)
-def get_work_order(work_order_id: str, session: Session = Depends(get_db)) -> WorkOrderDetail:
+def get_work_order(work_order_id: str, session: Session = Depends(get_tenant_db)) -> WorkOrderDetail:
     try:
         return get_work_order_detail(session, work_order_id)
     except (NotFoundError, ConflictError) as exc:
@@ -173,7 +201,7 @@ def post_node_start(
     work_order_id: str,
     node_type: str,
     payload: NodeStart,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_node_db),
 ) -> NodeRunRead:
     try:
         return start_node(session, work_order_id, node_type, payload.worker_key)
@@ -189,7 +217,7 @@ def post_node_finish(
     work_order_id: str,
     node_type: str,
     payload: NodeFinish,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_node_db),
 ) -> WorkOrderDetail:
     try:
         return finish_node(
@@ -212,7 +240,7 @@ def post_node_retry(
     work_order_id: str,
     node_type: str,
     payload: NodeRetry,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> WorkOrderDetail:
     try:
         return retry_node(session, work_order_id, node_type, payload.reason)
@@ -225,7 +253,7 @@ def get_package_operation_overview(
     production_date: date | None = None,
     channel_id: str | None = None,
     package_status: str | None = Query(default=None, alias="status"),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[PackageOperationOverview]:
     return list_package_operation_overview(
         session,
@@ -236,7 +264,7 @@ def get_package_operation_overview(
 
 
 @router.get("/packages/{package_id}/copy-progress", response_model=PackageCopyProgress)
-def get_copy_progress(package_id: str, session: Session = Depends(get_db)) -> PackageCopyProgress:
+def get_copy_progress(package_id: str, session: Session = Depends(get_tenant_db)) -> PackageCopyProgress:
     try:
         return get_package_copy_progress(session, package_id)
     except (NotFoundError, ConflictError) as exc:
@@ -247,7 +275,7 @@ def get_copy_progress(package_id: str, session: Session = Depends(get_db)) -> Pa
 def put_copy_progress(
     package_id: str,
     payload: PackageCopyMark,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PackageCopyProgress:
     try:
         return mark_package_output_copied(session, package_id, payload)
@@ -259,7 +287,7 @@ def put_copy_progress(
 def post_package_review(
     package_id: str,
     payload: PackageReview,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> PackageRead:
     try:
         return review_package(session, package_id, payload.decision, payload.note)
@@ -268,7 +296,7 @@ def post_package_review(
 
 
 @router.get("/packages/{package_id}/outputs", response_model=PackageOutputsRead)
-def get_outputs(package_id: str, session: Session = Depends(get_db)) -> PackageOutputsRead:
+def get_outputs(package_id: str, session: Session = Depends(get_tenant_db)) -> PackageOutputsRead:
     try:
         return get_package_outputs(session, package_id)
     except (NotFoundError, ConflictError) as exc:
@@ -279,7 +307,7 @@ def get_outputs(package_id: str, session: Session = Depends(get_db)) -> PackageO
 def post_titles(
     package_id: str,
     payload: TitleBatchWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[TitleRead]:
     try:
         return write_titles(session, package_id, payload)
@@ -291,7 +319,7 @@ def post_titles(
 def post_covers(
     package_id: str,
     payload: CoverBatchWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[CoverRead]:
     try:
         return write_covers(session, package_id, payload)
@@ -303,7 +331,7 @@ def post_covers(
 def post_description(
     package_id: str,
     payload: DescriptionWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DescriptionRead:
     try:
         return write_description(session, package_id, payload)
@@ -315,7 +343,7 @@ def post_description(
 def post_community(
     package_id: str,
     payload: CommunityBatchWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[CommunityPostRead]:
     try:
         return write_community(session, package_id, payload)
@@ -327,7 +355,7 @@ def post_community(
 def post_validation(
     package_id: str,
     payload: ValidationWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ValidationRead:
     try:
         return add_validation(session, package_id, payload)
@@ -342,7 +370,7 @@ def post_validation(
 def get_similarity_checks(
     package_id: str,
     result: Literal["pass", "warning", "fail"] | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[SimilarityCheckRead]:
     try:
         return list_similarity_checks(session, package_id, result=result)
@@ -358,7 +386,7 @@ def put_similarity_check(
     package_id: str,
     compared_package_id: str,
     payload: SimilarityCheckWrite,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> SimilarityCheckRead:
     try:
         return upsert_similarity_check(session, package_id, compared_package_id, payload)
@@ -367,7 +395,7 @@ def put_similarity_check(
 
 
 @router.post("/packages/{package_id}/merge", response_model=PackageMergeResult)
-def post_merge(package_id: str, session: Session = Depends(get_db)) -> PackageMergeResult:
+def post_merge(package_id: str, session: Session = Depends(get_tenant_db)) -> PackageMergeResult:
     try:
         return merge_package(session, package_id)
     except (NotFoundError, ConflictError) as exc:

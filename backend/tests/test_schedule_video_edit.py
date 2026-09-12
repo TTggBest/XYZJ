@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import Channel, ChannelPublishSlot, ChannelScheduleEntry, Drama
 from zhiju.schemas.operations import SourceVideoUpdate
 from zhiju.schemas.production import TaskCreate
@@ -67,7 +67,8 @@ def _schedule_fixture(session: Session) -> ChannelScheduleEntry:
 def test_task_created_from_schedule_inherits_video_identity() -> None:
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         schedule = _schedule_fixture(session)
 
@@ -91,7 +92,8 @@ def test_task_created_from_schedule_inherits_video_identity() -> None:
 def test_schedule_video_edit_updates_existing_task_and_marks_manual_override() -> None:
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         schedule = _schedule_fixture(session)
         task = create_task(
@@ -127,7 +129,8 @@ def test_schedule_video_edit_updates_existing_task_and_marks_manual_override() -
 def test_task_video_edit_updates_linked_schedule() -> None:
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         schedule = _schedule_fixture(session)
         task = create_task(
@@ -167,7 +170,8 @@ def test_schedule_and_task_video_edit_routes_are_registered() -> None:
 def test_daily_schedule_overview_exposes_editable_video_identity() -> None:
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         schedule = _schedule_fixture(session)
 

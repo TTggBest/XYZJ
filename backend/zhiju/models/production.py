@@ -60,7 +60,7 @@ class FeishuSyncRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="完成时间")
 
 
-class OperationTask(IdMixin, TimestampMixin, Base):
+class OperationTask(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "operation_tasks"
     __table_args__ = (
         CheckConstraint("source IN ('manual','schedule','import')", name="valid_source"),
@@ -92,7 +92,7 @@ class OperationTask(IdMixin, TimestampMixin, Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, comment="任务失败原因")
 
 
-class TaskEvent(IdMixin, Base):
+class TaskEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "task_events"
     __table_args__ = (
         Index("ix_task_events_task_time", "task_id", "occurred_at"),
@@ -108,7 +108,7 @@ class TaskEvent(IdMixin, Base):
     occurred_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="事件时间")
 
 
-class WorkOrder(IdMixin, TimestampMixin, Base):
+class WorkOrder(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "work_orders"
     __table_args__ = (
         CheckConstraint("status IN ('queued','running','completed','failed','cancelled')", name="valid_status"),
@@ -139,7 +139,7 @@ class WorkOrder(IdMixin, TimestampMixin, Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, comment="失败原因")
 
 
-class OperationPackage(IdMixin, TimestampMixin, Base):
+class OperationPackage(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "operation_packages"
     __table_args__ = (
         CheckConstraint(
@@ -168,7 +168,7 @@ class OperationPackage(IdMixin, TimestampMixin, Base):
     review_note: Mapped[str | None] = mapped_column(Text, comment="最终审核意见")
 
 
-class PackageOutputCopyState(IdMixin, TimestampMixin, Base):
+class PackageOutputCopyState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_output_copy_states"
     __table_args__ = (
         CheckConstraint(
@@ -186,7 +186,7 @@ class PackageOutputCopyState(IdMixin, TimestampMixin, Base):
     copied_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="最近复制成功时间")
 
 
-class ProductionNodeRun(IdMixin, TimestampMixin, Base):
+class ProductionNodeRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "production_node_runs"
     __table_args__ = (
         CheckConstraint("node_type IN ('search','title','cover','description','community','merge')", name="valid_node_type"),
@@ -212,7 +212,7 @@ class ProductionNodeRun(IdMixin, TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, comment="脱敏错误信息")
 
 
-class PackageTitle(IdMixin, TimestampMixin, Base):
+class PackageTitle(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_titles"
     __table_args__ = (
         CheckConstraint("status IN ('generated','selected','rejected','superseded')", name="valid_status"),
@@ -233,7 +233,7 @@ class PackageTitle(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="generated", comment="标题状态")
 
 
-class PackageDescription(IdMixin, TimestampMixin, Base):
+class PackageDescription(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_descriptions"
     __table_args__ = (
         CheckConstraint("status IN ('generated','selected','rejected','superseded')", name="valid_status"),
@@ -253,7 +253,7 @@ class PackageDescription(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="generated", comment="说明状态")
 
 
-class PackageCoverVariant(IdMixin, TimestampMixin, Base):
+class PackageCoverVariant(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_cover_variants"
     __table_args__ = (
         CheckConstraint("aspect_ratio IN ('4:5','16:9')", name="valid_aspect_ratio"),
@@ -275,7 +275,7 @@ class PackageCoverVariant(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="prompt_ready", comment="封面状态")
 
 
-class PackageCommunityPost(IdMixin, TimestampMixin, Base):
+class PackageCommunityPost(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_community_posts"
     __table_args__ = (
         CheckConstraint("status IN ('generated','selected','rejected','superseded','published')", name="valid_status"),
@@ -297,7 +297,7 @@ class PackageCommunityPost(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="generated", comment="Community文案状态")
 
 
-class CommunityPostAsset(IdMixin, TimestampMixin, Base):
+class CommunityPostAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "community_post_assets"
     __table_args__ = (
         CheckConstraint("position_number >= 1", name="position_positive"),
@@ -311,7 +311,7 @@ class CommunityPostAsset(IdMixin, TimestampMixin, Base):
     position_number: Mapped[int] = mapped_column(SmallInteger, nullable=False, comment="图片顺序")
 
 
-class PackagePlaylistAssignment(IdMixin, TimestampMixin, Base):
+class PackagePlaylistAssignment(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_playlist_assignments"
     __table_args__ = (
         CheckConstraint("status IN ('candidate','selected','rejected')", name="valid_status"),
@@ -326,7 +326,7 @@ class PackagePlaylistAssignment(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="candidate", comment="选择状态")
 
 
-class PackageCreativeSlot(IdMixin, TimestampMixin, Base):
+class PackageCreativeSlot(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_creative_slots"
     __table_args__ = (
         UniqueConstraint("package_id", name="uq_package_creative_slots_package_id"),
@@ -345,7 +345,7 @@ class PackageCreativeSlot(IdMixin, TimestampMixin, Base):
     community_angle: Mapped[str | None] = mapped_column(Text, comment="Community角度")
 
 
-class PackageArtifact(IdMixin, TimestampMixin, Base):
+class PackageArtifact(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_artifacts"
     __table_args__ = (
         CheckConstraint("artifact_format IN ('md','json')", name="valid_artifact_format"),
@@ -366,7 +366,7 @@ class PackageArtifact(IdMixin, TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, comment="脱敏错误信息")
 
 
-class PackageValidationResult(IdMixin, TimestampMixin, Base):
+class PackageValidationResult(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_validation_results"
     __table_args__ = (
         CheckConstraint("result IN ('pass','warning','fail')", name="valid_result"),
@@ -385,7 +385,7 @@ class PackageValidationResult(IdMixin, TimestampMixin, Base):
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="检测时间")
 
 
-class PackageSimilarityCheck(IdMixin, TimestampMixin, Base):
+class PackageSimilarityCheck(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "package_similarity_checks"
     __table_args__ = (
         CheckConstraint("result IN ('pass','warning','fail')", name="valid_result"),
