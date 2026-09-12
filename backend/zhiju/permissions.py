@@ -26,3 +26,12 @@ def require_super_code_machine(
     if principal.platform_role != "super_admin" or principal.device_trust_level != "super_code_machine":
         raise HTTPException(status_code=403, detail="仅超级代码机上的超级管理员可以执行该操作")
     return principal
+
+
+def require_platform_permission(
+    principal: Principal = Depends(get_current_principal),
+) -> Principal:
+    """Shared platform catalogs are writable only by the platform administrator."""
+    if principal.platform_role != "super_admin":
+        raise HTTPException(status_code=403, detail="只有平台管理员可以修改平台共享目录")
+    return principal

@@ -28,6 +28,7 @@ from zhiju.services.channel import NotFoundError
 from zhiju.services.drama_progress import production_state_payload
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.operations import normalize_drama_title
+from zhiju.tenant_repository import require_tenant_entity
 
 
 def _summary(session: Session) -> dict[str, int]:
@@ -142,10 +143,7 @@ def list_drama_library(
 
 
 def _require_drama(session: Session, drama_id: str) -> Drama:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
-    return drama
+    return require_tenant_entity(session, Drama, drama_id)
 
 
 def get_drama_library_detail(session: Session, drama_id: str) -> dict[str, object]:

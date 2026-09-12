@@ -176,7 +176,7 @@ def channel_store():
                     parameter_normalization_status="completed", youtube_upload_status="completed",
                     copyright_verification_status="completed", subtitle_extraction_status="completed",
                     guishou_upload_status="completed", role_extraction_status="completed", tts_status="completed",
-                    production_completion_status="completed"),
+                    production_completion_status="completed", **owned),
                 ChannelScheduleEntry(id=f"schedule-{key}", channel_id=key, drama_id=f"drama-{key}",
                     publish_slot_id=f"slot-{key}", publish_date=date(2026, 9, 12), idempotency_key=f"schedule-{key}",
                     planned_local_time=datetime(2026, 9, 12, 12), planned_beijing_time=datetime(2026, 9, 12, 12),
@@ -275,7 +275,7 @@ def test_channel_graph_lists_contain_only_current_tenant(tenant_session):
 
 
 OPERATION_TENANT_ENDPOINTS = {
-    "get_cadence_templates", "patch_channel_cadence", "get_cadence_overview",
+    "patch_channel_cadence", "get_cadence_overview",
     "get_playlists", "post_playlist", "patch_playlist", "get_publish_slots",
     "get_publish_slot_overview", "post_publish_slot", "patch_publish_slot",
     "get_community_slots", "post_community_slot", "patch_community_slot_status",
@@ -386,7 +386,7 @@ def schedule_candidates(channel_store):
         session.add_all([
             ScheduleCandidate(id=f"candidate-{key}", schedule_id=f"schedule-{key}",
                               drama_id=f"drama-{key}", candidate_type="backup", rank_number=1,
-                              reason="test", status="available")
+                              reason="test", status="available", tenant_id=f"tenant-{key}")
             for key in ("a", "b")
         ])
         session.commit()

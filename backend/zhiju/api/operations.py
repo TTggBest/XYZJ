@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
-from zhiju.auth_context import get_tenant_db
+from zhiju.auth_context import get_current_principal, get_tenant_db
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.operations import (
     CadenceTemplateRead,
     CadenceTemplateUpdate,
@@ -82,14 +83,16 @@ def _raise(exc: Exception) -> HTTPException:
     return HTTPException(status_code=404 if isinstance(exc, NotFoundError) else 409, detail=str(exc))
 
 
-@router.get("/cadence-templates", response_model=list[CadenceTemplateRead])
-def get_cadence_templates(session: Session = Depends(get_tenant_db)) -> list[CadenceTemplateRead]:
+@router.get("/cadence-templates", response_model=list[CadenceTemplateRead],
+            dependencies=[Depends(get_current_principal)])
+def get_cadence_templates(session: Session = Depends(get_db)) -> list[CadenceTemplateRead]:
     return list_cadence_templates(session)
 
 
 @router.put(
     "/cadence-templates/{daily_publish_count}",
     response_model=CadenceTemplateRead,
+    dependencies=[Depends(require_platform_permission)],
 )
 def put_cadence_template(
     daily_publish_count: int,
@@ -134,12 +137,12 @@ def get_cadence_overview(
 
 
 @router.get("/dramas", response_model=list[DramaRead])
-def get_dramas(session: Session = Depends(get_db)) -> list[DramaRead]:
+def get_dramas(session: Session = Depends(get_tenant_db)) -> list[DramaRead]:
     return list_dramas(session)
 
 
 @router.post("/dramas", response_model=DramaRead, status_code=status.HTTP_201_CREATED)
-def post_drama(payload: DramaCreate, session: Session = Depends(get_db)) -> DramaRead:
+def post_drama(payload: DramaCreate, session: Session = Depends(get_tenant_db)) -> DramaRead:
     try:
         return create_drama(session, payload)
     except ConflictError as exc:
@@ -147,7 +150,7 @@ def post_drama(payload: DramaCreate, session: Session = Depends(get_db)) -> Dram
 
 
 @router.get("/dramas/match", response_model=DramaRead | None)
-def get_drama_match(title: str = Query(min_length=1), session: Session = Depends(get_db)) -> DramaRead | None:
+def get_drama_match(title: str = Query(min_length=1), session: Session = Depends(get_tenant_db)) -> DramaRead | None:
     return match_drama(session, title)
 
 
@@ -157,7 +160,7 @@ def get_drama_match(title: str = Query(min_length=1), session: Session = Depends
 )
 def get_drama_translations(
     drama_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[DramaTranslationRead]:
     try:
         return list_drama_translations(session, drama_id=drama_id)
@@ -173,7 +176,7 @@ def put_drama_translation(
     drama_id: str,
     language_id: str,
     payload: DramaTranslationUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> DramaTranslationRead:
     try:
         return upsert_drama_translation(
@@ -191,7 +194,7 @@ def get_translation_matrix(
     language_id: str | None = None,
     translation_status: str | None = None,
     asset_status: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[DramaTranslationRead]:
     return list_drama_translations(
         session,
@@ -209,7 +212,7 @@ def get_translation_matrix_view(
     drama_status: str | None = None,
     language_code: list[str] | None = Query(default=None),
     include_inactive_languages: bool = False,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[DramaTranslationMatrixRow]:
     return list_drama_translation_matrix(
         session,
@@ -219,12 +222,14 @@ def get_translation_matrix_view(
     )
 
 
-@router.get("/languages", response_model=list[LanguageRead])
+@router.get("/languages", response_model=list[LanguageRead],
+            dependencies=[Depends(get_current_principal)])
 def get_languages(session: Session = Depends(get_db)) -> list[LanguageRead]:
     return list_languages(session)
 
 
-@router.post("/languages", response_model=LanguageRead, status_code=status.HTTP_201_CREATED)
+@router.post("/languages", response_model=LanguageRead, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_platform_permission)])
 def post_language(payload: LanguageCreate, session: Session = Depends(get_db)) -> LanguageRead:
     try:
         return create_language(session, payload)
@@ -389,7 +394,7 @@ def get_schedules(
 
 
 @router.get("/schedules/eligible-dramas", response_model=list[DramaRead])
-def get_schedulable_dramas(session: Session = Depends(get_db)) -> list[DramaRead]:
+def get_schedulable_dramas(session: Session = Depends(get_tenant_db)) -> list[DramaRead]:
     return list_schedulable_dramas(session)
 
 
@@ -478,7 +483,7 @@ def patch_schedule_source_video(
 )
 def get_schedule_candidates(
     schedule_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ScheduleCandidateRead]:
     try:
         return list_schedule_candidates(session, schedule_id)

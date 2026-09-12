@@ -14,6 +14,7 @@ from zhiju.models import (
     YoutubeVideoStatusHistory,
 )
 from zhiju.services.channel import NotFoundError
+from zhiju.tenant_repository import require_tenant_entity
 
 
 def list_system_events(
@@ -138,8 +139,7 @@ def list_task_events(session: Session, task_id: str) -> list[TaskEvent]:
 def list_schedule_history(
     session: Session, schedule_id: str
 ) -> list[ScheduleChangeHistory]:
-    if session.get(ChannelScheduleEntry, schedule_id) is None:
-        raise NotFoundError("排期不存在")
+    require_tenant_entity(session, ChannelScheduleEntry, schedule_id)
     return list(
         session.scalars(
             select(ScheduleChangeHistory)
@@ -161,4 +161,3 @@ def list_video_status_history(
             .order_by(YoutubeVideoStatusHistory.changed_at.desc(), YoutubeVideoStatusHistory.id.desc())
         )
     )
-

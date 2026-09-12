@@ -68,7 +68,7 @@ class Drama(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="剧目状态")
 
 
-class DramaAlias(IdMixin, TimestampMixin, Base):
+class DramaAlias(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_aliases"
     __table_args__ = (
         UniqueConstraint("normalized_alias", name="uq_drama_aliases_normalized_alias"),
@@ -82,7 +82,7 @@ class DramaAlias(IdMixin, TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(60), nullable=False, server_default="manual", comment="别名来源")
 
 
-class DramaCoreTerm(IdMixin, TimestampMixin, Base):
+class DramaCoreTerm(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_core_terms"
     __table_args__ = (
         CheckConstraint("term_type IN ('keyword','topic','trope','persona','conflict')", name="valid_term_type"),
@@ -98,7 +98,7 @@ class DramaCoreTerm(IdMixin, TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(60), nullable=False, server_default="manual", comment="核心词来源")
 
 
-class DramaTranslation(IdMixin, TimestampMixin, Base):
+class DramaTranslation(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_translations"
     __table_args__ = (
         CheckConstraint("translation_status IN ('missing','pending','in_progress','ready','failed')", name="valid_translation_status"),
@@ -119,7 +119,7 @@ class DramaTranslation(IdMixin, TimestampMixin, Base):
     source_synced_at: Mapped[datetime | None] = mapped_column(DATETIME(fsp=6), comment="最后一次飞书同步时间")
 
 
-class DramaProductionState(IdMixin, TimestampMixin, Base):
+class DramaProductionState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "drama_production_states"
     __table_args__ = (
         CheckConstraint(
@@ -303,7 +303,7 @@ class ChannelScheduleEntry(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     is_task_written: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否已写入任务")
 
 
-class ScheduleChangeHistory(IdMixin, Base):
+class ScheduleChangeHistory(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "schedule_change_history"
     __table_args__ = (
         Index("ix_schedule_change_history_schedule_time", "schedule_id", "changed_at"),
@@ -323,7 +323,7 @@ class ScheduleChangeHistory(IdMixin, Base):
     changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="调整时间")
 
 
-class ScheduleCandidate(IdMixin, TimestampMixin, Base):
+class ScheduleCandidate(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "schedule_candidates"
     __table_args__ = (
         CheckConstraint("candidate_type IN ('primary','backup')", name="valid_candidate_type"),

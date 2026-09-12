@@ -3,6 +3,8 @@ from math import ceil
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from zhiju.tenant_repository import require_tenant_entity
+
 from zhiju.models import Drama, DramaProductionState
 from zhiju.schemas.drama_progress import DramaProductionStateWrite
 from zhiju.services.channel import NotFoundError
@@ -123,9 +125,7 @@ def production_state_payload(
 
 
 def get_drama_progress(session: Session, drama_id: str) -> dict[str, object]:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
+    drama = require_tenant_entity(session, Drama, drama_id)
     state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama_id)
     )
@@ -137,9 +137,7 @@ def update_drama_progress(
     drama_id: str,
     payload: DramaProductionStateWrite,
 ) -> dict[str, object]:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
+    drama = require_tenant_entity(session, Drama, drama_id)
     state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama_id)
     )
@@ -162,9 +160,7 @@ def update_drama_progress(
 
 
 def complete_cloud_download(session: Session, drama_id: str) -> dict[str, object]:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
+    drama = require_tenant_entity(session, Drama, drama_id)
     state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama_id)
     )
@@ -189,9 +185,7 @@ def set_production_exclusion(
     *,
     excluded: bool,
 ) -> dict[str, object]:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
+    drama = require_tenant_entity(session, Drama, drama_id)
     state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama_id)
     )

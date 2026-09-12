@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.permissions import require_builder_device
 from zhiju.schemas.history import (
     AuditEventRead,
@@ -111,7 +112,7 @@ def get_task_events(
     response_model=list[ScheduleHistoryRead],
 )
 def get_schedule_history(
-    schedule_id: str, session: Session = Depends(get_db)
+    schedule_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[ScheduleHistoryRead]:
     try:
         return list_schedule_history(session, schedule_id)

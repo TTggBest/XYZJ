@@ -145,9 +145,7 @@ def list_schedulable_dramas(session: Session) -> list[dict[str, object]]:
 
 
 def _require_schedulable_drama(session: Session, drama_id: str, *, missing_message: str = "剧目不存在") -> Drama:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError(missing_message)
+    drama = require_tenant_entity(session, Drama, drama_id)
     production_state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama.id)
     )
@@ -202,9 +200,7 @@ def upsert_drama_translation(
     language_id: str,
     payload: DramaTranslationUpsert,
 ) -> dict[str, object]:
-    drama = session.get(Drama, drama_id)
-    if drama is None:
-        raise NotFoundError("剧目不存在")
+    drama = require_tenant_entity(session, Drama, drama_id)
     language = session.get(Language, language_id)
     if language is None:
         raise NotFoundError("语言不存在")
@@ -265,8 +261,8 @@ def list_drama_translations(
     translation_status: str | None = None,
     asset_status: str | None = None,
 ) -> list[dict[str, object]]:
-    if drama_id and session.get(Drama, drama_id) is None:
-        raise NotFoundError("剧目不存在")
+    if drama_id:
+        require_tenant_entity(session, Drama, drama_id)
     statement = (
         select(DramaTranslation, Drama, Language)
         .join(Drama, Drama.id == DramaTranslation.drama_id)
@@ -1112,13 +1108,7 @@ def _candidate_payload(
 
 
 def _require_open_schedule(session: Session, schedule_id: str) -> ChannelScheduleEntry:
-    schedule = session.scalar(
-        select(ChannelScheduleEntry)
-        .where(ChannelScheduleEntry.id == schedule_id)
-        .with_for_update()
-    )
-    if schedule is None:
-        raise NotFoundError("排期不存在")
+    schedule = require_tenant_entity(session, ChannelScheduleEntry, schedule_id, lock=True)
     if schedule.status not in {"planned", "reserved", "confirmed"}:
         raise ConflictError("只有未发布且未取消的排期可以管理候选剧目")
     _active_channel(session, schedule.channel_id)
@@ -1167,8 +1157,7 @@ def list_schedule_candidates(
     session: Session,
     schedule_id: str,
 ) -> list[dict[str, object]]:
-    if session.get(ChannelScheduleEntry, schedule_id) is None:
-        raise NotFoundError("排期不存在")
+    require_tenant_entity(session, ChannelScheduleEntry, schedule_id)
     rows = session.execute(
         select(ScheduleCandidate, Drama)
         .join(Drama, Drama.id == ScheduleCandidate.drama_id)
