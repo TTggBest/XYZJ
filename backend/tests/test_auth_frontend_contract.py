@@ -155,11 +155,14 @@ def test_account_center_platform_lists_companies_users_bindings_without_http_enr
 await auth.resolveBootstrap(async()=>superUser);const center=require(process.argv[1]+'/assets/account-center.js');const paths=[];
 const model=await center.load(async path=>{paths.push(path);
  if(path==='/platform/tenants')return [{...tenant,status:'active',lease_expires_at:'2030-01-01T00:00:00Z'}];
- if(path==='/platform/device-bindings')return [{id:'b1',tenant_id:'t1',device_id:'d1',user_id:'u1',status:'active',is_default:true,auto_login_enabled:true,expires_at:null}];
+ if(path==='/platform/device-bindings')return [{id:'b1',device_id:'device-001',device_name:'客户前台 Mac',device_status:'inactive',tenant_id:'t1',tenant_name:'甲公司',user_id:'u1',user_display_name:'李运营',login_name:'li.operator',binding_status:'revoked',login_mode:'password',expires_at:null}];
  if(path==='/platform/tenants/t1/users')return [];throw new Error(path);
 });
 assert.deepEqual(paths.sort(),['/platform/device-bindings','/platform/tenants','/platform/tenants/t1/users']);
-const html=center.render(model);assert.match(html,/new-tenant/);assert.match(html,/revoke-binding/);
+const html=center.render(model);assert.match(html,/new-tenant/);
+assert.match(html,/客户前台 Mac/);assert.match(html,/device-001/);assert.match(html,/停用/);
+assert.match(html,/李运营/);assert.match(html,/li[.]operator/);assert.match(html,/账号密码/);
+assert.doesNotMatch(html,/data-account-action="revoke-binding"/);
 assert.match(html,/超级代码机.*本地登记/);assert.doesNotMatch(html,/data-account-action="(?:create|new)-binding"/);
 """)
 

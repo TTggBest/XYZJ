@@ -47,8 +47,8 @@
         (rights.manageUsers ? button("new-user", "创建子账号") : "") + (rights.tenants ? button("transfer-owner", "转交负责人", model.tenantId) : ""));
     }
     if (rights.devices) {
-      const rows = model.bindings.map(binding => `<tr><td class="mono">${esc(binding.device_id)}</td><td>${esc(model.tenants.find(item => item.id === binding.tenant_id)?.company_name || binding.tenant_id)}</td><td>${esc(model.users.find(item => item.id === binding.user_id)?.display_name || binding.user_id)}</td><td>${status(binding.status)}</td><td>${binding.is_default ? "默认账号" : "非默认"}<span class="cell-sub">${binding.auto_login_enabled ? "免登录已启用" : "等待人工登录"}</span></td><td>${binding.expires_at ? esc(time(binding.expires_at)) : "随账号有效期"}</td><td>${binding.status !== "revoked" ? button("revoke-binding", "撤销绑定", binding.id, true) : "—"}</td></tr>`);
-      content += section("设备绑定", "设备绑定需在超级代码机通过本地登记服务完成。", grid(["设备", "公司", "用户", "状态", "登录方式", "有效期", "操作"], rows));
+      const rows = model.bindings.map(binding => `<tr><td><span class="cell-main">${esc(binding.device_name)}</span><span class="cell-sub mono">${esc(binding.device_id)}</span></td><td>${esc(binding.tenant_name)}</td><td><span class="cell-main">${esc(binding.user_display_name)}</span><span class="cell-sub">${esc(binding.login_name)}</span></td><td>${status(binding.device_status)}</td><td>${binding.login_mode === "auto_login" ? "免登录" : "账号密码"}</td><td>${binding.expires_at ? esc(time(binding.expires_at)) : "随账号有效期"}</td><td>${binding.binding_status !== "revoked" ? button("revoke-binding", "撤销绑定", binding.id, true) : "—"}</td></tr>`);
+      content += section("设备绑定", "设备绑定需在超级代码机通过本地登记服务完成。", grid(["设备名称 / 设备 ID", "公司", "用户 / 登录名", "设备状态", "登录方式", "有效期", "操作"], rows));
     }
     return `<div class="page-stack account-center">${content}</div>`;
   }
