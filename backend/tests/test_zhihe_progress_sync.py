@@ -4,12 +4,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from fastapi.testclient import TestClient
 
 from zhiju import models
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 
 
 def _remote_item(*, title: str, drama_id: str, updated_at: str) -> dict[str, object]:
@@ -49,7 +48,10 @@ def test_zhihe_sync_uses_returned_nodes_and_preserves_zhiju_owned_fields() -> No
     title = f"智核同步剧-{suffix}"
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(
+        bind=connection, join_transaction_mode="create_savepoint",
+        info={"tenant_id": "tenant-zhihe-contract"},
+    )
     try:
         drama = models.Drama(
             drama_number=-90,
@@ -120,7 +122,10 @@ def test_zhihe_sync_skips_stale_and_unmatched_items() -> None:
     title = f"智核旧数据剧-{suffix}"
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(
+        bind=connection, join_transaction_mode="create_savepoint",
+        info={"tenant_id": "tenant-zhihe-contract"},
+    )
     try:
         drama = models.Drama(
             drama_number=-91,
@@ -194,7 +199,10 @@ def test_zhihe_sync_repairs_cloud_download_when_completed_final_is_stale() -> No
     title = f"智核终态回填剧-{suffix}"
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(
+        bind=connection, join_transaction_mode="create_savepoint",
+        info={"tenant_id": "tenant-zhihe-contract"},
+    )
     try:
         drama = models.Drama(
             drama_number=-92,
@@ -260,7 +268,10 @@ def test_zhihe_sync_completes_cloud_download_for_new_finished_result() -> None:
     title = f"智核新终态剧-{suffix}"
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(
+        bind=connection, join_transaction_mode="create_savepoint",
+        info={"tenant_id": "tenant-zhihe-contract"},
+    )
     try:
         drama = models.Drama(
             drama_number=-93,

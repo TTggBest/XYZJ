@@ -10,10 +10,11 @@ class DemoDataBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "demo_data_batches"
     __table_args__ = (
         CheckConstraint("status IN ('active','deleted')", name="valid_status"),
+        UniqueConstraint("tenant_id", "batch_code", name="uq_demo_data_batches_tenant_code"),
         {"comment": "可整体删除的本机演示数据批次"},
     )
 
-    batch_code: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, comment="演示批次稳定代码")
+    batch_code: Mapped[str] = mapped_column(String(100), nullable=False, comment="演示批次稳定代码")
     source_label: Mapped[str] = mapped_column(String(255), nullable=False, comment="演示数据来源说明")
     row_count: Mapped[int] = mapped_column(Integer, nullable=False, comment="导入的业务行数")
     start_date: Mapped[date] = mapped_column(Date, nullable=False, comment="演示任务起始日期")
@@ -22,10 +23,13 @@ class DemoDataBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="一键删除完成时间")
 
 
-class DemoDataEntity(IdMixin, TimestampMixin, Base):
+class DemoDataEntity(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "demo_data_entities"
     __table_args__ = (
-        UniqueConstraint("entity_type", "entity_id", name="uq_demo_data_entities_entity"),
+        UniqueConstraint(
+            "tenant_id", "entity_type", "entity_id",
+            name="uq_demo_data_entities_tenant_entity",
+        ),
         Index("ix_demo_data_entities_batch_type", "batch_id", "entity_type"),
         {"comment": "演示批次实际创建并拥有的数据库实体"},
     )

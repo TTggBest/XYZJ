@@ -2,8 +2,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from zhiju.database import TenantSession
 from zhiju.models import Integration, IntegrationAccount, IntegrationCredential
 from zhiju.schemas.integration import (
     IntegrationAccountCreate,
@@ -12,10 +14,18 @@ from zhiju.schemas.integration import (
     IntegrationCredentialUpsert,
 )
 from zhiju.services.identity import ConflictError, _audit
+from zhiju.tenant_repository import require_tenant_entity
 
 
 class IntegrationNotFoundError(Exception):
     pass
+
+
+def _require_tenant_context(session: Session) -> str:
+    tenant_id = session.info.get("tenant_id")
+    if not isinstance(session, TenantSession) or not tenant_id:
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
+    return str(tenant_id)
 
 
 def _integration(session: Session, integration_id: str) -> Integration:
@@ -26,13 +36,13 @@ def _integration(session: Session, integration_id: str) -> Integration:
 
 
 def _account(session: Session, account_id: str, *, lock: bool = False) -> IntegrationAccount:
-    statement = select(IntegrationAccount).where(IntegrationAccount.id == account_id)
-    if lock:
-        statement = statement.with_for_update()
-    row = session.scalar(statement)
-    if row is None:
+    _require_tenant_context(session)
+    try:
+        return require_tenant_entity(session, IntegrationAccount, account_id, lock=lock)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
         raise IntegrationNotFoundError("第三方集成账号不存在")
-    return row
 
 
 def create_integration(session: Session, payload: IntegrationCreate) -> Integration:
@@ -61,6 +71,7 @@ def list_integrations(session: Session) -> list[Integration]:
 def create_integration_account(
     session: Session, integration_id: str, payload: IntegrationAccountCreate
 ) -> IntegrationAccount:
+    _require_tenant_context(session)
     integration = _integration(session, integration_id)
     if integration.status != "active":
         raise ConflictError("当前集成未启用，不能新增账号")
@@ -86,6 +97,7 @@ def create_integration_account(
 def list_integration_accounts(
     session: Session, integration_id: str
 ) -> list[IntegrationAccount]:
+    _require_tenant_context(session)
     _integration(session, integration_id)
     return list(
         session.scalars(
@@ -99,6 +111,7 @@ def list_integration_accounts(
 def upsert_integration_credential(
     session: Session, account_id: str, payload: IntegrationCredentialUpsert
 ) -> IntegrationCredential:
+    _require_tenant_context(session)
     _account(session, account_id, lock=True)
     credential_type = payload.credential_type.strip().lower()
     row = session.scalar(
@@ -132,6 +145,7 @@ def upsert_integration_credential(
 def list_integration_credentials(
     session: Session, account_id: str
 ) -> list[IntegrationCredential]:
+    _require_tenant_context(session)
     _account(session, account_id)
     return list(
         session.scalars(
@@ -145,6 +159,7 @@ def list_integration_credentials(
 def verify_integration_account(
     session: Session, account_id: str, payload: IntegrationAccountVerify
 ) -> IntegrationAccount:
+    _require_tenant_context(session)
     account = _account(session, account_id, lock=True)
     now = datetime.now(timezone.utc)
     credentials = list(

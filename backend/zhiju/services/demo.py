@@ -4,9 +4,11 @@ from datetime import date, datetime, time, timezone
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from zhiju.database import TenantSession
 from zhiju.models import (
     AuditEvent,
     Channel,
@@ -42,6 +44,13 @@ LANGUAGE_HINTS = {
     "英语": "en", "阿拉伯": "ar", "孟加拉": "bn", "印尼": "id", "西班牙": "es",
     "巴葡": "pt-BR", "葡萄牙": "pt-BR", "印地": "hi", "俄语": "ru", "菲律宾": "fil", "土耳其": "tr",
 }
+
+
+def _require_tenant_context(session: Session) -> str:
+    tenant_id = session.info.get("tenant_id")
+    if not isinstance(session, TenantSession) or not tenant_id:
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
+    return str(tenant_id)
 
 
 def _text(row: dict[str, str | None], key: str) -> str:
@@ -110,6 +119,7 @@ def _entity_counts(session: Session, batch_id: str) -> dict[str, int]:
 
 
 def demo_status(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     batch = session.scalar(
         select(DemoDataBatch).where(DemoDataBatch.batch_code == BATCH_CODE).order_by(DemoDataBatch.created_at.desc())
     )
@@ -121,6 +131,7 @@ def demo_status(session: Session) -> dict[str, object]:
 
 
 def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict[str, object]:
+    _require_tenant_context(session)
     existing = session.scalar(select(DemoDataBatch).where(DemoDataBatch.batch_code == BATCH_CODE).with_for_update())
     if existing and existing.status == "active":
         return {"active": True, "batch": existing, "entity_counts": _entity_counts(session, existing.id)}
@@ -360,6 +371,7 @@ def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict
 
 
 def delete_feishu_demo(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     batch = session.scalar(select(DemoDataBatch).where(DemoDataBatch.batch_code == BATCH_CODE).with_for_update())
     if batch is None or batch.status != "active":
         return {"active": False, "batch": batch, "entity_counts": {}}

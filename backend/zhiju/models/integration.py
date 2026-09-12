@@ -25,7 +25,7 @@ class IntegrationAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "integration_accounts"
     __table_args__ = (
         CheckConstraint("status IN ('pending','active','expired','revoked','error','disabled')", name="valid_status"),
-        UniqueConstraint("integration_id", "account_key", name="uq_integration_accounts_key"),
+        UniqueConstraint("tenant_id", "integration_id", "account_key", name="uq_integration_accounts_tenant_key"),
         Index("ix_integration_accounts_integration_status", "integration_id", "status"),
         {"comment": "第三方服务中的具体账号"},
     )
@@ -38,11 +38,14 @@ class IntegrationAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后验证时间")
 
 
-class IntegrationCredential(IdMixin, TimestampMixin, Base):
+class IntegrationCredential(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "integration_credentials"
     __table_args__ = (
         CheckConstraint("status IN ('active','expired','revoked','error')", name="valid_status"),
-        UniqueConstraint("integration_account_id", "credential_type", name="uq_integration_credentials_type"),
+        UniqueConstraint(
+            "tenant_id", "integration_account_id", "credential_type",
+            name="uq_integration_credentials_tenant_type",
+        ),
         Index("ix_integration_credentials_account_status", "integration_account_id", "status"),
         {"comment": "第三方账号凭证引用，禁止保存密钥明文"},
     )

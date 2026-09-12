@@ -9,10 +9,12 @@ from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
+from zhiju.database import TenantSession
 from zhiju.models import (
     Channel,
     ChannelKeyword,
@@ -98,6 +100,13 @@ DRAMA_LANGUAGE_COLUMNS = {
 
 class FeishuSyncError(RuntimeError):
     pass
+
+
+def _require_tenant_context(session: Session) -> str:
+    tenant_id = session.info.get("tenant_id")
+    if not isinstance(session, TenantSession) or not tenant_id:
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
+    return str(tenant_id)
 
 
 def cell_text(value: object) -> str:
@@ -1203,6 +1212,7 @@ def _package_outputs_match(
 
 
 def _sync_rows(session: Session, sync_type: str, rows: list[dict[str, str]], sheet_id: str) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     now = datetime.now(timezone.utc)
     run = FeishuSyncRun(
@@ -1337,6 +1347,7 @@ def _client() -> FeishuClient:
 
 
 def sync_channel_schedules(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     client = _client()
     token, spreadsheet_token, sheets = client.workbook_sheets(
@@ -1431,12 +1442,14 @@ def _client_rows(sheet_id: str, last_column: str) -> list[dict[str, str]]:
 
 
 def sync_work_orders(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     rows = _client_rows(settings.feishu_work_order_sheet_id, "F")
     return _sync_rows(session, "work_orders", rows, settings.feishu_work_order_sheet_id)
 
 
 def sync_operation_packages(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     rows = _client_rows(settings.feishu_operation_package_sheet_id, OPERATION_PACKAGE_LAST_COLUMN)
     return _sync_rows(session, "operation_packages", rows, settings.feishu_operation_package_sheet_id)
@@ -1563,6 +1576,7 @@ def sync_drama_operation_metadata(
 
 
 def sync_dramas(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     sheet_id, rows = _client().rows_by_title(
         settings.feishu_drama_wiki_token,
@@ -1718,6 +1732,7 @@ def sync_dramas(session: Session) -> dict[str, object]:
 
 
 def sync_drama_languages(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     sheet_id, matrix = _client().matrix_by_title(settings.feishu_drama_wiki_token, "语言", "X")
     started_at = datetime.now(timezone.utc)
@@ -1947,6 +1962,7 @@ def _sync_channel_playlists(session: Session, channel: Channel, row: dict[str, s
 
 
 def sync_channels(session: Session) -> dict[str, object]:
+    _require_tenant_context(session)
     settings = get_settings()
     master_rows = [
         row for row in _client_rows(settings.feishu_channel_master_sheet_id, "N")

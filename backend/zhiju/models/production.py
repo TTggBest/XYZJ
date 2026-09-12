@@ -27,11 +27,12 @@ class ProductionBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "production_batches"
     __table_args__ = (
         CheckConstraint("source IN ('native','feishu')", name="valid_source"),
+        UniqueConstraint("tenant_id", "batch_number", name="uq_production_batches_tenant_number"),
         Index("ix_production_batches_date_source", "production_date", "source"),
         {"comment": "生产任务的稳定批次"},
     )
 
-    batch_number: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, comment="对外批次号")
+    batch_number: Mapped[str] = mapped_column(String(80), nullable=False, comment="对外批次号")
     production_date: Mapped[date] = mapped_column(Date, nullable=False, comment="批次生产日期")
     source: Mapped[str] = mapped_column(String(20), nullable=False, comment="批次来源")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="批次状态")
@@ -67,6 +68,7 @@ class OperationTask(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         CheckConstraint("status IN ('pending_dispatch','dispatched','processing','completed','failed','cancelled')", name="valid_status"),
         CheckConstraint("community_count >= 0", name="community_count_nonnegative"),
         UniqueConstraint("schedule_id", name="uq_operation_tasks_schedule_id"),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_operation_tasks_tenant_idempotency"),
         Index("ix_operation_tasks_date_status", "task_date", "status"),
         Index("ix_operation_tasks_channel_status", "channel_id", "status"),
         {"comment": "今日任务及历史任务主记录"},
@@ -83,7 +85,7 @@ class OperationTask(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     community_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0", comment="Community生产数量")
     source: Mapped[str] = mapped_column(String(20), nullable=False, comment="任务来源")
     status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="pending_dispatch", comment="任务状态")
-    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True, comment="任务创建幂等键")
+    idempotency_key: Mapped[str] = mapped_column(String(160), nullable=False, comment="任务创建幂等键")
     source_video_id: Mapped[str | None] = mapped_column(String(32), comment="来源视频Video ID")
     source_video_url: Mapped[str | None] = mapped_column(String(1000), comment="来源剧目视频地址")
     source_row_number: Mapped[int | None] = mapped_column(Integer, comment="来源飞书表格原始行号")
