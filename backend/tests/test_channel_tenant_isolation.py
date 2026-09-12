@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from zhiju.models import (
     ScheduleCandidate,
     MediaAsset,
 )
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.channel import ChannelDnaVersionCreate, ChannelProfileUpsert
 from zhiju.schemas.identity import ChannelStatusChange
 from zhiju.schemas.operations import CommunitySlotCreate, ScheduleCreate
@@ -311,6 +313,7 @@ def test_mixed_api_routers_bind_only_their_tenant_routes():
             if route.name == "put_device":
                 assert database.get_db in direct
                 assert auth_context.get_tenant_db not in direct
+                assert require_platform_permission in direct
             else:
                 assert auth_context.get_tenant_db in direct, route.path
 
@@ -369,6 +372,13 @@ def test_http_creation_and_update_use_principal_and_preserve_other_tenant(tenant
 
 
 def test_http_device_registration_keeps_platform_session(tenant_client, channel_store):
+    response = tenant_client.put("/api/v3/devices/register", json={
+        "device_key": "test-device", "hostname": "test-host", "name": "test", "os_type": "macos",
+    })
+    assert response.status_code == 403
+    tenant_client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(
+        PRINCIPAL, platform_role="super_admin"
+    )
     response = tenant_client.put("/api/v3/devices/register", json={
         "device_key": "test-device", "hostname": "test-host", "name": "test", "os_type": "macos",
     })

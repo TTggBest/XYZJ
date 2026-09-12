@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
 from zhiju.auth_context import get_tenant_db
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.identity import (
     AccountCreate,
     AccountRead,
@@ -117,7 +118,11 @@ def delete_channel(
         raise _identity_error(exc) from exc
 
 
-@router.put("/devices/register", response_model=DeviceRead)
+@router.put(
+    "/devices/register",
+    response_model=DeviceRead,
+    dependencies=[Depends(require_platform_permission)],
+)
 def put_device(payload: DeviceRegister, session: Session = Depends(get_db)) -> DeviceRead:
     try:
         return register_device(session, payload)

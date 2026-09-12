@@ -4,12 +4,48 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from zhiju.app import app
+from zhiju import auth_context
 import zhiju.api.settings as settings_api
 import zhiju.database as database_module
+from zhiju.auth_context import Principal
 from zhiju.database import DatabaseRouter, read_database_url
+
+
+@pytest.fixture
+def platform_settings_dependencies(monkeypatch: pytest.MonkeyPatch):
+    engine = create_engine(
+        "sqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+
+    def open_db():
+        with Session(engine) as session:
+            yield session
+
+    principal = Principal(
+        user_id="platform-admin",
+        tenant_id="tenant-a",
+        membership_role="owner",
+        platform_role="super_admin",
+        device_id=None,
+        device_trust_level="super_code_machine",
+        permissions=frozenset(),
+    )
+    monkeypatch.setitem(app.dependency_overrides, database_module.get_db, open_db)
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        auth_context.get_current_principal,
+        lambda: principal,
+    )
+    monkeypatch.setattr(settings_api.database_router, "open_session", lambda: Session(engine))
+    yield
+    engine.dispose()
 
 
 def test_database_router_switches_only_new_sessions(tmp_path: Path) -> None:
@@ -126,6 +162,7 @@ def test_frontend_exposes_switch_and_persistent_environment_state() -> None:
 
 def test_switching_to_production_runs_canonical_migrations_first(
     monkeypatch: pytest.MonkeyPatch,
+    platform_settings_dependencies,
 ) -> None:
     events: list[str] = []
 
@@ -153,6 +190,7 @@ def test_switching_to_production_runs_canonical_migrations_first(
 
 def test_failed_production_migration_prevents_environment_switch(
     monkeypatch: pytest.MonkeyPatch,
+    platform_settings_dependencies,
 ) -> None:
     switched: list[str] = []
 

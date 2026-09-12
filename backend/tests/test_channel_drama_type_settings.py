@@ -1,11 +1,11 @@
 from fastapi.testclient import TestClient
 from pathlib import Path
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
 from uuid import uuid4
 
 from zhiju.app import app
-from zhiju.database import database_router
-from zhiju.models import ChannelDramaType
+from zhiju.database import TenantSession
+from zhiju.models import Base, ChannelDramaType
 from zhiju.schemas.settings import ChannelDramaTypeCreate, ChannelDramaTypeUpdate
 from zhiju.services.settings import create_channel_drama_type, update_channel_drama_type
 
@@ -39,9 +39,16 @@ def test_settings_page_exposes_channel_drama_types() -> None:
 
 def test_channel_drama_type_can_be_created_and_disabled() -> None:
     suffix = uuid4().hex[:10]
-    connection = database_router.get_active_engine().connect()
-    transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine, tables=[ChannelDramaType.__table__])
+    session = TenantSession(
+        bind=engine,
+        info={
+            "tenant_id": "tenant-a",
+            "user_id": "user-a",
+            "permissions": frozenset(),
+        },
+    )
     try:
         created = create_channel_drama_type(
             session,
@@ -59,5 +66,4 @@ def test_channel_drama_type_can_be_created_and_disabled() -> None:
         assert updated.description == "测试停用"
     finally:
         session.close()
-        transaction.rollback()
-        connection.close()
+        engine.dispose()

@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import ClassVar
 
-from sqlalchemy import DateTime, Index, String, Text
+from sqlalchemy import DateTime, Index, String, Text, event
 from sqlalchemy.dialects.mysql import DATETIME
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +25,27 @@ class AuditEvent(TenantOwnedMixin, IdMixin, Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(160), unique=True, comment="幂等键")
     change_summary: Mapped[str | None] = mapped_column(Text, comment="不含密钥的变更摘要")
     occurred_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="操作发生时间")
+
+    PLATFORM_ENTITY_TYPES: ClassVar[frozenset[str]] = frozenset(
+        {
+            "app_icon_setting",
+            "device",
+            "integration",
+            "language",
+            "publish_cadence_template",
+            "publish_cadence_template_slot",
+            "runtime_package_build",
+            "schema_comment",
+            "skill",
+            "skill_version",
+        }
+    )
+
+
+@event.listens_for(AuditEvent, "before_insert")
+def _require_business_audit_tenant(_mapper, _connection, event_row: AuditEvent) -> None:
+    if event_row.tenant_id is None and event_row.entity_type not in AuditEvent.PLATFORM_ENTITY_TYPES:
+        raise ValueError("业务审计事件必须提供 tenant_id")
 
 
 class SchemaComment(Base):

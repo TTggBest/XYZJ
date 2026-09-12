@@ -9,10 +9,22 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from zhiju.auth_context import Principal, get_current_principal
 from zhiju.app import app, create_app
 from zhiju.database import get_db
 from zhiju.models import AppIconSetting, Base, Device, RuntimePackageBuild
 from zhiju.services.settings import _included_files
+
+
+PLATFORM_PRINCIPAL = Principal(
+    user_id="platform-admin",
+    tenant_id="tenant-a",
+    membership_role="owner",
+    platform_role="super_admin",
+    device_id=None,
+    device_trust_level="super_code_machine",
+    permissions=frozenset(),
+)
 
 
 def test_settings_read_models_come_from_runtime_and_database(tmp_path: Path) -> None:
@@ -34,6 +46,7 @@ def test_settings_read_models_come_from_runtime_and_database(tmp_path: Path) -> 
 
     test_app = create_app()
     test_app.dependency_overrides[get_db] = open_db
+    test_app.dependency_overrides[get_current_principal] = lambda: PLATFORM_PRINCIPAL
     try:
         with TestClient(test_app) as client:
             runtime = client.get("/api/v3/settings/runtime")
@@ -262,21 +275,54 @@ def test_local_production_mysql_start_refuses_to_initialize_an_empty_database() 
     assert "--initialize" not in source
 
 
-def test_only_current_runtime_package_has_download_endpoint() -> None:
-    client = TestClient(app)
-    packages = client.get("/api/v3/runtime-packages").json()
+def test_only_current_runtime_package_has_download_endpoint(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'runtime-packages.db'}")
+    Base.metadata.create_all(engine, tables=[RuntimePackageBuild.__table__])
+    with Session(engine) as session:
+        session.add_all(
+            [
+                RuntimePackageBuild(
+                    build_number=1,
+                    version="3.0.0-build.1",
+                    target_environment="production",
+                    status="succeeded",
+                    file_count=1,
+                    size_bytes=1,
+                    started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    completed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+                RuntimePackageBuild(
+                    build_number=2,
+                    version="3.0.0-build.2",
+                    target_environment="production",
+                    status="succeeded",
+                    file_count=1,
+                    size_bytes=1,
+                    started_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                    completed_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                ),
+            ]
+        )
+        session.commit()
 
-    if not packages:
-        return
+    def open_db():
+        with Session(engine) as session:
+            yield session
 
-    current = packages[0]
-    if current["status"] == "succeeded":
+    test_app = create_app()
+    test_app.dependency_overrides[get_db] = open_db
+    test_app.dependency_overrides[get_current_principal] = lambda: PLATFORM_PRINCIPAL
+    try:
+        client = TestClient(test_app)
+        packages = client.get("/api/v3/runtime-packages").json()
+        current = packages[0]
         response = client.get(f"/api/v3/runtime-packages/{current['id']}/download")
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/gzip"
         assert "attachment;" in response.headers["content-disposition"]
         assert response.content[:2] == b"\x1f\x8b"
 
-    if len(packages) > 1:
         old_response = client.get(f"/api/v3/runtime-packages/{packages[1]['id']}/download")
         assert old_response.status_code == 409
+    finally:
+        engine.dispose()

@@ -1,8 +1,10 @@
 from datetime import datetime
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from zhiju.database import TenantSession
 from zhiju.models import (
     AuditEvent,
     ChannelScheduleEntry,
@@ -17,6 +19,13 @@ from zhiju.services.channel import NotFoundError
 from zhiju.tenant_repository import require_tenant_entity
 
 
+def _require_tenant_context(session: Session) -> str:
+    tenant_id = session.info.get("tenant_id")
+    if not isinstance(session, TenantSession) or not tenant_id:
+        raise HTTPException(status_code=403, detail="请选择当前主账号")
+    return str(tenant_id)
+
+
 def list_system_events(
     session: Session,
     *,
@@ -28,6 +37,7 @@ def list_system_events(
     limit: int = 100,
     offset: int = 0,
 ) -> list[SystemEvent]:
+    _require_tenant_context(session)
     statement = select(SystemEvent)
     if entity_type:
         statement = statement.where(SystemEvent.entity_type == entity_type)
@@ -60,6 +70,7 @@ def list_audit_events(
     limit: int = 100,
     offset: int = 0,
 ) -> list[AuditEvent]:
+    _require_tenant_context(session)
     statement = select(AuditEvent)
     if entity_type:
         statement = statement.where(AuditEvent.entity_type == entity_type)
@@ -85,6 +96,7 @@ def list_audit_events(
 def get_entity_timeline(
     session: Session, entity_type: str, entity_id: str, *, limit: int = 200
 ) -> list[dict[str, object]]:
+    _require_tenant_context(session)
     statuses = list_system_events(
         session, entity_type=entity_type, entity_id=entity_id, limit=limit
     )
@@ -125,7 +137,12 @@ def get_entity_timeline(
 
 
 def list_task_events(session: Session, task_id: str) -> list[TaskEvent]:
-    if session.get(OperationTask, task_id) is None:
+    _require_tenant_context(session)
+    try:
+        require_tenant_entity(session, OperationTask, task_id)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
         raise NotFoundError("任务不存在")
     return list(
         session.scalars(
@@ -139,6 +156,7 @@ def list_task_events(session: Session, task_id: str) -> list[TaskEvent]:
 def list_schedule_history(
     session: Session, schedule_id: str
 ) -> list[ScheduleChangeHistory]:
+    _require_tenant_context(session)
     require_tenant_entity(session, ChannelScheduleEntry, schedule_id)
     return list(
         session.scalars(
@@ -152,6 +170,7 @@ def list_schedule_history(
 def list_video_status_history(
     session: Session, video_id: str
 ) -> list[YoutubeVideoStatusHistory]:
+    _require_tenant_context(session)
     require_tenant_entity(session, YoutubeVideo, video_id)
     return list(
         session.scalars(
