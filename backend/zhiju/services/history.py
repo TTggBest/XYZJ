@@ -6,17 +6,76 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import TenantSession
 from zhiju.models import (
+    AccountChannelAuthorization,
     AuditEvent,
+    Channel,
+    ChannelAnalysisReport,
+    ChannelCommunitySlot,
+    ChannelDnaVersion,
+    ChannelKeyword,
+    ChannelPinnedCommentTemplate,
+    ChannelPlaylist,
+    ChannelProfile,
+    ChannelPublishSlot,
     ChannelScheduleEntry,
+    DemoDataBatch,
+    Drama,
+    DramaTranslation,
+    GoogleAccount,
+    IntegrationAccount,
+    IntegrationCredential,
+    MediaAsset,
+    OAuthGrant,
+    OperationPackage,
     OperationTask,
+    ProductionNodeRun,
+    ScheduleCandidate,
     ScheduleChangeHistory,
+    SyncWatermark,
     SystemEvent,
     TaskEvent,
+    WorkOrder,
+    YoutubeComment,
+    YoutubeCommentReply,
     YoutubeVideo,
+    YoutubeVideoPlaylistMembership,
     YoutubeVideoStatusHistory,
 )
 from zhiju.services.channel import NotFoundError
 from zhiju.tenant_repository import require_tenant_entity
+
+
+TIMELINE_ENTITY_MODELS = {
+    "channel": Channel,
+    "channel_analysis_report": ChannelAnalysisReport,
+    "channel_authorization": AccountChannelAuthorization,
+    "channel_community_slot": ChannelCommunitySlot,
+    "channel_dna_version": ChannelDnaVersion,
+    "channel_keyword": ChannelKeyword,
+    "channel_pinned_comment_template": ChannelPinnedCommentTemplate,
+    "channel_playlist": ChannelPlaylist,
+    "channel_profile": ChannelProfile,
+    "channel_publish_slot": ChannelPublishSlot,
+    "channel_schedule_entry": ChannelScheduleEntry,
+    "demo_data_batch": DemoDataBatch,
+    "drama": Drama,
+    "drama_translation": DramaTranslation,
+    "google_account": GoogleAccount,
+    "integration_account": IntegrationAccount,
+    "integration_credential": IntegrationCredential,
+    "media_asset": MediaAsset,
+    "oauth_grant": OAuthGrant,
+    "operation_package": OperationPackage,
+    "operation_task": OperationTask,
+    "production_node_run": ProductionNodeRun,
+    "schedule_candidate": ScheduleCandidate,
+    "sync_watermark": SyncWatermark,
+    "work_order": WorkOrder,
+    "youtube_comment": YoutubeComment,
+    "youtube_comment_reply": YoutubeCommentReply,
+    "youtube_playlist_membership": YoutubeVideoPlaylistMembership,
+    "youtube_video": YoutubeVideo,
+}
 
 
 def _require_tenant_context(session: Session) -> str:
@@ -97,6 +156,10 @@ def get_entity_timeline(
     session: Session, entity_type: str, entity_id: str, *, limit: int = 200
 ) -> list[dict[str, object]]:
     _require_tenant_context(session)
+    model = TIMELINE_ENTITY_MODELS.get(entity_type)
+    if model is None:
+        raise HTTPException(status_code=404, detail="数据不存在")
+    require_tenant_entity(session, model, entity_id)
     statuses = list_system_events(
         session, entity_type=entity_type, entity_id=entity_id, limit=limit
     )

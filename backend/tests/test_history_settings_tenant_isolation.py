@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 import pytest
 import sqlalchemy as sa
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from zhiju import auth_context, database
@@ -10,23 +11,50 @@ from zhiju.api import history as history_api
 from zhiju.api import identity as identity_api
 from zhiju.api import settings as settings_api
 from zhiju.api import skill as skill_api
+from zhiju.app import app
 from zhiju.database import TenantSession
 from zhiju.models import (
     AppIconSetting,
+    AccountChannelAuthorization,
     AuditEvent,
     Base,
+    Channel,
+    ChannelAnalysisReport,
+    ChannelCommunitySlot,
+    ChannelDnaVersion,
     ChannelDramaType,
+    ChannelKeyword,
+    ChannelPinnedCommentTemplate,
+    ChannelPlaylist,
+    ChannelProfile,
+    ChannelPublishSlot,
     ChannelScheduleEntry,
     Device,
+    DemoDataBatch,
+    Drama,
+    DramaTranslation,
+    GoogleAccount,
     ImageProcessingRun,
+    IntegrationAccount,
+    IntegrationCredential,
+    MediaAsset,
+    OAuthGrant,
+    OperationPackage,
     OperationTask,
     ProductionBatch,
+    ProductionNodeRun,
     RuntimePackageBuild,
+    ScheduleCandidate,
     ScheduleChangeHistory,
     Skill,
+    SyncWatermark,
     SystemEvent,
     TaskEvent,
+    WorkOrder,
+    YoutubeComment,
+    YoutubeCommentReply,
     YoutubeVideo,
+    YoutubeVideoPlaylistMembership,
     YoutubeVideoStatusHistory,
 )
 from zhiju.permissions import require_platform_permission
@@ -60,7 +88,7 @@ def store():
                         id=f"system-{key}",
                         tenant_id=tenant_id,
                         entity_type="operation_task",
-                        entity_id="shared-entity",
+                        entity_id=task_id,
                         new_status="completed",
                         reason=key,
                         actor_type="system",
@@ -72,7 +100,7 @@ def store():
                         actor_type="system",
                         action="task.updated",
                         entity_type="operation_task",
-                        entity_id="shared-entity",
+                        entity_id=task_id,
                         occurred_at=NOW,
                     ),
                     OperationTask(
@@ -86,6 +114,18 @@ def store():
                         source="manual",
                         status="completed",
                         idempotency_key=f"task-key-{key}",
+                    ),
+                    OperationTask(
+                        id=f"task-empty-{key}",
+                        tenant_id=tenant_id,
+                        channel_id=f"channel-{key}",
+                        drama_id=f"drama-{key}",
+                        task_date=date(2026, 9, 13),
+                        target_publish_date=date(2026, 9, 14),
+                        community_count=0,
+                        source="manual",
+                        status="pending_dispatch",
+                        idempotency_key=f"task-empty-key-{key}",
                     ),
                     TaskEvent(
                         id=f"task-event-{key}",
@@ -191,7 +231,7 @@ def test_history_and_image_processing_history_return_only_current_tenant(store):
         assert [row.id for row in history.list_system_events(session)] == ["system-a"]
         assert [row.id for row in history.list_audit_events(session)] == ["audit-a"]
         assert {row["id"] for row in history.get_entity_timeline(
-            session, "operation_task", "shared-entity"
+            session, "operation_task", "task-a"
         )} == {"system-a", "audit-a"}
         assert [row.id for row in history.list_task_events(session, "task-a")] == [
             "task-event-a"
@@ -221,7 +261,7 @@ def test_history_services_reject_unscoped_sessions(store):
         calls = (
             lambda: history.list_system_events(session),
             lambda: history.list_audit_events(session),
-            lambda: history.get_entity_timeline(session, "operation_task", "shared-entity"),
+            lambda: history.get_entity_timeline(session, "operation_task", "task-a"),
             lambda: history.list_task_events(session, "task-a"),
             lambda: history.list_schedule_history(session, "schedule-a"),
             lambda: history.list_video_status_history(session, "video-a"),
@@ -229,6 +269,83 @@ def test_history_services_reject_unscoped_sessions(store):
         for call in calls:
             with pytest.raises(HTTPException, match="主账号"):
                 call()
+
+
+@pytest.fixture
+def tenant_http_client(store):
+    def override_tenant_db():
+        with tenant_session(store) as session:
+            yield session
+
+    app.dependency_overrides[auth_context.get_tenant_db] = override_tenant_db
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_entity_timeline_hides_foreign_tenant_entity(tenant_http_client):
+    response = tenant_http_client.get(
+        "/api/v3/entities/operation_task/task-b/timeline"
+    )
+
+    assert response.status_code == 404
+
+
+def test_entity_timeline_returns_empty_list_for_owned_entity_without_events(
+    tenant_http_client,
+):
+    response = tenant_http_client.get(
+        "/api/v3/entities/operation_task/task-empty-a/timeline"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_entity_timeline_returns_not_found_for_missing_entity(tenant_http_client):
+    response = tenant_http_client.get(
+        "/api/v3/entities/operation_task/task-missing/timeline"
+    )
+
+    assert response.status_code == 404
+
+
+def test_entity_timeline_supports_every_business_event_entity_type():
+    expected = {
+        "channel": Channel,
+        "channel_analysis_report": ChannelAnalysisReport,
+        "channel_authorization": AccountChannelAuthorization,
+        "channel_community_slot": ChannelCommunitySlot,
+        "channel_dna_version": ChannelDnaVersion,
+        "channel_keyword": ChannelKeyword,
+        "channel_pinned_comment_template": ChannelPinnedCommentTemplate,
+        "channel_playlist": ChannelPlaylist,
+        "channel_profile": ChannelProfile,
+        "channel_publish_slot": ChannelPublishSlot,
+        "channel_schedule_entry": ChannelScheduleEntry,
+        "demo_data_batch": DemoDataBatch,
+        "drama": Drama,
+        "drama_translation": DramaTranslation,
+        "google_account": GoogleAccount,
+        "integration_account": IntegrationAccount,
+        "integration_credential": IntegrationCredential,
+        "media_asset": MediaAsset,
+        "oauth_grant": OAuthGrant,
+        "operation_package": OperationPackage,
+        "operation_task": OperationTask,
+        "production_node_run": ProductionNodeRun,
+        "schedule_candidate": ScheduleCandidate,
+        "sync_watermark": SyncWatermark,
+        "work_order": WorkOrder,
+        "youtube_comment": YoutubeComment,
+        "youtube_comment_reply": YoutubeCommentReply,
+        "youtube_playlist_membership": YoutubeVideoPlaylistMembership,
+        "youtube_video": YoutubeVideo,
+    }
+
+    assert getattr(history, "TIMELINE_ENTITY_MODELS", {}) == expected
 
 
 def test_channel_drama_type_settings_require_tenant_session_and_scope_writes(store):
