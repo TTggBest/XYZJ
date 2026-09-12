@@ -146,6 +146,38 @@ def test_launchers_wait_for_process_exit_and_force_stuck_sse_shutdown() -> None:
     assert 'set URL of browserTab to targetURL' in browser_opener
 
 
+def test_browser_opener_falls_back_when_chrome_tab_lookup_fails(tmp_path: Path) -> None:
+    opener = Path(__file__).resolve().parents[2] / "scripts" / "open_app_url.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    opened = tmp_path / "opened.txt"
+    commands = {
+        "pgrep": "#!/bin/sh\nexit 0\n",
+        "osascript": "#!/bin/sh\ncat >/dev/null\nexit 1\n",
+        "open": "#!/bin/sh\nprintf '%s\\n' \"$*\" >\"$OPENED_FILE\"\n",
+    }
+    for name, body in commands.items():
+        path = fake_bin / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+
+    result = subprocess.run(
+        ["/bin/bash", str(opener), "http://127.0.0.1:19732/?dev_commit=test"],
+        text=True,
+        capture_output=True,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "OPENED_FILE": str(opened),
+        },
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert opened.read_text(encoding="utf-8").strip() == "http://127.0.0.1:19732/?dev_commit=test"
+
+
 def test_code_machine_launcher_allows_feature_branch_and_worktree_changes(tmp_path: Path) -> None:
     launcher = Path(__file__).resolve().parents[2] / "start-dev.command"
     fake_bin = tmp_path / "bin"
