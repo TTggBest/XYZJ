@@ -93,8 +93,9 @@ def post_super_admin(payload: SuperAdminTransfer, request: Request, session: Ses
 
 
 @router.get("/device-bindings", response_model=list[DeviceBindingView])
-def get_bindings(principal: Principal = Depends(get_current_principal), session: Session = Depends(get_db)):
-    return service.list_device_bindings(session, principal)
+def get_bindings(tenant_id: str | None = None, principal: Principal = Depends(get_current_principal),
+                 session: Session = Depends(get_db)):
+    return service.list_device_bindings(session, principal, tenant_id=tenant_id)
 
 
 @router.post("/device-bindings", response_model=DeviceBindingView, dependencies=[Depends(require_same_origin)])

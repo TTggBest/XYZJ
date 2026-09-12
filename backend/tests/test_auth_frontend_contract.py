@@ -355,6 +355,53 @@ async function switchCompany(page) {
 """
 
 
+def test_real_app_account_center_selects_company_before_showing_members_and_access_devices():
+    run_node(APP_FIXTURE + """
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/platform/tenants')return new Response(JSON.stringify(superUser.switchable_tenants));
+ if(path==='/api/v3/platform/tenants/t1/users')return new Response(JSON.stringify([
+  {id:'u1',display_name:'李运营',login_name:'li.operator',status:'active',role_code:'owner',membership_status:'active',platform_role:null,tenant_id:'t1',lease_expires_at:null}
+ ]));
+ if(path==='/api/v3/platform/device-bindings?tenant_id=t1')return new Response(JSON.stringify([
+  {id:'b1',device_id:'device-001',device_name:'客户前台 Mac',tenant_id:'t1',tenant_name:'甲公司',user_id:'u1',user_display_name:'李运营',login_name:'li.operator',status:'active',login_mode:'auto_login',expires_at:null}
+ ]));
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'accounts'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/公司\\s*→\\s*成员/);assert.match(html,/客户访问设备/);
+assert.match(html,/客户前台 Mac/);assert.match(html,/device-001/);
+assert.match(html,/李运营/);assert.match(html,/li\\.operator/);assert.match(html,/甲公司/);
+assert.match(html,/免登录/);
+assert(paths.includes('/api/v3/platform/device-bindings?tenant_id=t1'));
+""")
+
+
+def test_settings_keeps_platform_device_inventory_distinct_from_ai_workers():
+    run_node(APP_FIXTURE + """
+serverUser={...superUser,permissions:[...superUser.permissions,'platform.environment.manage']};
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"builder"}');
+ if(path==='/api/v3/devices')return new Response(JSON.stringify([
+  {id:'device-001',device_key:'client:001',name:'客户前台 Mac',alias:null,hostname:'frontdesk.local',device_role:'worker',login_user:'frontdesk',thunderbolt_address:null,lan_address:'192.0.2.10',purpose:'客户访问',status:'active',last_seen_at:null}
+ ]));
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'settings'}}:null}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-settings-tab]'?{dataset:{settingsTab:'devices'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/平台设备总表/);assert.match(html,/非 AI Worker/);
+assert.match(html,/device-001/);assert.match(html,/客户前台 Mac/);
+""")
+
+
 def test_real_app_bulk_dispatch_does_not_send_next_old_id_after_tenant_switch():
     run_node(APP_FIXTURE + """
 let release;

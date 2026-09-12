@@ -291,11 +291,40 @@ def transfer_super_admin(session: Session, principal: Principal, payload: SuperA
     return AccountView.model_validate(successor)
 
 
-def list_device_bindings(session: Session, principal: Principal) -> list[DeviceBindingView]:
+def _device_binding_view(binding, device, tenant, user) -> DeviceBindingView:
+    return DeviceBindingView(
+        id=binding.id,
+        device_id=device.id,
+        device_name=device.alias or device.name,
+        tenant_id=tenant.id,
+        tenant_name=tenant.company_name,
+        user_id=user.id,
+        user_display_name=user.display_name,
+        login_name=user.login_name,
+        status=binding.status,
+        login_mode="auto_login" if binding.auto_login_enabled else "password",
+        expires_at=binding.expires_at,
+    )
+
+
+def list_device_bindings(
+    session: Session,
+    principal: Principal,
+    *,
+    tenant_id: str | None = None,
+) -> list[DeviceBindingView]:
     require_super_code_machine(principal)
-    return [DeviceBindingView.model_validate(item) for item in session.scalars(
-        select(DeviceUserBinding).order_by(DeviceUserBinding.bound_at, DeviceUserBinding.id)
-    )]
+    query = select(DeviceUserBinding, Device, Tenant, AppUser).join(
+        Device, Device.id == DeviceUserBinding.device_id,
+    ).join(
+        Tenant, Tenant.id == DeviceUserBinding.tenant_id,
+    ).join(
+        AppUser, AppUser.id == DeviceUserBinding.user_id,
+    )
+    if tenant_id is not None:
+        query = query.where(DeviceUserBinding.tenant_id == tenant_id)
+    rows = session.execute(query.order_by(DeviceUserBinding.bound_at, DeviceUserBinding.id))
+    return [_device_binding_view(binding, device, tenant, user) for binding, device, tenant, user in rows]
 
 
 def enroll_device_binding(session: Session, principal: Principal, payload: DeviceBindingCreate,
@@ -360,7 +389,7 @@ def enroll_device_binding(session: Session, principal: Principal, payload: Devic
            target_id=binding.id, tenant_id=tenant.id, request_id=request_id,
            detail={"device_id": device.id, "user_id": user.id, "is_default": payload.is_default})
     session.flush()
-    metadata = DeviceBindingView.model_validate(binding)
+    metadata = _device_binding_view(binding, device, tenant, user)
     try:
         writer(metadata, secret)
     except Exception:
@@ -371,9 +400,16 @@ def enroll_device_binding(session: Session, principal: Principal, payload: Devic
 def revoke_device_binding(session: Session, principal: Principal, binding_id: str, payload: BindingRevoke,
                           *, request_id: str) -> DeviceBindingView:
     require_super_code_machine(principal)
-    binding = session.scalar(select(DeviceUserBinding).where(DeviceUserBinding.id == binding_id).with_for_update())
-    if binding is None:
+    row = session.execute(select(DeviceUserBinding, Device, Tenant, AppUser).join(
+        Device, Device.id == DeviceUserBinding.device_id,
+    ).join(
+        Tenant, Tenant.id == DeviceUserBinding.tenant_id,
+    ).join(
+        AppUser, AppUser.id == DeviceUserBinding.user_id,
+    ).where(DeviceUserBinding.id == binding_id).with_for_update()).first()
+    if row is None:
         raise HTTPException(status_code=404, detail="设备绑定不存在")
+    binding, device, tenant, user = row
     if binding.status != "revoked":
         binding.status = "revoked"
         binding.revoked_at = datetime.now(timezone.utc)
@@ -384,4 +420,4 @@ def revoke_device_binding(session: Session, principal: Principal, binding_id: st
     _audit(session, principal, event_type="device_binding_revoke", target_type="device_binding",
            target_id=binding.id, tenant_id=binding.tenant_id, request_id=request_id, reason=payload.reason)
     session.flush()
-    return DeviceBindingView.model_validate(binding)
+    return _device_binding_view(binding, device, tenant, user)

@@ -144,16 +144,15 @@ class DeviceBindingView(BaseModel):
 
     id: str
     device_id: str
-    user_id: str
+    device_name: str
     tenant_id: str
-    is_default: bool
-    auto_login_enabled: bool
+    tenant_name: str
+    user_id: str
+    user_display_name: str
+    login_name: str
     status: str
+    login_mode: str
     expires_at: UtcStoredTime | None
-    bound_by_user_id: str
-    bound_at: datetime
-    revoked_at: datetime | None
-    revoke_reason: str | None
 
 
 class BindingRevoke(AdminInput):

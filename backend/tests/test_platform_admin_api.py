@@ -545,6 +545,39 @@ def test_local_binding_enrollment_delivers_secret_once_to_writer_and_only_persis
     assert secret not in str(events(admin)[0].__dict__)
 
 
+def test_binding_list_joins_readable_device_user_and_company_for_selected_tenant(admin):
+    with Session(admin.engine) as db:
+        db.get(Device, "device").name = "客户前台 Mac"
+        db.get(AppUser, "staff").display_name = "李运营"
+        db.get(AppUser, "staff").login_name = "li.operator"
+        db.get(Tenant, "tenant").company_name = "甲公司"
+        db.commit()
+    selected = enroll(admin, lambda binding, secret: None)
+    enroll(
+        admin,
+        lambda binding, secret: None,
+        tenant_id="other-tenant",
+        user_id="other-owner",
+    )
+
+    response = admin.client.get(f"{BINDINGS}?tenant_id=tenant")
+
+    assert response.status_code == 200
+    assert response.json() == [{
+        "id": selected.id,
+        "device_id": "device",
+        "device_name": "客户前台 Mac",
+        "tenant_id": "tenant",
+        "tenant_name": "甲公司",
+        "user_id": "staff",
+        "user_display_name": "李运营",
+        "login_name": "li.operator",
+        "status": "active",
+        "login_mode": "auto_login",
+        "expires_at": None,
+    }]
+
+
 def test_failed_local_writer_rolls_back_binding_and_audit(admin):
     assert admin.client.get(BINDINGS).status_code == 200
 
