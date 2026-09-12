@@ -27,6 +27,7 @@ from zhiju.models import (
     CommunityPostAsset,
     MediaAsset,
     OperationPackage,
+    ProductionBatch,
     WorkOrder,
     PackageCoverVariant,
     YoutubeAnalyticsBreakdown,
@@ -52,6 +53,7 @@ from zhiju.schemas.channel import (
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.settings import list_channel_initialization_rules
 from zhiju.tenant_repository import require_tenant_entity
+from zhiju.storage_scope import require_tenant_storage_key
 
 
 class NotFoundError(Exception):
@@ -949,17 +951,15 @@ def list_dna_versions(session: Session, channel_id: str) -> list[dict[str, objec
 
 
 def register_media_asset(session: Session, payload: MediaAssetCreate) -> MediaAsset:
+    storage_key = require_tenant_storage_key(session.info["tenant_id"], payload.storage_key.strip())
     if payload.channel_id:
         _channel(session, payload.channel_id)
     if payload.operation_package_id:
-        package = session.scalar(select(OperationPackage).where(OperationPackage.id == payload.operation_package_id))
-        if package is None:
-            raise NotFoundError("运营包不存在")
+        package = require_tenant_entity(session, OperationPackage, payload.operation_package_id)
         _channel(session, package.channel_id)
         if payload.channel_id and package.channel_id != payload.channel_id:
             raise ConflictError("媒体资产频道与运营包频道不一致")
     provider = payload.storage_provider.strip().lower()
-    storage_key = payload.storage_key.strip()
     existing = session.scalar(
         select(MediaAsset).where(
             MediaAsset.storage_provider == provider,
@@ -1029,6 +1029,10 @@ def list_media_assets(
 ) -> list[MediaAsset]:
     if channel_id:
         require_tenant_entity(session, Channel, channel_id)
+    if operation_package_id:
+        require_tenant_entity(session, OperationPackage, operation_package_id)
+    if batch_id:
+        require_tenant_entity(session, ProductionBatch, batch_id)
     statement = select(MediaAsset)
     if batch_id is not None:
         statement = (

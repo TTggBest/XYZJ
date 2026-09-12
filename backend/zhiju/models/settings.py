@@ -42,7 +42,10 @@ class AppIconSetting(TimestampMixin, Base):
 
 class ImageWorkspaceSetting(TenantOwnedMixin, TimestampMixin, Base):
     __tablename__ = "image_workspace_settings"
-    __table_args__ = ({"comment": "图片生产共享根目录设置"},)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", name="uq_image_workspace_settings_tenant"),
+        {"comment": "每租户图片生产根目录设置"},
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="固定设置主键")
     root_path: Mapped[str] = mapped_column(String(1000), nullable=False, comment="共享根目录下的相对路径或本机绝对路径")
@@ -85,7 +88,7 @@ class ChannelLogoProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     calibrated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近自动校准时间")
 
 
-class ImageProcessingRun(IdMixin, TimestampMixin, Base):
+class ImageProcessingRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "image_processing_runs"
     __table_args__ = (
         CheckConstraint("status IN ('processing','classified','partially_classified','logo_ready','partially_generated','failed')", name="valid_status"),
@@ -104,7 +107,7 @@ class ImageProcessingRun(IdMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最近处理完成时间")
 
 
-class ImageProcessingItem(IdMixin, TimestampMixin, Base):
+class ImageProcessingItem(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "image_processing_items"
     __table_args__ = (
         CheckConstraint("match_status IN ('matched','unmatched','ambiguous')", name="valid_match_status"),

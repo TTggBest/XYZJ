@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.schemas.image_processing import (
     ChannelLogoProfileRead,
     ImageAssetReconcileRead,
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/v3", tags=["image-processing"])
 
 
 @router.get("/settings/image-workspace", response_model=ImageWorkspaceRead | None)
-def get_image_workspace(session: Session = Depends(get_db)) -> ImageWorkspaceRead | None:
+def get_image_workspace(session: Session = Depends(get_tenant_db)) -> ImageWorkspaceRead | None:
     try:
         return get_workspace(session)
     except ValueError as exc:
@@ -44,7 +44,7 @@ def get_image_workspace(session: Session = Depends(get_db)) -> ImageWorkspaceRea
 
 
 @router.put("/settings/image-workspace", response_model=ImageWorkspaceRead)
-def put_image_workspace(payload: ImageWorkspaceWrite, session: Session = Depends(get_db)) -> ImageWorkspaceRead:
+def put_image_workspace(payload: ImageWorkspaceWrite, session: Session = Depends(get_tenant_db)) -> ImageWorkspaceRead:
     try:
         return save_workspace(session, payload.root_path)
     except (OSError, ValueError) as exc:
@@ -52,7 +52,7 @@ def put_image_workspace(payload: ImageWorkspaceWrite, session: Session = Depends
 
 
 @router.get("/channels/logo-profiles", response_model=list[ChannelLogoProfileRead])
-def get_logo_profiles(session: Session = Depends(get_db)) -> list[ChannelLogoProfileRead]:
+def get_logo_profiles(session: Session = Depends(get_tenant_db)) -> list[ChannelLogoProfileRead]:
     return list_channel_logo_profiles(session)
 
 
@@ -62,7 +62,7 @@ async def put_logo_profile(
     left_logo: UploadFile = File(...),
     right_logo: UploadFile = File(...),
     template: UploadFile = File(...),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelLogoProfileRead:
     try:
         return save_channel_logo_profile(
@@ -80,7 +80,7 @@ async def put_logo_profile(
 
 
 @router.get("/image-processing/batches", response_model=list[ImageProcessingBatchRead])
-def get_processing_batches(session: Session = Depends(get_db)) -> list[ImageProcessingBatchRead]:
+def get_processing_batches(session: Session = Depends(get_tenant_db)) -> list[ImageProcessingBatchRead]:
     return list_processing_batches(session)
 
 
@@ -89,7 +89,7 @@ def get_processing_batches(session: Session = Depends(get_db)) -> list[ImageProc
     response_model=list[MediaAssetCoverageRead],
 )
 def get_batch_asset_coverage(
-    batch_id: str, session: Session = Depends(get_db)
+    batch_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[MediaAssetCoverageRead]:
     try:
         return list_batch_media_coverage(session, batch_id)
@@ -98,7 +98,7 @@ def get_batch_asset_coverage(
 
 
 @router.get("/image-processing/runs", response_model=list[ImageProcessingRunRead])
-def get_image_processing_runs(session: Session = Depends(get_db)) -> list[ImageProcessingRunRead]:
+def get_image_processing_runs(session: Session = Depends(get_tenant_db)) -> list[ImageProcessingRunRead]:
     return list_processing_runs(session)
 
 
@@ -107,7 +107,7 @@ def get_image_processing_run_history(
     batch_id: str | None = None,
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ImageProcessingRunPageRead:
     return list_processing_run_page(
         session,
@@ -121,7 +121,7 @@ def get_image_processing_run_history(
 async def post_image_import(
     batch_id: str = Form(...),
     files: list[UploadFile] = File(...),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ImageProcessingRunRead:
     try:
         uploads = [(upload.filename or "image", await upload.read()) for upload in files]
@@ -131,7 +131,7 @@ async def post_image_import(
 
 
 @router.post("/image-processing/runs/{run_id}/generate-logo", response_model=ImageProcessingRunRead)
-def post_generate_logo(run_id: str, session: Session = Depends(get_db)) -> ImageProcessingRunRead:
+def post_generate_logo(run_id: str, session: Session = Depends(get_tenant_db)) -> ImageProcessingRunRead:
     try:
         return generate_logos(session, run_id)
     except (OSError, ValueError) as exc:
@@ -140,7 +140,7 @@ def post_generate_logo(run_id: str, session: Session = Depends(get_db)) -> Image
 
 @router.post("/image-processing/assets/reconcile", response_model=ImageAssetReconcileRead)
 def post_reconcile_processing_assets(
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ImageAssetReconcileRead:
     try:
         return reconcile_processing_assets(session)
@@ -150,14 +150,14 @@ def post_reconcile_processing_assets(
 
 @router.get("/media-assets/contexts", response_model=list[MediaAssetContextRead])
 def get_media_asset_contexts(
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[MediaAssetContextRead]:
     return list_media_asset_contexts(session)
 
 
 @router.get("/media-assets/{asset_id}/thumbnail")
 def get_media_asset_thumbnail(
-    asset_id: str, session: Session = Depends(get_db)
+    asset_id: str, session: Session = Depends(get_tenant_db)
 ) -> Response:
     try:
         _, path = resolve_media_asset_file(session, asset_id)
@@ -175,7 +175,7 @@ def get_media_asset_thumbnail(
 
 @router.post("/media-assets/{asset_id}/reveal")
 def post_reveal_media_asset_folder(
-    asset_id: str, session: Session = Depends(get_db)
+    asset_id: str, session: Session = Depends(get_tenant_db)
 ) -> dict[str, str]:
     try:
         folder = reveal_media_asset_folder(session, asset_id)

@@ -4,17 +4,24 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
+from uuid import uuid4
 
+from fastapi import HTTPException
 from PIL import Image, ImageChops
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from zhiju.config import get_settings
+from zhiju.tenant_repository import require_tenant_entity
+from zhiju.storage_scope import (
+    legacy_local_path, require_tenant_storage_key, resolve_tenant_storage_path, tenant_object_prefix,
+)
 from zhiju.models import (
     Channel,
     ChannelLogoProfile,
@@ -44,7 +51,6 @@ from zhiju.schemas.image_processing import (
 )
 
 
-WORKSPACE_SETTING_ID = "image-workspace"
 PERSISTENT_DIR = "系统素材"
 OUTPUT_DIR = "用户产物"
 THUMBNAIL_MAX_EDGE = 480
@@ -105,18 +111,20 @@ class PackageContext:
         return tuple(value for value in values if value)
 
 
-def resolve_workspace_root(root_path: str, shared_root: Path | None) -> Path:
-    configured = Path(root_path).expanduser()
-    if configured.is_absolute():
-        return configured.resolve()
+def resolve_workspace_root(tenant_id: str, root_path: str, shared_root: Path | None) -> Path:
+    if not root_path.startswith("tenants/"):
+        # Only pre-existing default-tenant settings can contain local paths.
+        return legacy_local_path(tenant_id, root_path, None if Path(root_path).expanduser().is_absolute() else shared_root)
+    require_tenant_storage_key(tenant_id, root_path)
     if shared_root is None:
         raise ValueError("相对图片目录需要当前设备配置 ZHJ_SHARED_ROOT")
-    return (shared_root.expanduser() / configured).resolve()
+    return resolve_tenant_storage_path(tenant_id, root_path, shared_root.expanduser())
 
 
 def _workspace_paths(setting: ImageWorkspaceSetting) -> tuple[Path, Path, Path]:
-    root = resolve_workspace_root(setting.root_path, get_settings().shared_root)
-    return root, root / setting.persistent_dir_name, root / setting.output_dir_name
+    root = resolve_workspace_root(setting.tenant_id, setting.root_path, get_settings().shared_root)
+    tenant_root = root / tenant_object_prefix(setting.tenant_id)
+    return root, tenant_root / PERSISTENT_DIR, tenant_root / OUTPUT_DIR
 
 
 def _ensure_workspace(setting: ImageWorkspaceSetting) -> tuple[Path, Path, Path]:
@@ -127,7 +135,7 @@ def _ensure_workspace(setting: ImageWorkspaceSetting) -> tuple[Path, Path, Path]
 
 
 def _workspace_setting(session: Session) -> ImageWorkspaceSetting:
-    setting = session.get(ImageWorkspaceSetting, WORKSPACE_SETTING_ID)
+    setting = session.scalar(select(ImageWorkspaceSetting).where(ImageWorkspaceSetting.tenant_id == session.info["tenant_id"]))
     if setting is None:
         raise ValueError("请先在设置页配置图片根目录")
     return setting
@@ -146,23 +154,19 @@ def _workspace_read(setting: ImageWorkspaceSetting) -> ImageWorkspaceRead:
 
 
 def get_workspace(session: Session) -> ImageWorkspaceRead | None:
-    setting = session.get(ImageWorkspaceSetting, WORKSPACE_SETTING_ID)
+    setting = session.scalar(select(ImageWorkspaceSetting).where(ImageWorkspaceSetting.tenant_id == session.info["tenant_id"]))
     return _workspace_read(setting) if setting else None
 
 
 def resolve_media_asset_file(session: Session, asset_id: str) -> tuple[MediaAsset, Path]:
-    asset = session.get(MediaAsset, asset_id)
-    if asset is None or asset.deleted_at is not None:
+    asset = require_tenant_entity(session, MediaAsset, asset_id)
+    if asset.deleted_at is not None:
         raise FileNotFoundError("素材资产不存在")
     if asset.storage_provider != "local":
         raise ValueError("当前只支持预览本地或共享根目录中的素材")
     setting = _workspace_setting(session)
     root, _, _ = _workspace_paths(setting)
-    path = (root / asset.storage_key).resolve()
-    try:
-        path.relative_to(root.resolve())
-    except ValueError as exc:
-        raise ValueError("素材路径不在已配置的根目录中") from exc
+    path = resolve_tenant_storage_path(session.info["tenant_id"], asset.storage_key, root)
     if not path.is_file():
         raise FileNotFoundError("素材文件不存在")
     return asset, path
@@ -262,11 +266,13 @@ def reveal_media_asset_folder(session: Session, asset_id: str) -> Path:
 
 
 def save_workspace(session: Session, root_path: str) -> ImageWorkspaceRead:
-    root_path = root_path.strip()
-    setting = session.get(ImageWorkspaceSetting, WORKSPACE_SETTING_ID)
+    tenant_id = session.info["tenant_id"]
+    root_path = require_tenant_storage_key(tenant_id, root_path.strip())
+    setting = session.scalar(select(ImageWorkspaceSetting).where(ImageWorkspaceSetting.tenant_id == tenant_id))
     if setting is None:
         setting = ImageWorkspaceSetting(
-            id=WORKSPACE_SETTING_ID,
+            id=str(uuid4()),
+            tenant_id=tenant_id,
             root_path=root_path,
             persistent_dir_name=PERSISTENT_DIR,
             output_dir_name=OUTPUT_DIR,
@@ -375,9 +381,9 @@ def save_channel_logo_profile(
     template_filename: str,
     template_data: bytes,
 ) -> ChannelLogoProfileRead:
-    channel = session.get(Channel, channel_id)
-    if channel is None or channel.deleted_at is not None:
-        raise ValueError("频道不存在")
+    channel = require_tenant_entity(session, Channel, channel_id)
+    if channel.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="数据不存在")
     setting = _workspace_setting(session)
     root, persistent, _ = _ensure_workspace(setting)
     logo_dir = persistent / "频道" / _safe_segment(channel.youtube_channel_id, channel.id) / "logo"
@@ -492,9 +498,7 @@ def _media_asset_display_role(asset: MediaAsset) -> str | None:
 def list_batch_media_coverage(
     session: Session, batch_id: str
 ) -> list[dict[str, object]]:
-    batch = session.get(ProductionBatch, batch_id)
-    if batch is None:
-        raise ValueError("生产批次不存在")
+    batch = require_tenant_entity(session, ProductionBatch, batch_id)
     contexts = _package_contexts(session, batch_id)
     package_ids = [context.package_id for context in contexts]
     assets_by_package: dict[str, list[MediaAsset]] = {package_id: [] for package_id in package_ids}
@@ -620,9 +624,7 @@ def import_images(
     uploads = filter_image_uploads(uploads)
     if not uploads:
         raise ValueError("没有可导入的图片")
-    batch = session.get(ProductionBatch, batch_id)
-    if batch is None:
-        raise ValueError("生产批次不存在")
+    batch = require_tenant_entity(session, ProductionBatch, batch_id)
     setting = _workspace_setting(session)
     root, _, output = _ensure_workspace(setting)
     contexts = _package_contexts(session, batch.id)
@@ -690,8 +692,8 @@ def import_images(
 
 
 def _run_manifest(session: Session, run_id: str) -> dict[str, object]:
-    run = session.get(ImageProcessingRun, run_id)
-    batch = session.get(ProductionBatch, run.batch_id) if run else None
+    run = require_tenant_entity(session, ImageProcessingRun, run_id)
+    batch = require_tenant_entity(session, ProductionBatch, run.batch_id)
     items = session.scalars(select(ImageProcessingItem).where(ImageProcessingItem.run_id == run_id).order_by(ImageProcessingItem.created_at)).all()
     return {
         "run_id": run_id,
@@ -712,13 +714,13 @@ def _run_manifest(session: Session, run_id: str) -> dict[str, object]:
 
 
 def _compose_logo(source_path: Path, output_path: Path, profile: ChannelLogoProfile, root: Path) -> None:
-    config = json.loads((root / profile.config_path).read_text(encoding="utf-8"))
+    config = json.loads(resolve_tenant_storage_path(profile.tenant_id, profile.config_path, root).read_text(encoding="utf-8"))
     canvas = config["canvas"]
     with Image.open(source_path) as raw:
         base = raw.convert("RGBA").resize((canvas["width"], canvas["height"]), Image.Resampling.LANCZOS)
     for key, relative_logo in (("left_logo", profile.left_logo_path), ("right_logo", profile.right_logo_path)):
         region = config[key]
-        with Image.open(root / relative_logo) as source_logo:
+        with Image.open(resolve_tenant_storage_path(profile.tenant_id, relative_logo, root)) as source_logo:
             logo = source_logo.convert("RGBA").resize(
                 (max(1, round(region["width"] * base.width)), max(1, round(region["height"] * base.height))),
                 Image.Resampling.LANCZOS,
@@ -734,6 +736,7 @@ def _register_logo_asset(
     output_path: Path,
     storage_key: str,
 ) -> MediaAsset:
+    storage_key = require_tenant_storage_key(session.info["tenant_id"], storage_key)
     content = output_path.read_bytes()
     with Image.open(output_path) as image:
         width, height = image.size
@@ -772,6 +775,7 @@ def _register_imported_community_asset(
     source_path: Path,
     storage_key: str,
 ) -> MediaAsset:
+    storage_key = require_tenant_storage_key(session.info["tenant_id"], storage_key)
     content = source_path.read_bytes()
     with Image.open(source_path) as image:
         width, height = image.size
@@ -894,7 +898,7 @@ def reconcile_processing_assets(session: Session) -> ImageAssetReconcileRead:
         relative_path = item.output_path if item.image_role in LOGO_ROLES else item.stored_path
         if not relative_path:
             continue
-        path = (root / relative_path).resolve()
+        path = resolve_tenant_storage_path(session.info["tenant_id"], relative_path, root)
         if not path.is_file():
             missing += 1
             continue
@@ -904,11 +908,27 @@ def reconcile_processing_assets(session: Session) -> ImageAssetReconcileRead:
                 MediaAsset.storage_key == relative_path,
             )
         )
-        asset = (
-            _register_logo_asset(session, item, path, relative_path)
-            if item.image_role in LOGO_ROLES
-            else _register_imported_community_asset(session, item, path, relative_path)
-        )
+        if not relative_path.startswith("tenants/") and existing is not None:
+            # Reading an already registered legacy object does not create new
+            # path metadata. Its only resolver remains the default adapter.
+            asset = existing
+        else:
+            if not relative_path.startswith("tenants/"):
+                # Preserve the legacy source and register a tenant-named copy.
+                relative_path = tenant_object_prefix(session.info["tenant_id"]) + "legacy/" + _relative(root, path)
+                destination = resolve_tenant_storage_path(session.info["tenant_id"], relative_path, root)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination)
+                path = destination
+                if item.image_role in LOGO_ROLES:
+                    item.output_path = relative_path
+                else:
+                    item.stored_path = relative_path
+            asset = (
+                _register_logo_asset(session, item, path, relative_path)
+                if item.image_role in LOGO_ROLES
+                else _register_imported_community_asset(session, item, path, relative_path)
+            )
         if existing is None:
             registered += 1
         session.flush()
@@ -927,10 +947,8 @@ def reconcile_processing_assets(session: Session) -> ImageAssetReconcileRead:
 
 
 def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
-    run = session.get(ImageProcessingRun, run_id)
-    if run is None:
-        raise ValueError("图片处理记录不存在")
-    batch = session.get(ProductionBatch, run.batch_id)
+    run = require_tenant_entity(session, ImageProcessingRun, run_id)
+    batch = require_tenant_entity(session, ProductionBatch, run.batch_id)
     setting = _workspace_setting(session)
     root, _, output = _ensure_workspace(setting)
     contexts = {context.package_id: context for context in _package_contexts(session, run.batch_id)}
@@ -955,13 +973,15 @@ def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
             continue
         output_path = _context_path(output / "Logo成品", batch.batch_number, context) / f"{item.image_role}_logo.png"
         try:
-            _compose_logo(root / item.stored_path, output_path, profile, root)
+            _compose_logo(resolve_tenant_storage_path(session.info["tenant_id"], item.stored_path, root), output_path, profile, root)
             item.output_path = _relative(root, output_path)
             asset = _register_logo_asset(session, item, output_path, item.output_path)
             session.flush()
             _bind_asset_to_package_output(session, item, asset)
             item.error_message = None
             generated += 1
+        except HTTPException:
+            raise
         except Exception as exc:
             item.error_message = f"Logo 生成失败：{exc}"
             failed += 1
@@ -970,18 +990,23 @@ def generate_logos(session: Session, run_id: str) -> ImageProcessingRunRead:
     run.completed_at = datetime.now(timezone.utc)
     session.commit()
     if run.manifest_path:
-        (root / run.manifest_path).write_text(json.dumps(_run_manifest(session, run.id), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        report_path = output / "处理报告" / _safe_segment(batch.batch_number, batch.id) / f"{run.id}.json"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        run.manifest_path = _relative(root, report_path)
+        report_path.write_text(json.dumps(_run_manifest(session, run.id), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        session.commit()
     return get_processing_run(session, run.id)
 
 
 def get_processing_run(session: Session, run_id: str) -> ImageProcessingRunRead:
+    require_tenant_entity(session, ImageProcessingRun, run_id)
     row = session.execute(
         select(ImageProcessingRun, ProductionBatch)
         .join(ProductionBatch, ProductionBatch.id == ImageProcessingRun.batch_id)
         .where(ImageProcessingRun.id == run_id)
     ).one_or_none()
     if row is None:
-        raise ValueError("图片处理记录不存在")
+        raise HTTPException(status_code=404, detail="数据不存在")
     run, batch = row
     items = session.scalars(select(ImageProcessingItem).where(ImageProcessingItem.run_id == run.id).order_by(ImageProcessingItem.created_at)).all()
     return ImageProcessingRunRead(
@@ -1018,6 +1043,8 @@ def list_processing_run_page(
     limit: int = 10,
     offset: int = 0,
 ) -> dict[str, object]:
+    if batch_id:
+        require_tenant_entity(session, ProductionBatch, batch_id)
     filters = [ImageProcessingRun.batch_id == batch_id] if batch_id else []
     total = session.scalar(
         select(func.count()).select_from(ImageProcessingRun).where(*filters)

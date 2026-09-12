@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from zhiju.config import get_settings
+from zhiju.storage_scope import tenant_object_prefix
 from zhiju.models import (
     Channel,
     ChannelPlaylist,
@@ -960,7 +961,7 @@ def merge_package(session: Session, package_id: str) -> dict[str, object]:
     snapshot = _selected_snapshot(session, package)
     generation = node.attempt_number
     root = Path(get_settings().artifact_root)
-    relative_dir = Path(package.id) / f"generation-{generation}"
+    relative_dir = Path(tenant_object_prefix(package.tenant_id)) / package.id / f"generation-{generation}"
     output_dir = root / relative_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     json_bytes = json.dumps(snapshot, ensure_ascii=False, indent=2, default=_json_safe).encode("utf-8")
