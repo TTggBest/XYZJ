@@ -43,6 +43,7 @@ def _available_memberships(session: Session, user_id: str, now: datetime):
 
 def password_login(
     session: Session, *, login_name: str, password: str, request_id: str,
+    configured_device_id: str | None = None,
 ) -> LoginResult | None:
     """Stage login changes; the route owns the transaction, including failures."""
     now = datetime.now(timezone.utc)
@@ -87,19 +88,52 @@ def password_login(
         ))
         return None
 
+    device = None
+    binding = None
+    configured_device_id = (configured_device_id or "").strip()
+    if configured_device_id:
+        device = session.get(Device, configured_device_id)
+        if device is not None and device.status == "active":
+            binding_query = select(DeviceUserBinding).join(
+                Tenant, Tenant.id == DeviceUserBinding.tenant_id,
+            ).where(
+                DeviceUserBinding.device_id == device.id,
+                DeviceUserBinding.user_id == user.id,
+                DeviceUserBinding.status == "active",
+                Tenant.status == "active",
+                Tenant.lease_expires_at > now,
+            ).where(
+                (DeviceUserBinding.expires_at.is_(None))
+                | (DeviceUserBinding.expires_at > now)
+            )
+            if tenant is not None:
+                binding_query = binding_query.where(DeviceUserBinding.tenant_id == tenant.id)
+            binding = session.scalar(binding_query.order_by(
+                DeviceUserBinding.is_default.desc(), DeviceUserBinding.bound_at.desc(),
+            ).limit(1))
+        if binding is None:
+            device = None
+        elif tenant is None:
+            tenant = session.get(Tenant, binding.tenant_id)
+
     user.failed_login_count = 0
     user.locked_until = None
     user.last_login_at = now
     token = new_opaque_token()
     auth_session = AuthSession(
-        user_id=user.id, tenant_id=tenant.id if tenant else None, device_id=None,
+        user_id=user.id, tenant_id=tenant.id if tenant else None,
+        device_id=device.id if device else None, binding_id=binding.id if binding else None,
         token_digest=digest_token(token), status="active", expires_at=now + timedelta(hours=8),
         created_at=now, last_seen_at=now,
     )
     session.add(auth_session)
     session.flush()
+    if binding is not None:
+        binding.auto_login_enabled = True
+        binding.last_used_at = now
     session.add(AuthEvent(
         event_type="login", result="success", actor_user_id=user.id,
+        actor_device_id=device.id if device else None,
         tenant_id=auth_session.tenant_id, session_id=auth_session.id,
         request_id=request_id, login_name=login_name, occurred_at=now,
     ))
@@ -113,7 +147,8 @@ def password_login(
     return LoginResult(
         principal=Principal(
             user_id=user.id, tenant_id=auth_session.tenant_id, membership_role=membership_role,
-            platform_role=user.platform_role, device_id=None, device_trust_level="normal",
+            platform_role=user.platform_role, device_id=device.id if device else None,
+            device_trust_level=device.trust_level if device else "normal",
             permissions=permissions,
         ),
         expires_at=auth_session.expires_at, token=token,

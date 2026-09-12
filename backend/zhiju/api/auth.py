@@ -33,7 +33,7 @@ def post_login(
     with session.begin():
         result = password_login(
             session, login_name=payload.login_name, password=payload.password.get_secret_value(),
-            request_id=str(uuid4()),
+            request_id=str(uuid4()), configured_device_id=settings.device_id,
         )
         body = current_user(session, result.principal) if result else None
     # Login failures must commit their counters and audit before returning the same 401.

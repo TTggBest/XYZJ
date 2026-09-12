@@ -74,7 +74,7 @@ def auth(tmp_path, password_hash):
         with Session(engine, expire_on_commit=False) as db:
             yield db
 
-    settings = SimpleNamespace(env="development")
+    settings = SimpleNamespace(env="development", device_id="")
     app = create_app()
     app.dependency_overrides[get_db] = open_db
     app.dependency_overrides[get_settings] = lambda: settings
@@ -345,6 +345,54 @@ def test_super_admin_password_login_starts_without_impersonated_tenant_or_device
     assert body["tenant_id"] is None and body["current_tenant"] is None
     assert body["membership_role"] is None and body["memberships"] == [] and body["device"] is None
     assert "platform.tenant.manage" in body["permissions"]
+
+
+def test_password_login_restores_configured_super_code_machine_binding(auth):
+    now = datetime.now(timezone.utc)
+    with Session(auth.engine) as db:
+        user = db.get(AppUser, "user")
+        user.platform_role = "super_admin"
+        device = db.get(Device, "device")
+        device.trust_level = "super_code_machine"
+        db.add(DeviceUserBinding(
+            id="core-binding", device_id="device", user_id="user", tenant_id="tenant",
+            is_default=True, auto_login_enabled=False,
+            credential_digest=digest_token("core-binding-secret"),
+            bound_by_user_id="user", bound_at=now,
+        ))
+        db.commit()
+    auth.settings.device_id = "device"
+
+    response = login(auth)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tenant_id"] == "tenant"
+    assert body["device"] == {
+        "id": "device", "name": "Fixture Device", "display_name": "Workstation",
+        "trust_level": "super_code_machine",
+    }
+    with Session(auth.engine) as db:
+        stored = db.scalar(select(AuthSession))
+        assert (stored.device_id, stored.binding_id) == ("device", "core-binding")
+        assert db.get(DeviceUserBinding, "core-binding").auto_login_enabled is True
+        assert db.scalar(select(AuthEvent)).actor_device_id == "device"
+
+
+def test_password_login_does_not_trust_configured_device_without_user_binding(auth):
+    with Session(auth.engine) as db:
+        db.get(AppUser, "user").platform_role = "super_admin"
+        db.get(Device, "device").trust_level = "super_code_machine"
+        db.commit()
+    auth.settings.device_id = "device"
+
+    response = login(auth)
+
+    assert response.status_code == 200
+    assert response.json()["device"] is None
+    with Session(auth.engine) as db:
+        stored = db.scalar(select(AuthSession))
+        assert stored.device_id is None and stored.binding_id is None
 
 
 def test_me_requires_a_session(auth):
