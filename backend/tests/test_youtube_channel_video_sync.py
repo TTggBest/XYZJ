@@ -5,13 +5,13 @@ from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import sqlalchemy as sa
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession
 from zhiju.models import (
-    AccountChannelAuthorization,
+    AccountChannelAuthorization, Base,
     Channel,
     Drama,
     GoogleAccount,
@@ -140,9 +140,11 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
     known_video_id = f"K{suffix[:10]}"
     unknown_video_id = f"U{suffix[:10]}"
     now = datetime.now(timezone.utc)
-    connection = database_router.get_active_engine().connect()
-    transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    engine = sa.create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    session = TenantSession(
+        bind=engine, info={"tenant_id": "tenant-test", "user_id": "user-test", "permissions": frozenset()},
+    )
 
     class Store:
         def get(self, service: str, account: str) -> str | None:
@@ -246,5 +248,4 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
         assert videos[unknown_video_id].duration_seconds == 2680
     finally:
         session.close()
-        transaction.rollback()
-        connection.close()
+        engine.dispose()

@@ -12,7 +12,6 @@ from zhiju.models.identity import AccountChannelAuthorization, Channel, OAuthGra
 from zhiju.services.youtube_oauth import (
     YOUTUBE_OAUTH_SCOPES,
     MacOSKeychainSecretStore,
-    OAuthStateStore,
     build_authorization_url,
     choose_youtube_channel,
     complete_channel_authorization,
@@ -103,21 +102,6 @@ def test_client_status_is_redacted_and_reports_legacy_source(tmp_path) -> None:
     assert status["project_id"] == "xiaoyu-youtube"
     assert status["credential_ref"].startswith("keychain://")
     assert "secret-value" not in json.dumps(status)
-
-
-def test_oauth_state_is_single_use_and_expires() -> None:
-    now = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
-    states = OAuthStateStore(ttl_seconds=300, clock=lambda: now)
-    state = states.create("channel-internal-id")
-
-    assert states.consume(state).channel_id == "channel-internal-id"
-    with pytest.raises(ValueError, match="无效或已经使用"):
-        states.consume(state)
-
-    expired = states.create("another-channel")
-    states._clock = lambda: now + timedelta(seconds=301)
-    with pytest.raises(ValueError, match="已过期"):
-        states.consume(expired)
 
 
 def test_youtube_channel_must_match_requested_channel() -> None:

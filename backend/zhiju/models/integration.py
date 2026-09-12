@@ -53,3 +53,19 @@ class IntegrationCredential(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="凭证状态")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="凭证失效时间")
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后验证时间")
+
+
+class OAuthAuthorizationState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
+    __tablename__ = "oauth_authorization_states"
+    __table_args__ = (
+        UniqueConstraint("opaque_state", name="uq_oauth_authorization_states_opaque"),
+        Index("ix_oauth_authorization_states_expiry", "expires_at", "consumed_at"),
+        {"comment": "一次性OAuth授权上下文"},
+    )
+
+    opaque_state: Mapped[str] = mapped_column(String(128), nullable=False, comment="不透明state")
+    user_id: Mapped[str] = mapped_column(ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(ForeignKey("auth_sessions.id", ondelete="CASCADE"), nullable=False)
+    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

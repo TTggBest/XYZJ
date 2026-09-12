@@ -23,7 +23,7 @@ from sqlalchemy.dialects.mysql import DATETIME
 from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 
 
-class YoutubeVideo(IdMixin, TimestampMixin, Base):
+class YoutubeVideo(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_videos"
     __table_args__ = (
         CheckConstraint("privacy_status IN ('public','private','unlisted')", name="valid_privacy_status"),
@@ -56,7 +56,7 @@ class YoutubeVideo(IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="确认从YouTube删除的时间")
 
 
-class YoutubeVideoPlaylistMembership(IdMixin, TimestampMixin, Base):
+class YoutubeVideoPlaylistMembership(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_video_playlist_memberships"
     __table_args__ = (
         CheckConstraint("status IN ('active','removed')", name="valid_status"),
@@ -78,7 +78,7 @@ class YoutubeVideoPlaylistMembership(IdMixin, TimestampMixin, Base):
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最后同步时间")
 
 
-class YoutubePlaylistOrderHistory(IdMixin, Base):
+class YoutubePlaylistOrderHistory(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "youtube_playlist_order_history"
     __table_args__ = (
         CheckConstraint("old_position IS NULL OR old_position >= 0", name="old_position_nonnegative"),
@@ -107,7 +107,7 @@ class YoutubePlaylistOrderHistory(IdMixin, Base):
     changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="变更时间")
 
 
-class YoutubeVideoStatusHistory(IdMixin, Base):
+class YoutubeVideoStatusHistory(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "youtube_video_status_history"
     __table_args__ = (
         Index("ix_youtube_video_status_history_video_time", "video_id", "changed_at"),
@@ -124,7 +124,7 @@ class YoutubeVideoStatusHistory(IdMixin, Base):
     changed_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="状态变化时间")
 
 
-class YoutubeComment(IdMixin, TimestampMixin, Base):
+class YoutubeComment(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_comments"
     __table_args__ = (
         CheckConstraint("reply_status IN ('unreplied','suggested','replied','ignored','failed')", name="valid_reply_status"),
@@ -156,7 +156,7 @@ class YoutubeComment(IdMixin, TimestampMixin, Base):
     last_synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最后同步时间")
 
 
-class YoutubeCommentReply(IdMixin, TimestampMixin, Base):
+class YoutubeCommentReply(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_comment_replies"
     __table_args__ = (
         CheckConstraint("generation_method IN ('ai','manual','template')", name="valid_generation_method"),
@@ -198,7 +198,7 @@ class YoutubeChannelDailyMetric(TenantOwnedMixin, IdMixin, TimestampMixin, Base)
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="本快照同步时间")
 
 
-class YoutubeVideoDailyMetric(IdMixin, TimestampMixin, Base):
+class YoutubeVideoDailyMetric(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_video_daily_metrics"
     __table_args__ = (
         UniqueConstraint("video_id", "metric_date", name="uq_youtube_video_daily_metrics_day"),
@@ -222,7 +222,7 @@ class YoutubeVideoDailyMetric(IdMixin, TimestampMixin, Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="本快照同步时间")
 
 
-class YoutubeAnalyticsBreakdown(IdMixin, TimestampMixin, Base):
+class YoutubeAnalyticsBreakdown(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_analytics_breakdowns"
     __table_args__ = (
         CheckConstraint("scope_type IN ('channel','video')", name="valid_scope_type"),

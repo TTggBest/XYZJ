@@ -31,6 +31,7 @@ class Principal:
     device_id: str | None
     device_trust_level: str
     permissions: frozenset[str]
+    session_id: str | None = None
 
 
 def _utc(value: datetime) -> datetime:
@@ -117,6 +118,7 @@ def _resolve_principal(
         device_id=device.id if device else None,
         device_trust_level=device.trust_level if device else "normal",
         permissions=permissions,
+        session_id=auth_session.id,
     )
     if allow_heartbeat and _utc(auth_session.last_seen_at) <= now - timedelta(minutes=5):
         # Own a short transaction; never commit the caller's unit of work.

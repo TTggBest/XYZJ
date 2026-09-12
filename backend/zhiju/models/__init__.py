@@ -41,7 +41,9 @@ from zhiju.models.identity import (
     OAuthGrant,
     OAuthGrantScope,
 )
-from zhiju.models.integration import Integration, IntegrationAccount, IntegrationCredential
+from zhiju.models.integration import (
+    Integration, IntegrationAccount, IntegrationCredential, OAuthAuthorizationState,
+)
 from zhiju.models.settings import (
     AppIconSetting,
     ChannelDramaType,
@@ -158,6 +160,7 @@ __all__ = [
     "MEMBERSHIP_ROLES",
     "OAuthGrant",
     "OAuthGrantScope",
+    "OAuthAuthorizationState",
     "OperationPackage",
     "OperationTask",
     "PackageArtifact",

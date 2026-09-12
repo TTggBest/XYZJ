@@ -334,7 +334,11 @@ def upsert_video(session: Session, payload: VideoUpsert) -> YoutubeVideo:
         video = YoutubeVideo(**values)
         video.last_synced_at = payload.last_synced_at or now
         session.add(video)
-        session.flush()
+        try:
+            session.flush()
+        except IntegrityError as exc:
+            session.rollback()
+            raise ConflictError("该YouTube资源无法归属当前主账号") from exc
         session.add(
             YoutubeVideoStatusHistory(
                 video_id=video.id,

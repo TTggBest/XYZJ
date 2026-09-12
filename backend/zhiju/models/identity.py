@@ -74,7 +74,7 @@ class GoogleAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     oauth_grants: Mapped[list[OAuthGrant]] = relationship(back_populates="account")
 
 
-class OAuthGrant(IdMixin, TimestampMixin, Base):
+class OAuthGrant(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "google_oauth_grants"
     __table_args__ = (
         CheckConstraint("status IN ('pending','active','expired','revoked','error')", name="valid_status"),
@@ -95,7 +95,7 @@ class OAuthGrant(IdMixin, TimestampMixin, Base):
     scopes: Mapped[list[OAuthGrantScope]] = relationship(back_populates="grant", cascade="all, delete-orphan")
 
 
-class OAuthGrantScope(Base):
+class OAuthGrantScope(TenantOwnedMixin, Base):
     __tablename__ = "google_oauth_grant_scopes"
     __table_args__ = ({"comment": "OAuth授权范围明细"},)
 
@@ -138,7 +138,7 @@ class Channel(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="软删除时间")
 
 
-class AccountChannelAuthorization(IdMixin, TimestampMixin, Base):
+class AccountChannelAuthorization(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "account_channel_authorizations"
     __table_args__ = (
         CheckConstraint("status IN ('active','revoked','mismatch','error')", name="valid_status"),
@@ -156,7 +156,7 @@ class AccountChannelAuthorization(IdMixin, TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="解除绑定时间")
 
 
-class AuthorizationEvent(IdMixin, Base):
+class AuthorizationEvent(TenantOwnedMixin, IdMixin, Base):
     __tablename__ = "authorization_events"
     __table_args__ = (
         CheckConstraint("result IN ('success','failure','cancelled')", name="valid_result"),
