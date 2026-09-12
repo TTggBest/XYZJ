@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.schemas.identity import (
     AccountCreate,
     AccountRead,
@@ -49,12 +50,12 @@ def _identity_error(exc: Exception) -> HTTPException:
 
 
 @router.get("/accounts", response_model=list[AccountRead])
-def get_accounts(session: Session = Depends(get_db)) -> list[AccountRead]:
+def get_accounts(session: Session = Depends(get_tenant_db)) -> list[AccountRead]:
     return list_accounts(session)
 
 
 @router.post("/accounts", response_model=AccountRead, status_code=status.HTTP_201_CREATED)
-def post_account(payload: AccountCreate, session: Session = Depends(get_db)) -> AccountRead:
+def post_account(payload: AccountCreate, session: Session = Depends(get_tenant_db)) -> AccountRead:
     try:
         return create_account(session, payload)
     except ConflictError as exc:
@@ -64,13 +65,13 @@ def post_account(payload: AccountCreate, session: Session = Depends(get_db)) -> 
 @router.get("/channels", response_model=list[ChannelRead])
 def get_channels(
     include_archived: bool = False,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ChannelRead]:
     return list_channels(session, include_archived=include_archived)
 
 
 @router.post("/channels", response_model=ChannelRead, status_code=status.HTTP_201_CREATED)
-def post_channel(payload: ChannelCreate, session: Session = Depends(get_db)) -> ChannelRead:
+def post_channel(payload: ChannelCreate, session: Session = Depends(get_tenant_db)) -> ChannelRead:
     try:
         return create_channel(session, payload)
     except ConflictError as exc:
@@ -82,7 +83,7 @@ def get_channel_overview(
     include_archived: bool = False,
     channel_status: str | None = Query(default=None, alias="status"),
     language: str | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ChannelOverview]:
     return list_channel_overview(
         session,
@@ -96,7 +97,7 @@ def get_channel_overview(
 def patch_channel_status(
     channel_id: str,
     payload: ChannelStatusChange,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelRead:
     try:
         return change_channel_status(session, channel_id, payload)
@@ -108,7 +109,7 @@ def patch_channel_status(
 def delete_channel(
     channel_id: str,
     reason: str = Query(min_length=1),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelRead:
     try:
         return archive_channel(session, channel_id, reason)
@@ -126,7 +127,7 @@ def put_device(payload: DeviceRegister, session: Session = Depends(get_db)) -> D
 
 @router.get("/oauth-grants", response_model=list[OAuthGrantRead])
 def get_oauth_grants(
-    account_id: str | None = None, session: Session = Depends(get_db)
+    account_id: str | None = None, session: Session = Depends(get_tenant_db)
 ) -> list[OAuthGrantRead]:
     try:
         return list_oauth_grants(session, account_id)
@@ -136,7 +137,7 @@ def get_oauth_grants(
 
 @router.post("/oauth-grants", response_model=OAuthGrantRead, status_code=status.HTTP_201_CREATED)
 def post_oauth_grant(
-    payload: OAuthGrantCreate, session: Session = Depends(get_db)
+    payload: OAuthGrantCreate, session: Session = Depends(get_tenant_db)
 ) -> OAuthGrantRead:
     try:
         return register_oauth_grant(session, payload)
@@ -146,7 +147,7 @@ def post_oauth_grant(
 
 @router.get("/accounts/{account_id}/oauth-grants", response_model=list[OAuthGrantRead])
 def get_account_oauth_grants(
-    account_id: str, session: Session = Depends(get_db)
+    account_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[OAuthGrantRead]:
     try:
         return list_oauth_grants(session, account_id)
@@ -160,7 +161,7 @@ def get_account_oauth_grants(
     status_code=status.HTTP_201_CREATED,
 )
 def post_channel_authorization_verify(
-    payload: ChannelAuthorizationVerify, session: Session = Depends(get_db)
+    payload: ChannelAuthorizationVerify, session: Session = Depends(get_tenant_db)
 ) -> ChannelAuthorizationRead:
     try:
         return verify_channel_authorization(session, payload)
@@ -173,7 +174,7 @@ def post_channel_authorization_verify(
     response_model=list[ChannelAuthorizationRead],
 )
 def get_channel_authorizations(
-    channel_id: str, session: Session = Depends(get_db)
+    channel_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[ChannelAuthorizationRead]:
     try:
         return list_channel_authorizations(session, channel_id)
@@ -186,7 +187,7 @@ def get_authorization_events(
     account_id: str | None = None,
     channel_id: str | None = None,
     result: Literal["success", "failure", "cancelled"] | None = None,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[AuthorizationEventRead]:
     return list_authorization_events(
         session,

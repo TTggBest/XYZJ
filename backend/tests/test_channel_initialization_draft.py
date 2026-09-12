@@ -3,10 +3,9 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import (
     Channel,
     ChannelAnalysisReport,
@@ -55,7 +54,8 @@ def test_channel_initialization_draft_can_be_saved_without_rules_or_ai() -> None
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-DRAFT-{suffix}",
@@ -93,7 +93,8 @@ def test_channel_initialization_draft_applies_existing_modules_once() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-APPLY-{suffix}",
@@ -150,7 +151,8 @@ def test_channel_initialization_draft_versions_analysis_and_operating_reference_
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-INIT-VERSION-{suffix}",
@@ -208,7 +210,8 @@ def test_channel_initialization_draft_change_creates_new_formal_versions() -> No
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-INIT-CHANGE-{suffix}",

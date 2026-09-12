@@ -2,10 +2,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import Channel
 from zhiju.schemas.channel import ChannelKeywordCreate
 from zhiju.schemas.operations import PlaylistCreate, PlaylistUpdate
@@ -27,7 +26,8 @@ def test_keyword_can_be_deactivated_and_playlist_can_be_updated() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-MANUAL-{suffix}",

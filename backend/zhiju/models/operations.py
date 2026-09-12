@@ -162,7 +162,7 @@ class DramaProductionState(IdMixin, TimestampMixin, Base):
     last_error: Mapped[str | None] = mapped_column(Text, comment="最近失败原因")
 
 
-class ChannelPlaylist(IdMixin, TimestampMixin, Base):
+class ChannelPlaylist(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_playlists"
     __table_args__ = (
         CheckConstraint("status IN ('draft','active','paused','archived','deleted')", name="valid_status"),
@@ -202,7 +202,7 @@ class PublishCadenceTemplateSlot(IdMixin, TimestampMixin, Base):
     engagement_offset_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="120", comment="社区或Shorts相对视频延迟分钟数")
 
 
-class ChannelPublishSlot(IdMixin, TimestampMixin, Base):
+class ChannelPublishSlot(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_publish_slots"
     __table_args__ = (
         CheckConstraint("slot_type IN ('main','aux')", name="valid_slot_type"),
@@ -221,7 +221,7 @@ class ChannelPublishSlot(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="档位状态")
 
 
-class ChannelCommunitySlot(IdMixin, TimestampMixin, Base):
+class ChannelCommunitySlot(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_community_slots"
     __table_args__ = (
         CheckConstraint("schedule_mode IN ('relative','fixed')", name="valid_schedule_mode"),
@@ -257,7 +257,7 @@ class ChannelCommunitySlot(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="Community档位状态")
 
 
-class ChannelScheduleEntry(IdMixin, TimestampMixin, Base):
+class ChannelScheduleEntry(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_schedule_entries"
     __table_args__ = (
         CheckConstraint("status IN ('planned','reserved','confirmed','replaced','cancelled','published')", name="valid_status"),

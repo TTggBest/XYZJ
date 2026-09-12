@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 
 from zhiju.models import (
     AccountChannelAuthorization,
@@ -35,6 +36,7 @@ from zhiju.schemas.identity import (
     DeviceRegister,
     OAuthGrantCreate,
 )
+from zhiju.tenant_repository import require_tenant_entity
 
 
 class ConflictError(Exception):
@@ -532,18 +534,12 @@ def register_device(session: Session, payload: DeviceRegister) -> Device:
 
 
 def _require_account(session: Session, account_id: str) -> GoogleAccount:
-    account = session.get(GoogleAccount, account_id)
-    if account is None:
-        raise IdentityNotFoundError("Google账号不存在")
-    return account
+    return require_tenant_entity(session, GoogleAccount, account_id)
 
 
 def _require_channel(session: Session, channel_id: str, *, lock: bool = False) -> Channel:
-    statement = select(Channel).where(Channel.id == channel_id, Channel.deleted_at.is_(None))
-    if lock:
-        statement = statement.with_for_update()
-    channel = session.scalar(statement)
-    if channel is None:
+    channel = require_tenant_entity(session, Channel, channel_id, lock=lock)
+    if channel.deleted_at is not None:
         raise IdentityNotFoundError("频道不存在")
     return channel
 
@@ -644,7 +640,7 @@ def list_oauth_grants(
 ) -> list[dict[str, object]]:
     if account_id is not None:
         _require_account(session, account_id)
-    statement = select(OAuthGrant)
+    statement = select(OAuthGrant).join(GoogleAccount, GoogleAccount.id == OAuthGrant.account_id)
     if account_id is not None:
         statement = statement.where(OAuthGrant.account_id == account_id)
     grants = list(session.scalars(statement.order_by(OAuthGrant.created_at.desc())))
@@ -657,9 +653,10 @@ def verify_channel_authorization(
     account = _require_account(session, payload.account_id)
     channel = _require_channel(session, payload.channel_id)
     _require_device(session, payload.device_id)
-    grant = session.get(OAuthGrant, payload.oauth_grant_id)
+    grant = session.scalar(select(OAuthGrant).join(GoogleAccount, GoogleAccount.id == OAuthGrant.account_id)
+                           .where(OAuthGrant.id == payload.oauth_grant_id))
     if grant is None:
-        raise IdentityNotFoundError("OAuth授权记录不存在")
+        raise HTTPException(status_code=404, detail="数据不存在")
     if grant.account_id != account.id:
         raise ConflictError("OAuth授权记录不属于指定Google账号")
     if grant.status != "active":
@@ -746,10 +743,20 @@ def list_authorization_events(
     channel_id: str | None = None,
     result: str | None = None,
 ) -> list[AuthorizationEvent]:
-    statement = select(AuthorizationEvent)
+    # These descendants receive tenant_id in the identity graph migration.
+    # Until then, resolve their ownership through the already scoped roots.
+    statement = select(AuthorizationEvent).where(or_(
+        AuthorizationEvent.account_id.in_(select(GoogleAccount.id)),
+        AuthorizationEvent.channel_id.in_(select(Channel.id)),
+        AuthorizationEvent.oauth_grant_id.in_(
+            select(OAuthGrant.id).join(GoogleAccount, GoogleAccount.id == OAuthGrant.account_id)
+        ),
+    ))
     if account_id is not None:
+        _require_account(session, account_id)
         statement = statement.where(AuthorizationEvent.account_id == account_id)
     if channel_id is not None:
+        _require_channel(session, channel_id)
         statement = statement.where(AuthorizationEvent.channel_id == channel_id)
     if result is not None:
         statement = statement.where(AuthorizationEvent.result == result)

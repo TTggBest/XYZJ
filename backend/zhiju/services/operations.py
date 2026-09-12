@@ -28,6 +28,7 @@ from zhiju.models import (
     SystemEvent,
     WorkOrder,
 )
+from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.operations import (
     CommunitySlotCreate,
     CadenceTemplateUpdate,
@@ -379,11 +380,8 @@ def list_drama_translation_matrix(
 
 
 def _active_channel(session: Session, channel_id: str, *, lock: bool = False) -> Channel:
-    statement = select(Channel).where(Channel.id == channel_id, Channel.deleted_at.is_(None))
-    if lock:
-        statement = statement.with_for_update()
-    channel = session.scalar(statement)
-    if channel is None:
+    channel = require_tenant_entity(session, Channel, channel_id, lock=lock)
+    if channel.deleted_at is not None:
         raise NotFoundError("频道不存在")
     if channel.status in {"paused", "archived", "deleted"}:
         raise ConflictError("暂停、归档或删除的频道不能建立新运营计划")
@@ -759,10 +757,9 @@ def create_community_slot(
     if payload.timezone != channel.timezone:
         raise ConflictError("Community档位时区必须与频道时区一致")
     if payload.schedule_mode == "relative":
-        publish_slot = session.get(ChannelPublishSlot, payload.publish_slot_id)
+        publish_slot = require_tenant_entity(session, ChannelPublishSlot, payload.publish_slot_id)
         if (
-            publish_slot is None
-            or publish_slot.channel_id != channel_id
+            publish_slot.channel_id != channel_id
             or publish_slot.status != "active"
         ):
             raise ConflictError("相对模式的视频发布时间档位无效或不属于当前频道")
@@ -787,8 +784,7 @@ def list_community_slots(
     *,
     include_archived: bool = False,
 ) -> list[ChannelCommunitySlot]:
-    if session.get(Channel, channel_id) is None:
-        raise NotFoundError("频道不存在")
+    require_tenant_entity(session, Channel, channel_id)
     statement = select(ChannelCommunitySlot).where(
         ChannelCommunitySlot.channel_id == channel_id
     )
@@ -812,13 +808,7 @@ def change_community_slot_status(
     new_status: str,
     reason: str,
 ) -> ChannelCommunitySlot:
-    slot = session.scalar(
-        select(ChannelCommunitySlot)
-        .where(ChannelCommunitySlot.id == community_slot_id)
-        .with_for_update()
-    )
-    if slot is None:
-        raise NotFoundError("Community发布时间规则不存在")
+    slot = require_tenant_entity(session, ChannelCommunitySlot, community_slot_id, lock=True)
     _active_channel(session, slot.channel_id)
     if new_status not in COMMUNITY_SLOT_TRANSITIONS.get(slot.status, set()):
         raise ConflictError(f"Community档位不能从 {slot.status} 变更为 {new_status}")
@@ -846,17 +836,19 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
         select(ChannelScheduleEntry).where(ChannelScheduleEntry.idempotency_key == payload.idempotency_key)
     )
     if existing is not None:
+        require_tenant_entity(session, Channel, channel_id)
         if existing.channel_id != channel_id:
             raise ConflictError("幂等键已被其他频道使用")
         return existing
     _active_channel(session, channel_id, lock=True)
+    require_tenant_entity(session, Drama, payload.drama_id)
     drama = _require_schedulable_drama(session, payload.drama_id)
-    slot = session.get(ChannelPublishSlot, payload.publish_slot_id)
-    if slot is None or slot.channel_id != channel_id or slot.status != "active":
+    slot = require_tenant_entity(session, ChannelPublishSlot, payload.publish_slot_id)
+    if slot.channel_id != channel_id or slot.status != "active":
         raise ConflictError("发布时间档位无效或不属于当前频道")
     if payload.playlist_id:
-        playlist = session.get(ChannelPlaylist, payload.playlist_id)
-        if playlist is None or playlist.channel_id != channel_id or playlist.status not in {"draft", "active"}:
+        playlist = require_tenant_entity(session, ChannelPlaylist, payload.playlist_id)
+        if playlist.channel_id != channel_id or playlist.status not in {"draft", "active"}:
             raise ConflictError("播放列表无效或不属于当前频道")
     local_zone = ZoneInfo(slot.timezone)
     local_aware = datetime.combine(payload.publish_date, slot.local_time, tzinfo=local_zone)
@@ -921,6 +913,8 @@ def list_schedule_overview(
     status: str | None = None,
     has_task: bool | None = None,
 ) -> list[dict[str, object]]:
+    if channel_id:
+        require_tenant_entity(session, Channel, channel_id)
     statement = (
         select(
             ChannelScheduleEntry,
@@ -1035,6 +1029,7 @@ def list_channel_schedule_page(
     page: int = 1,
     page_size: int = 50,
 ) -> dict[str, object]:
+    require_tenant_entity(session, Channel, channel_id)
     filters = [ChannelScheduleEntry.channel_id == channel_id]
     normalized_query = (query or "").strip()
     if normalized_query:
@@ -1266,6 +1261,7 @@ def list_schedules(
 ) -> list[ChannelScheduleEntry]:
     statement = select(ChannelScheduleEntry)
     if channel_id:
+        require_tenant_entity(session, Channel, channel_id)
         statement = statement.where(ChannelScheduleEntry.channel_id == channel_id)
     if publish_date_from:
         statement = statement.where(ChannelScheduleEntry.publish_date >= publish_date_from)
@@ -1288,11 +1284,7 @@ ALLOWED_SCHEDULE_TRANSITIONS = {
 def change_schedule_status(
     session: Session, schedule_id: str, new_status: str, reason: str
 ) -> ChannelScheduleEntry:
-    schedule = session.scalar(
-        select(ChannelScheduleEntry).where(ChannelScheduleEntry.id == schedule_id).with_for_update()
-    )
-    if schedule is None:
-        raise NotFoundError("排期不存在")
+    schedule = require_tenant_entity(session, ChannelScheduleEntry, schedule_id, lock=True)
     if new_status not in ALLOWED_SCHEDULE_TRANSITIONS.get(schedule.status, set()):
         raise ConflictError(f"排期不能从 {schedule.status} 变更为 {new_status}")
     old_status = schedule.status

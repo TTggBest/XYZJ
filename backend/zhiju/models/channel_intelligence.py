@@ -58,7 +58,7 @@ class MediaAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="软删除时间")
 
 
-class ChannelProfile(IdMixin, TimestampMixin, Base):
+class ChannelProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_profiles"
     __table_args__ = (
         CheckConstraint("status IN ('draft','active','archived')", name="valid_status"),
@@ -80,7 +80,7 @@ class ChannelProfile(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="draft", comment="档案状态")
 
 
-class ChannelInitializationDraft(IdMixin, TimestampMixin, Base):
+class ChannelInitializationDraft(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_initialization_drafts"
     __table_args__ = (
         UniqueConstraint("channel_id", name="uq_channel_initialization_drafts_channel_id"),
@@ -101,7 +101,7 @@ class ChannelInitializationDraft(IdMixin, TimestampMixin, Base):
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="最近应用时间")
 
 
-class ChannelPinnedCommentTemplate(IdMixin, TimestampMixin, Base):
+class ChannelPinnedCommentTemplate(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_pinned_comment_templates"
     __table_args__ = (
         CheckConstraint(
@@ -137,7 +137,7 @@ class ChannelPinnedCommentTemplate(IdMixin, TimestampMixin, Base):
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="结束生效时间")
 
 
-class ChannelBrandingAsset(IdMixin, TimestampMixin, Base):
+class ChannelBrandingAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_branding_assets"
     __table_args__ = (
         CheckConstraint("role IN ('avatar','banner','watermark','community_default')", name="valid_role"),
@@ -154,7 +154,7 @@ class ChannelBrandingAsset(IdMixin, TimestampMixin, Base):
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="失效时间")
 
 
-class ChannelKeyword(IdMixin, TimestampMixin, Base):
+class ChannelKeyword(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_keywords"
     __table_args__ = (
         CheckConstraint("keyword_type IN ('keyword','tag')", name="valid_keyword_type"),
@@ -176,7 +176,7 @@ class ChannelKeyword(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="词条状态")
 
 
-class ChannelAnalysisReport(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisReport(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_reports"
     __table_args__ = (
         CheckConstraint("report_type IN ('initial','periodic','manual','incident')", name="valid_report_type"),
@@ -203,7 +203,7 @@ class ChannelAnalysisReport(IdMixin, TimestampMixin, Base):
     generated_by: Mapped[str] = mapped_column(String(40), nullable=False, server_default="system", comment="报告生成方式")
 
 
-class ChannelAnalysisTopicScore(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisTopicScore(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_topic_scores"
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="score_range"),
@@ -222,7 +222,7 @@ class ChannelAnalysisTopicScore(IdMixin, TimestampMixin, Base):
     evidence_summary: Mapped[str | None] = mapped_column(Text, comment="题材评分证据摘要")
 
 
-class ChannelAnalysisKeywordScore(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisKeywordScore(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_keyword_scores"
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="score_range"),
@@ -242,7 +242,7 @@ class ChannelAnalysisKeywordScore(IdMixin, TimestampMixin, Base):
     evidence_summary: Mapped[str | None] = mapped_column(Text, comment="关键词评分证据摘要")
 
 
-class ChannelAudienceProfile(IdMixin, TimestampMixin, Base):
+class ChannelAudienceProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_audience_profiles"
     __table_args__ = (
         CheckConstraint("profile_type IN ('country','device','traffic_source','active_time','age_group','gender','viewer_type','behavior','genre')", name="valid_profile_type"),
@@ -262,7 +262,7 @@ class ChannelAudienceProfile(IdMixin, TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text, comment="画像业务解释")
 
 
-class ChannelStrategyRecommendation(IdMixin, TimestampMixin, Base):
+class ChannelStrategyRecommendation(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_strategy_recommendations"
     __table_args__ = (
         CheckConstraint("category IN ('content','schedule','title','cover','description','community','playlist','risk')", name="valid_category"),
@@ -282,7 +282,7 @@ class ChannelStrategyRecommendation(IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="proposed", comment="建议采用状态")
 
 
-class ChannelAnalysisEvidence(IdMixin, TimestampMixin, Base):
+class ChannelAnalysisEvidence(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_analysis_evidence"
     __table_args__ = (
         CheckConstraint("source_type IN ('channel_metric','video_metric','analytics_breakdown','youtube_video','comment','operation_package','schedule','channel_dna','manual')", name="valid_source_type"),
@@ -300,7 +300,7 @@ class ChannelAnalysisEvidence(IdMixin, TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text, comment="证据摘要")
 
 
-class ChannelDnaVersion(IdMixin, TimestampMixin, Base):
+class ChannelDnaVersion(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_dna_versions"
     __table_args__ = (
         CheckConstraint("status IN ('draft','active','superseded','archived')", name="valid_status"),
@@ -332,7 +332,7 @@ class ChannelDnaVersion(IdMixin, TimestampMixin, Base):
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="失效时间")
 
 
-class ChannelDnaSignal(IdMixin, TimestampMixin, Base):
+class ChannelDnaSignal(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_dna_signals"
     __table_args__ = (
         CheckConstraint(

@@ -177,7 +177,7 @@ class YoutubeCommentReply(IdMixin, TimestampMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, comment="发布失败脱敏信息")
 
 
-class YoutubeChannelDailyMetric(IdMixin, TimestampMixin, Base):
+class YoutubeChannelDailyMetric(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "youtube_channel_daily_metrics"
     __table_args__ = (
         UniqueConstraint("channel_id", "metric_date", name="uq_youtube_channel_daily_metrics_day"),
@@ -249,7 +249,7 @@ class YoutubeAnalyticsBreakdown(IdMixin, TimestampMixin, Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="本指标同步时间")
 
 
-class SyncWatermark(IdMixin, TimestampMixin, Base):
+class SyncWatermark(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "sync_watermarks"
     __table_args__ = (
         CheckConstraint("status IN ('idle','running','completed','failed')", name="valid_status"),

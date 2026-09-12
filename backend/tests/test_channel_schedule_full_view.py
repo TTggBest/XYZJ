@@ -3,11 +3,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
 from zhiju import models
 from zhiju.app import app
-from zhiju.database import database_router
+from zhiju.auth_context import Principal, get_current_principal
+from zhiju.database import TenantSession, database_router
 from zhiju.services import operations
 
 
@@ -20,7 +20,8 @@ def test_channel_schedule_page_supports_search_sort_and_total() -> None:
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = models.Channel(
             youtube_channel_id=f"UC-FULL-{suffix}",
@@ -126,7 +127,13 @@ def test_channel_schedule_page_supports_search_sort_and_total() -> None:
         connection.close()
 
 
-def test_channel_schedule_page_route_restricts_page_sizes() -> None:
+def test_channel_schedule_page_route_restricts_page_sizes(monkeypatch) -> None:
+    principal = Principal(
+        user_id="test-user", tenant_id="00000000-0000-4000-8000-000000000001",
+        membership_role="owner", platform_role=None, device_id=None,
+        device_trust_level="normal", permissions=frozenset({"channel.read"}),
+    )
+    monkeypatch.setitem(app.dependency_overrides, get_current_principal, lambda: principal)
     client = TestClient(app)
     schema = client.get("/openapi.json").json()
 
@@ -135,7 +142,7 @@ def test_channel_schedule_page_route_restricts_page_sizes() -> None:
         "/api/v3/schedules/channel-view",
         params={"channel_id": "missing", "page_size": 50},
     )
-    assert valid.status_code == 200
+    assert valid.status_code == 404
     response = client.get(
         "/api/v3/schedules/channel-view",
         params={"channel_id": "missing", "page_size": 60},

@@ -66,7 +66,7 @@ class ChannelDramaType(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="配置状态")
 
 
-class ChannelLogoProfile(IdMixin, TimestampMixin, Base):
+class ChannelLogoProfile(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "channel_logo_profiles"
     __table_args__ = (
         CheckConstraint("status IN ('calibrated','failed')", name="valid_status"),

@@ -1,9 +1,8 @@
 from datetime import date, datetime, time, timezone
 from uuid import uuid4
 
-from sqlalchemy.orm import Session
 
-from zhiju.database import database_router
+from zhiju.database import TenantSession, database_router
 from zhiju.models import (
     Channel,
     ChannelDnaVersion,
@@ -34,7 +33,8 @@ def test_schedule_freezes_active_dna_and_propagates_it_to_work_order_and_package
     suffix = uuid4().hex[:10]
     connection = database_router.get_active_engine().connect()
     transaction = connection.begin()
-    session = Session(bind=connection, join_transaction_mode="create_savepoint")
+    session = TenantSession(bind=connection, join_transaction_mode="create_savepoint",
+                            info={"tenant_id": "00000000-0000-4000-8000-000000000001"})
     try:
         channel = Channel(
             youtube_channel_id=f"UC-DNA-FLOW-{suffix}",

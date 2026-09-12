@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from zhiju.database import get_db
+from zhiju.auth_context import get_tenant_db
 from zhiju.schemas.channel import (
     ChannelAnalysisReportCreate,
     ChannelAnalysisReportDetailRead,
@@ -65,7 +65,7 @@ def _http_error(exc: Exception) -> HTTPException:
 
 
 @router.get("/channels/{channel_id}", response_model=ChannelDetailRead)
-def get_channel(channel_id: str, session: Session = Depends(get_db)) -> ChannelDetailRead:
+def get_channel(channel_id: str, session: Session = Depends(get_tenant_db)) -> ChannelDetailRead:
     try:
         return get_channel_detail(session, channel_id)
     except NotFoundError as exc:
@@ -77,7 +77,7 @@ def get_channel(channel_id: str, session: Session = Depends(get_db)) -> ChannelD
     response_model=ChannelInitializationReadinessRead,
 )
 def get_channel_initialization_status(
-    channel_id: str, session: Session = Depends(get_db)
+    channel_id: str, session: Session = Depends(get_tenant_db)
 ) -> ChannelInitializationReadinessRead:
     try:
         return get_channel_initialization_readiness(session, channel_id)
@@ -90,7 +90,7 @@ def get_channel_initialization_status(
     response_model=ChannelInitializationDraftRead | None,
 )
 def get_channel_initialization_workspace(
-    channel_id: str, session: Session = Depends(get_db)
+    channel_id: str, session: Session = Depends(get_tenant_db)
 ) -> ChannelInitializationDraftRead | None:
     try:
         return get_channel_initialization_draft(session, channel_id)
@@ -105,7 +105,7 @@ def get_channel_initialization_workspace(
 def put_channel_initialization_workspace(
     channel_id: str,
     payload: ChannelInitializationDraftUpsert,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelInitializationDraftRead:
     try:
         return upsert_channel_initialization_draft(session, channel_id, payload)
@@ -118,7 +118,7 @@ def put_channel_initialization_workspace(
     response_model=ChannelInitializationApplyRead,
 )
 def post_apply_channel_initialization_workspace(
-    channel_id: str, session: Session = Depends(get_db)
+    channel_id: str, session: Session = Depends(get_tenant_db)
 ) -> ChannelInitializationApplyRead:
     try:
         return apply_channel_initialization_draft(session, channel_id)
@@ -128,7 +128,7 @@ def post_apply_channel_initialization_workspace(
 
 @router.put("/channels/{channel_id}/hub", response_model=ChannelDetailRead)
 def put_channel_hub(
-    channel_id: str, payload: ChannelHubUpdate, session: Session = Depends(get_db)
+    channel_id: str, payload: ChannelHubUpdate, session: Session = Depends(get_tenant_db)
 ) -> ChannelDetailRead:
     try:
         return update_channel_hub(session, channel_id, payload)
@@ -140,7 +140,7 @@ def put_channel_hub(
 
 @router.put("/channels/{channel_id}/profile", response_model=ChannelProfileRead)
 def put_channel_profile(
-    channel_id: str, payload: ChannelProfileUpsert, session: Session = Depends(get_db)
+    channel_id: str, payload: ChannelProfileUpsert, session: Session = Depends(get_tenant_db)
 ) -> ChannelProfileRead:
     try:
         return upsert_profile(session, channel_id, payload)
@@ -154,7 +154,7 @@ def put_channel_profile(
     status_code=status.HTTP_201_CREATED,
 )
 def post_channel_keyword(
-    channel_id: str, payload: ChannelKeywordCreate, session: Session = Depends(get_db)
+    channel_id: str, payload: ChannelKeywordCreate, session: Session = Depends(get_tenant_db)
 ) -> ChannelKeywordRead:
     try:
         return add_keyword(session, channel_id, payload)
@@ -167,7 +167,7 @@ def post_channel_keyword(
     response_model=ChannelKeywordRead,
 )
 def delete_channel_keyword(
-    channel_id: str, keyword_id: str, session: Session = Depends(get_db)
+    channel_id: str, keyword_id: str, session: Session = Depends(get_tenant_db)
 ) -> ChannelKeywordRead:
     try:
         return deactivate_keyword(session, channel_id, keyword_id)
@@ -183,7 +183,7 @@ def get_pinned_comment_templates(
     channel_id: str,
     language: str | None = None,
     template_status: str | None = Query(default=None, alias="status"),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[ChannelPinnedCommentTemplateRead]:
     try:
         return list_pinned_comment_templates(
@@ -204,7 +204,7 @@ def get_pinned_comment_templates(
 def post_pinned_comment_template(
     channel_id: str,
     payload: ChannelPinnedCommentTemplateCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelPinnedCommentTemplateRead:
     try:
         return create_pinned_comment_template(session, channel_id, payload)
@@ -219,7 +219,7 @@ def post_pinned_comment_template(
 def post_activate_pinned_comment_template(
     channel_id: str,
     template_id: str,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelPinnedCommentTemplateRead:
     try:
         return activate_pinned_comment_template(session, channel_id, template_id)
@@ -235,7 +235,7 @@ def post_activate_pinned_comment_template(
 def post_analysis_report(
     channel_id: str,
     payload: ChannelAnalysisReportCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelAnalysisReportDetailRead:
     try:
         return create_report(session, channel_id, payload)
@@ -248,7 +248,7 @@ def post_analysis_report(
     response_model=list[ChannelAnalysisReportDetailRead],
 )
 def get_analysis_reports(
-    channel_id: str, session: Session = Depends(get_db)
+    channel_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[ChannelAnalysisReportDetailRead]:
     try:
         return list_reports(session, channel_id)
@@ -261,7 +261,7 @@ def get_analysis_reports(
     response_model=ChannelAnalysisReportDetailRead,
 )
 def get_analysis_report(
-    channel_id: str, report_id: str, session: Session = Depends(get_db)
+    channel_id: str, report_id: str, session: Session = Depends(get_tenant_db)
 ) -> ChannelAnalysisReportDetailRead:
     try:
         return get_report_detail(session, channel_id, report_id)
@@ -270,7 +270,7 @@ def get_analysis_report(
 
 
 @router.get("/channels/{channel_id}/dna-versions", response_model=list[ChannelDnaVersionRead])
-def get_dna_versions(channel_id: str, session: Session = Depends(get_db)) -> list[ChannelDnaVersionRead]:
+def get_dna_versions(channel_id: str, session: Session = Depends(get_tenant_db)) -> list[ChannelDnaVersionRead]:
     try:
         return list_dna_versions(session, channel_id)
     except NotFoundError as exc:
@@ -285,7 +285,7 @@ def get_dna_versions(channel_id: str, session: Session = Depends(get_db)) -> lis
 def post_dna_version(
     channel_id: str,
     payload: ChannelDnaVersionCreate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> ChannelDnaVersionRead:
     try:
         version, signals = create_dna_version(session, channel_id, payload)
@@ -295,7 +295,7 @@ def post_dna_version(
 
 
 @router.post("/media-assets", response_model=MediaAssetRead, status_code=status.HTTP_201_CREATED)
-def post_media_asset(payload: MediaAssetCreate, session: Session = Depends(get_db)) -> MediaAssetRead:
+def post_media_asset(payload: MediaAssetCreate, session: Session = Depends(get_tenant_db)) -> MediaAssetRead:
     try:
         return register_media_asset(session, payload)
     except (NotFoundError, ConflictError) as exc:
@@ -313,7 +313,7 @@ def get_media_assets(
     sha256: str | None = Query(default=None, pattern=r"^[0-9a-fA-F]{64}$"),
     include_deleted: bool = False,
     limit: int = Query(default=200, ge=1, le=500),
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> list[MediaAssetRead]:
     return list_media_assets(
         session,
@@ -331,7 +331,7 @@ def get_media_assets(
 
 @router.get("/media-assets/{asset_id}", response_model=MediaAssetRead)
 def get_media_asset_detail(
-    asset_id: str, session: Session = Depends(get_db)
+    asset_id: str, session: Session = Depends(get_tenant_db)
 ) -> MediaAssetRead:
     try:
         return get_media_asset(session, asset_id)
@@ -341,7 +341,7 @@ def get_media_asset_detail(
 
 @router.get("/media-assets/{asset_id}/content", response_class=FileResponse)
 def get_media_asset_content(
-    asset_id: str, session: Session = Depends(get_db)
+    asset_id: str, session: Session = Depends(get_tenant_db)
 ) -> FileResponse:
     try:
         asset, path = resolve_media_asset_file(session, asset_id)
@@ -360,7 +360,7 @@ def get_media_asset_content(
 def patch_media_asset_metadata(
     asset_id: str,
     payload: MediaAssetMetadataUpdate,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> MediaAssetRead:
     try:
         return update_media_asset_metadata(session, asset_id, payload)
@@ -372,7 +372,7 @@ def patch_media_asset_metadata(
 def patch_media_asset_status(
     asset_id: str,
     payload: MediaAssetStatusChange,
-    session: Session = Depends(get_db),
+    session: Session = Depends(get_tenant_db),
 ) -> MediaAssetRead:
     try:
         return change_media_asset_status(session, asset_id, payload)
@@ -382,7 +382,7 @@ def patch_media_asset_status(
 
 @router.delete("/media-assets/{asset_id}", response_model=MediaAssetRead)
 def delete_media_asset_record(
-    asset_id: str, session: Session = Depends(get_db)
+    asset_id: str, session: Session = Depends(get_tenant_db)
 ) -> MediaAssetRead:
     try:
         return delete_media_asset(session, asset_id)
