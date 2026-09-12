@@ -155,6 +155,7 @@ def test_active_session_resolves_real_actor_current_tenant_and_role_permissions(
         user_id="user", tenant_id="tenant", membership_role="owner", platform_role=None,
         device_id="device", device_trust_level="normal",
         permissions=frozenset({"channel.read", "channel.manage"}),
+        session_id="session",
     )
     assert require_permission("channel.manage")(principal) is principal
 

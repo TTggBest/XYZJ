@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from zhiju.config import APP_ROOT, get_settings
 from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
 from zhiju.database import TenantSession, get_db
+from zhiju.permissions import require_platform_permission
 from zhiju.schemas.operations import PlaylistRead
 from zhiju.schemas.youtube_oauth import (
     YouTubeAuthorizationStart,
@@ -50,7 +51,11 @@ def _legacy_client_path() -> Path:
     return next((path for path in candidates if path.is_file()), candidates[0])
 
 
-@router.get("/settings/youtube-oauth", response_model=YouTubeOAuthClientStatus)
+@router.get(
+    "/settings/youtube-oauth",
+    response_model=YouTubeOAuthClientStatus,
+    dependencies=[Depends(require_platform_permission)],
+)
 def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
     settings = get_settings()
     try:
@@ -68,6 +73,7 @@ def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
 @router.post(
     "/settings/youtube-oauth/import-legacy",
     response_model=YouTubeOAuthClientStatus,
+    dependencies=[Depends(require_platform_permission)],
 )
 def post_import_legacy_youtube_oauth() -> YouTubeOAuthClientStatus:
     settings = get_settings()

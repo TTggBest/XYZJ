@@ -152,8 +152,7 @@ def list_schedule_history(
 def list_video_status_history(
     session: Session, video_id: str
 ) -> list[YoutubeVideoStatusHistory]:
-    if session.get(YoutubeVideo, video_id) is None:
-        raise NotFoundError("YouTube视频不存在")
+    require_tenant_entity(session, YoutubeVideo, video_id)
     return list(
         session.scalars(
             select(YoutubeVideoStatusHistory)

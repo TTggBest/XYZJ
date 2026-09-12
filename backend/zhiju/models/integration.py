@@ -64,8 +64,18 @@ class OAuthAuthorizationState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     )
 
     opaque_state: Mapped[str] = mapped_column(String(128), nullable=False, comment="不透明state")
-    user_id: Mapped[str] = mapped_column(ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
-    session_id: Mapped[str] = mapped_column(ForeignKey("auth_sessions.id", ondelete="CASCADE"), nullable=False)
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False, comment="发起授权的用户ID",
+    )
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("auth_sessions.id", ondelete="CASCADE"), nullable=False, comment="发起授权的会话ID",
+    )
+    channel_id: Mapped[str] = mapped_column(
+        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="待授权频道ID",
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, comment="授权状态过期时间",
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), comment="授权状态消费时间",
+    )

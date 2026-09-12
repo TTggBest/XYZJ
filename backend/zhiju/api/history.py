@@ -125,7 +125,7 @@ def get_schedule_history(
     response_model=list[VideoStatusHistoryRead],
 )
 def get_video_history(
-    video_id: str, session: Session = Depends(get_db)
+    video_id: str, session: Session = Depends(get_tenant_db)
 ) -> list[VideoStatusHistoryRead]:
     try:
         return list_video_status_history(session, video_id)
