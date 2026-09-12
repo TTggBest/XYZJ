@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -22,6 +23,18 @@ def test_realtime_config_uses_local_stream_by_default() -> None:
     assert response.json()["enabled"] is True
     assert response.json()["stream_url"] == "/api/v3/events/stream"
     assert isinstance(response.json()["subscriber_count"], int)
+
+
+def test_realtime_stream_stays_on_the_authenticated_api_origin(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "zhiju.realtime.get_settings",
+        lambda: SimpleNamespace(realtime_hub_url="http://192.168.8.8:19732"),
+    )
+
+    response = TestClient(app).get("/api/v3/realtime/config")
+
+    assert response.status_code == 200
+    assert response.json()["stream_url"] == "/api/v3/events/stream"
 
 
 def test_broker_broadcasts_to_each_subscriber_in_one_tenant() -> None:

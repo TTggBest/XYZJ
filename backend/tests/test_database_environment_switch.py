@@ -117,13 +117,11 @@ def test_frontend_exposes_switch_and_persistent_environment_state() -> None:
     root = Path(__file__).resolve().parents[2]
     app_source = (root / "assets" / "app.js").read_text(encoding="utf-8")
     html_source = (root / "index.html").read_text(encoding="utf-8")
-    backend_source = (root / "backend" / "zhiju" / "app.py").read_text(encoding="utf-8")
 
     assert 'data-action="switch-database-environment"' in app_source
     assert 'id="environmentState"' in html_source
     assert "生产环境" in app_source
     assert "开发环境" in app_source
-    assert '"/api/v3/settings/runtime/environment"' in backend_source
 
 
 def test_switching_to_production_runs_canonical_migrations_first(

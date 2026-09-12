@@ -554,9 +554,9 @@ def test_auth_changes_are_not_broadcast_on_the_legacy_business_event_stream(auth
     monkeypatch.setattr("zhiju.realtime.get_settings", lambda: SimpleNamespace(
         realtime_hub_url="", device_role="studio", device_key="fixture",
     ))
-    queue = broker.subscribe()
+    queue = broker.subscribe(tenant_id="tenant")
     try:
         assert login(auth).status_code == 200
         assert queue.empty()
     finally:
-        broker.unsubscribe(queue)
+        broker.unsubscribe(tenant_id="tenant", queue=queue)

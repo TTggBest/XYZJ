@@ -76,11 +76,8 @@ def test_route_scopes_keep_tenant_business_data_and_platform_catalog_writes_sepa
     assert not platform_catalog_writes & TENANT_ROUTES
 
 
-def test_callback_and_event_publish_keep_their_explicit_non_tenant_scopes() -> None:
+def test_callback_keeps_its_explicit_public_scope() -> None:
     callback = ("GET", "/api/v3/youtube/oauth/callback")
-    event_publish = ("POST", "/api/v3/events/publish")
 
     assert callback in PUBLIC_ROUTES
     assert callback not in TENANT_ROUTES | PLATFORM_ROUTES | INTERNAL_ROUTES
-    assert event_publish in INTERNAL_ROUTES
-    assert event_publish not in PUBLIC_ROUTES | TENANT_ROUTES | PLATFORM_ROUTES

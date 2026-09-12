@@ -52,11 +52,8 @@ PLATFORM_ROUTES: frozenset[RouteKey] = frozenset({
     ("PUT", "/api/v3/skills/{skill_id}/versions/{version_id}"),
 })
 
-# Change-event publishing is an application-to-application endpoint, not a
-# browser or tenant endpoint.
-INTERNAL_ROUTES: frozenset[RouteKey] = frozenset({
-    ("POST", "/api/v3/events/publish"),
-})
+# No internal-only HTTP routes are exposed in Phase 1.
+INTERNAL_ROUTES: frozenset[RouteKey] = frozenset()
 
 # Tenant routes operate on the active tenant's business or membership context.
 TENANT_ROUTES: frozenset[RouteKey] = frozenset({

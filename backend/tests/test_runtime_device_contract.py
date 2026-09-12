@@ -30,13 +30,15 @@ def test_unknown_or_inactive_device_is_refused() -> None:
         match_device([device(status="inactive")], ["M4-2"])
 
 
-def test_runtime_paths_and_sse_are_derived_from_database_role() -> None:
+def test_runtime_paths_follow_role_and_sse_stays_on_the_same_origin() -> None:
     studio = runtime_values_for_device(device(device_role="studio"), home="/Users/star")
     worker = runtime_values_for_device(device(device_role="worker"), home="/Users/a1")
+    builder = runtime_values_for_device(device(device_role="builder"), home="/Users/a2")
 
     assert studio["ZHJ_HOST"] == "0.0.0.0"
     assert studio["ZHJ_SHARED_ROOT"] == "/Users/star/Documents/XYData/XYZJ"
     assert studio["ZHJ_REALTIME_HUB_URL"] == ""
     assert worker["ZHJ_HOST"] == "127.0.0.1"
     assert worker["ZHJ_SHARED_ROOT"] == "/Volumes/XYData/XYZJ"
-    assert worker["ZHJ_REALTIME_HUB_URL"] == "http://192.168.8.8:19732"
+    assert worker["ZHJ_REALTIME_HUB_URL"] == ""
+    assert builder["ZHJ_REALTIME_HUB_URL"] == ""

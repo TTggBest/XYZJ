@@ -61,8 +61,7 @@ def current_device_key() -> str:
 
 
 def realtime_stream_url() -> str:
-    hub_url = get_settings().realtime_hub_url.strip().rstrip("/")
-    return f"{hub_url}/api/v3/events/stream" if hub_url else "/api/v3/events/stream"
+    return "/api/v3/events/stream"
 
 
 def build_change_event(request: Request) -> ChangeEvent:
