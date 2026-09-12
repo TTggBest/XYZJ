@@ -35,10 +35,14 @@ def test_tenant_roots_have_nullable_indexed_ownership(table_name):
         CreateIndex(indexes[0]).compile(dialect=dialect)
     )
     for foreign_key in table.foreign_key_constraints:
-        first_column = next(iter(foreign_key.columns))
-        assert foreign_key.name == (
-            f"fk_{table_name}_{first_column.name}_{foreign_key.referred_table.name}"
-        )
+        columns = list(foreign_key.columns)
+        if len(columns) == 2 and columns[0].name == "tenant_id":
+            assert foreign_key.name == f"fk_{table_name}_t_{columns[1].name}"
+        else:
+            assert len(columns) == 1
+            assert foreign_key.name == (
+                f"fk_{table_name}_{columns[0].name}_{foreign_key.referred_table.name}"
+            )
         # MySQL truncates long convention-generated names to its 64-character limit.
         mysql_name = dialect.identifier_preparer.format_constraint(foreign_key)
         assert len(mysql_name.strip("`")) <= 64

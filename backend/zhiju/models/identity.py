@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.mysql import DATETIME
 
-from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
 class Device(IdMixin, TimestampMixin, Base):
@@ -83,7 +83,7 @@ class OAuthGrant(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         {"comment": "Google OAuth授权记录，仅保存Secret引用"},
     )
 
-    account_id: Mapped[str] = mapped_column(ForeignKey("google_accounts.id", ondelete="RESTRICT"), nullable=False, comment="Google账号内部ID")
+    account_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="Google账号内部ID")
     provider_subject: Mapped[str] = mapped_column(String(255), nullable=False, comment="Google OAuth subject标识")
     credential_ref: Mapped[str] = mapped_column(String(500), nullable=False, comment="外部Secret存储引用，禁止存Token明文")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending", comment="授权记录状态")
@@ -99,7 +99,7 @@ class OAuthGrantScope(TenantOwnedMixin, Base):
     __tablename__ = "google_oauth_grant_scopes"
     __table_args__ = ({"comment": "OAuth授权范围明细"},)
 
-    grant_id: Mapped[str] = mapped_column(ForeignKey("google_oauth_grants.id", ondelete="CASCADE"), primary_key=True, comment="OAuth授权记录ID")
+    grant_id: Mapped[str] = mapped_column(String(36), primary_key=True, comment="OAuth授权记录ID")
     scope: Mapped[str] = mapped_column(String(500), primary_key=True, comment="OAuth scope")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间")
 
@@ -147,9 +147,9 @@ class AccountChannelAuthorization(TenantOwnedMixin, IdMixin, TimestampMixin, Bas
         {"comment": "Google账号与YouTube频道的授权关系"},
     )
 
-    account_id: Mapped[str] = mapped_column(ForeignKey("google_accounts.id", ondelete="RESTRICT"), nullable=False, comment="Google账号内部ID")
-    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.id", ondelete="RESTRICT"), nullable=False, comment="频道内部ID")
-    oauth_grant_id: Mapped[str] = mapped_column(ForeignKey("google_oauth_grants.id", ondelete="RESTRICT"), nullable=False, comment="实际使用的OAuth授权ID")
+    account_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="Google账号内部ID")
+    channel_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="频道内部ID")
+    oauth_grant_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="实际使用的OAuth授权ID")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="绑定状态")
     verified_youtube_channel_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="Token调用YouTube后返回的频道ID")
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="频道绑定校验时间")
@@ -165,12 +165,27 @@ class AuthorizationEvent(TenantOwnedMixin, IdMixin, Base):
         {"comment": "OAuth授权与频道校验事件流水"},
     )
 
-    account_id: Mapped[str | None] = mapped_column(ForeignKey("google_accounts.id", ondelete="SET NULL"), comment="Google账号内部ID")
-    channel_id: Mapped[str | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), comment="频道内部ID")
+    account_id: Mapped[str | None] = mapped_column(String(36), comment="Google账号内部ID")
+    channel_id: Mapped[str | None] = mapped_column(String(36), comment="频道内部ID")
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), comment="操作设备ID")
-    oauth_grant_id: Mapped[str | None] = mapped_column(ForeignKey("google_oauth_grants.id", ondelete="SET NULL"), comment="OAuth授权记录ID")
+    oauth_grant_id: Mapped[str | None] = mapped_column(String(36), comment="OAuth授权记录ID")
     event_type: Mapped[str] = mapped_column(String(60), nullable=False, comment="授权事件类型")
     result: Mapped[str] = mapped_column(String(20), nullable=False, comment="执行结果")
     error_code: Mapped[str | None] = mapped_column(String(120), comment="错误代码")
     error_message: Mapped[str | None] = mapped_column(Text, comment="脱敏错误信息")
     occurred_at: Mapped[datetime] = mapped_column(DATETIME(fsp=6), nullable=False, comment="事件发生时间")
+
+
+configure_tenant_relations(
+    (
+        ("google_oauth_grants", "account_id", "google_accounts", "RESTRICT"),
+        ("account_channel_authorizations", "account_id", "google_accounts", "RESTRICT"),
+        ("account_channel_authorizations", "channel_id", "channels", "RESTRICT"),
+        ("account_channel_authorizations", "oauth_grant_id", "google_oauth_grants", "RESTRICT"),
+        ("authorization_events", "account_id", "google_accounts", "RESTRICT"),
+        ("authorization_events", "channel_id", "channels", "RESTRICT"),
+        ("authorization_events", "oauth_grant_id", "google_oauth_grants", "RESTRICT"),
+        ("google_oauth_grant_scopes", "grant_id", "google_oauth_grants", "CASCADE"),
+    ),
+    parent_tables=("channels", "google_accounts", "google_oauth_grants", "account_channel_authorizations"),
+)

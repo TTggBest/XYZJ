@@ -373,8 +373,8 @@ def test_same_demo_import_is_idempotent_per_tenant_and_coexists_across_tenants(s
     assert tenant_graphs["tenant-a"][Drama][0].drama_code != tenant_graphs["tenant-b"][Drama][0].drama_code
     assert tenant_graphs["tenant-a"][YoutubeVideo][0].youtube_video_id != tenant_graphs["tenant-b"][YoutubeVideo][0].youtube_video_id
     assert ("youtube_channel_id",) in _unique_columns(Channel)
-    assert ("drama_code",) in _unique_columns(Drama)
-    assert ("idempotency_key",) in _unique_columns(ChannelScheduleEntry)
+    assert ("tenant_id", "drama_code") in _unique_columns(Drama)
+    assert ("tenant_id", "idempotency_key") in _unique_columns(ChannelScheduleEntry)
     assert ("youtube_video_id",) in _unique_columns(YoutubeVideo)
 
 

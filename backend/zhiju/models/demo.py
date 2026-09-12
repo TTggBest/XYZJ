@@ -3,7 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
 class DemoDataBatch(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
@@ -34,7 +34,13 @@ class DemoDataEntity(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         {"comment": "演示批次实际创建并拥有的数据库实体"},
     )
 
-    batch_id: Mapped[str] = mapped_column(ForeignKey("demo_data_batches.id", ondelete="CASCADE"), nullable=False, comment="所属演示批次ID")
+    batch_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="所属演示批次ID")
     entity_type: Mapped[str] = mapped_column(String(80), nullable=False, comment="实体类型")
     entity_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="实体内部ID")
     owned: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1", comment="删除批次时是否删除该实体")
+
+
+configure_tenant_relations(
+    (("demo_data_entities", "batch_id", "demo_data_batches", "CASCADE"),),
+    parent_tables=("demo_data_batches",),
+)

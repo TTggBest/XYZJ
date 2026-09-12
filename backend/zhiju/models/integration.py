@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
+from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin, configure_tenant_relations
 
 
 class Integration(IdMixin, TimestampMixin, Base):
@@ -50,7 +50,7 @@ class IntegrationCredential(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         {"comment": "第三方账号凭证引用，禁止保存密钥明文"},
     )
 
-    integration_account_id: Mapped[str] = mapped_column(ForeignKey("integration_accounts.id", ondelete="CASCADE"), nullable=False, comment="第三方账号ID")
+    integration_account_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="第三方账号ID")
     credential_type: Mapped[str] = mapped_column(String(60), nullable=False, comment="凭证类型")
     secret_reference: Mapped[str] = mapped_column(String(500), nullable=False, comment="外部Secret存储引用")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="凭证状态")
@@ -74,7 +74,7 @@ class OAuthAuthorizationState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         ForeignKey("auth_sessions.id", ondelete="CASCADE"), nullable=False, comment="发起授权的会话ID",
     )
     channel_id: Mapped[str] = mapped_column(
-        ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, comment="待授权频道ID",
+        nullable=False, comment="待授权频道ID",
     )
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, comment="授权状态过期时间",
@@ -82,3 +82,12 @@ class OAuthAuthorizationState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     consumed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), comment="授权状态消费时间",
     )
+
+
+configure_tenant_relations(
+    (
+        ("integration_credentials", "integration_account_id", "integration_accounts", "CASCADE"),
+        ("oauth_authorization_states", "channel_id", "channels", "CASCADE"),
+    ),
+    parent_tables=("integration_accounts",),
+)
