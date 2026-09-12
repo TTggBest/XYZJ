@@ -17,6 +17,7 @@ from zhiju.database import TenantSession
 from zhiju.models import (
     Base,
     Channel,
+    ChannelScheduleEntry,
     DemoDataBatch,
     DemoDataEntity,
     Drama,
@@ -27,7 +28,9 @@ from zhiju.models import (
     OperationTask,
     ProductionBatch,
     WorkOrder,
+    YoutubeVideo,
 )
+from zhiju.schemas.demo import DemoDataImportRequest
 from zhiju.schemas.integration import IntegrationAccountCreate, IntegrationCredentialUpsert
 from zhiju.services import demo, feishu_sync, integration
 from zhiju.services.zhihe_progress_sync import sync_zhihe_progress
@@ -321,6 +324,58 @@ def test_demo_batch_status_is_isolated_for_the_same_batch_code(store):
         assert status["active"] is True
         assert status["batch"].tenant_id == "tenant-a"
         assert status["batch"].row_count == 1
+
+
+def _demo_payload() -> DemoDataImportRequest:
+    return DemoDataImportRequest(
+        work_rows=[{
+            "剧名": "共享演示剧目", "地址": "https://www.youtube.com/watch/DEMO-SOURCE-001",
+            "档期": "2026091712", "是否需要社区": "0",
+        }],
+        task_rows=[{
+            "剧id": "DEMO-SOURCE-001", "档期": "2026091712", "日期": "20260917",
+            "频道": "共享演示频道", "频道昵称": "英语共享演示频道", "播放列表": "演示播放列表",
+            "标题": "title one\ntitle two\ntitle three", "标题翻译": "标题一\n标题二\n标题三",
+            "封面4：5": "标题1：A\n副标题\n核心词：one\n标题2：B\n副标题\n核心词：two\n标题3：C\n副标题\n核心词：three",
+            "封面16：9": "标题1：A\n副标题\n核心词：one\n标题2：B\n副标题\n核心词：two\n标题3：C\n副标题\n核心词：three",
+            "说明": "demo description", "说明翻译": "演示说明",
+            "剧目地址": "https://youtu.be/DEMO-SOURCE-001",
+        }],
+    )
+
+
+def test_same_demo_import_is_idempotent_per_tenant_and_coexists_across_tenants(store):
+    expected_counts = {
+        "channel": 1, "drama": 1, "package": 1, "playlist": 1, "publish_slot": 1,
+        "schedule": 1, "task": 1, "work_order": 1, "youtube_video": 1,
+    }
+    graph_models = (
+        Channel, Drama, ChannelScheduleEntry, OperationTask, WorkOrder, OperationPackage, YoutubeVideo,
+    )
+    tenant_graphs = {}
+
+    for tenant_id in ("tenant-a", "tenant-b"):
+        with _tenant_session(store, tenant_id) as session:
+            first = demo.import_feishu_demo(session, _demo_payload())
+            repeated = demo.import_feishu_demo(session, _demo_payload())
+            assert first["batch"].id == repeated["batch"].id
+            assert first["entity_counts"] == expected_counts
+            assert repeated["entity_counts"] == expected_counts
+            tenant_graphs[tenant_id] = {
+                model: tuple(session.scalars(sa.select(model)).all()) for model in graph_models
+            }
+            assert all(len(rows) == 1 for rows in tenant_graphs[tenant_id].values())
+            assert all(rows[0].tenant_id == tenant_id for rows in tenant_graphs[tenant_id].values())
+
+    for model in graph_models:
+        assert tenant_graphs["tenant-a"][model][0].id != tenant_graphs["tenant-b"][model][0].id
+    assert tenant_graphs["tenant-a"][Channel][0].youtube_channel_id != tenant_graphs["tenant-b"][Channel][0].youtube_channel_id
+    assert tenant_graphs["tenant-a"][Drama][0].drama_code != tenant_graphs["tenant-b"][Drama][0].drama_code
+    assert tenant_graphs["tenant-a"][YoutubeVideo][0].youtube_video_id != tenant_graphs["tenant-b"][YoutubeVideo][0].youtube_video_id
+    assert ("youtube_channel_id",) in _unique_columns(Channel)
+    assert ("drama_code",) in _unique_columns(Drama)
+    assert ("idempotency_key",) in _unique_columns(ChannelScheduleEntry)
+    assert ("youtube_video_id",) in _unique_columns(YoutubeVideo)
 
 
 @pytest.mark.parametrize("info", [{}, {"tenant_id": "tenant-a"}])

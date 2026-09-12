@@ -1,7 +1,9 @@
 import re
+from base64 import urlsafe_b64encode
 from collections import Counter
 from datetime import date, datetime, time, timezone
 from urllib.parse import urlparse
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -109,6 +111,10 @@ def _track(session: Session, batch: DemoDataBatch, entity_type: str, entity_id: 
     session.add(DemoDataEntity(batch_id=batch.id, entity_type=entity_type, entity_id=entity_id, owned=True))
 
 
+def _demo_scope(batch: DemoDataBatch) -> str:
+    return urlsafe_b64encode(UUID(batch.id).bytes).decode("ascii").rstrip("=")
+
+
 def _entity_counts(session: Session, batch_id: str) -> dict[str, int]:
     rows = session.execute(
         select(DemoDataEntity.entity_type, func.count(DemoDataEntity.id))
@@ -167,6 +173,7 @@ def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict
         )
         session.add(batch)
     session.flush()
+    demo_scope = _demo_scope(batch)
 
     channel_cache: dict[str, Channel] = {}
     drama_cache: dict[str, Drama] = {}
@@ -186,7 +193,7 @@ def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict
             if channel is None:
                 nickname = _text(sample, "频道昵称")
                 channel = Channel(
-                    youtube_channel_id=f"DEMO-CHANNEL-20260824-{channel_number:03d}",
+                    youtube_channel_id=f"DEMO-CHANNEL-{demo_scope}-{channel_number:03d}",
                     original_name=channel_name,
                     operational_name=nickname or channel_name,
                     default_language=_language(nickname),
@@ -198,14 +205,14 @@ def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict
                 session.add(channel); session.flush(); _track(session, batch, "channel", channel.id)
             channel_cache[channel_name] = channel
 
-        for work_row, task_row in pairs:
+        for pair_number, (work_row, task_row) in enumerate(pairs, start=1):
             channel = channel_cache[_text(task_row, "频道")]
             drama_title = _text(work_row, "剧名")
             normalized_title = normalize_drama_title(drama_title)
             drama = drama_cache.get(normalized_title) or session.scalar(select(Drama).where(Drama.normalized_title == normalized_title))
             if drama is None:
                 drama = Drama(
-                    drama_code=f"DEMO-DRM-20260824-{len(drama_cache) + 1:03d}",
+                    drama_code=f"DEMO-DRM-{demo_scope}-{len(drama_cache) + 1:03d}",
                     chinese_title=drama_title,
                     normalized_title=normalized_title,
                     baidu_cloud_url=_text(work_row, "地址"),
@@ -266,7 +273,7 @@ def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict
                 community_count=int(_text(work_row, "是否需要社区") or 0),
                 status="confirmed",
                 priority=100,
-                idempotency_key=f"demo:schedule:{_text(task_row, '剧id')}:{_text(task_row, '档期')}",
+                idempotency_key=f"demo:schedule:{demo_scope}:{_text(task_row, '剧id')}:{_text(task_row, '档期')}",
             )
             session.add(schedule); session.flush(); _track(session, batch, "schedule", schedule.id)
 
@@ -343,7 +350,7 @@ def import_feishu_demo(session: Session, payload: DemoDataImportRequest) -> dict
                     selected=True, status="selected",
                 ))
             video = YoutubeVideo(
-                youtube_video_id=_text(task_row, "剧id"), channel_id=channel.id,
+                youtube_video_id=f"D{demo_scope}{pair_number:03d}", channel_id=channel.id,
                 operation_package_id=package.id, drama_id=drama.id, schedule_id=schedule.id,
                 title=title_lines[0][:500], description=_text(task_row, "说明"), url=_text(task_row, "剧目地址"),
                 privacy_status="public", publish_status="published", published_at=planned_utc,
