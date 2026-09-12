@@ -148,7 +148,7 @@
     root.classList.remove("is-workspace-scroll-locked");
     closeAccountMenu();
     el("appShell").hidden = true; el("loginShell").hidden = false;
-    el("loginPassword").value = ""; el("loginError").hidden = true;
+    el("loginName").value = ""; el("loginPassword").value = ""; el("loginError").hidden = true;
     setLoginBusy(false); el("loginName").focus();
   }
   function renderAccount() {
@@ -1757,10 +1757,10 @@
         button.disabled = true;
         const environment = button.dataset.environment;
         await api("/settings/runtime/environment", { method: "PUT", body: JSON.stringify({ environment }) });
-        resetDateToToday(state);
-        notify(environment === "production" ? "已切换到生产数据库" : "已切换到开发数据库");
-        await checkHealth();
-        await loadView("settings");
+        auth.clear();
+        el("loginStatus").textContent = environment === "production"
+          ? "已切换到生产数据库，请使用生产账号登录。"
+          : "已切换到开发数据库，请使用开发账号登录。";
       }
       else if (action === "build-runtime-package") { button.disabled = true; await api("/runtime-packages/build", { method: "POST" }); notify("运行包构建完成"); await loadView("settings"); }
       else if (action === "restore-default-icon") { await api("/settings/app-icon/restore-default", { method: "POST" }); notify("默认应用图标已恢复"); await loadView("settings"); }

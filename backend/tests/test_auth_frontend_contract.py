@@ -318,6 +318,35 @@ const count=paths.length;await page.document.emit('visibilitychange');await page
 """)
 
 
+def test_environment_switch_clears_source_database_login_before_showing_target_login():
+    run_node("""
+const paths=[];
+const runtimeUser={...superUser,permissions:[...superUser.permissions,'platform.environment.manage']};
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const page=start(process.argv[1],auth,async(path,options)=>{
+  paths.push(path);
+  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(runtimeUser));
+  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"environment":"development"}');
+  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"builder"}');
+  if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+  if(path==='/api/v3/settings/runtime/environment')return new Response('{"environment":"production"}');
+  if(path.startsWith('/api/v3/tasks/overview'))return new Response('{}');
+  if(path==='/api/v3/channels/overview'||path==='/api/v3/work-orders/overview')return new Response('{}');
+  return new Response('[]');
+});
+for(let i=0;i<5;i++)await page.tick();
+page.nodes.get('loginName').value='auth_test_super';
+const button={dataset:{action:'switch-database-environment',environment:'production'},disabled:false,closest:()=>null};
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
+for(let i=0;i<3;i++)await page.tick();
+assert.equal(auth.current(),null);
+assert.equal(page.nodes.get('appShell').hidden,true);
+assert.equal(page.nodes.get('loginShell').hidden,false);
+assert.equal(page.nodes.get('loginName').value,'');
+assert.equal(paths.filter(path=>path==='/api/v3/settings/runtime/environment').length,1);
+""")
+
+
 def test_real_app_super_without_tenant_keeps_banner_and_logout_returns_to_login():
     run_node("""
 const paths=[];const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
