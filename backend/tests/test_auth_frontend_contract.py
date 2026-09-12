@@ -364,7 +364,8 @@ const page=start(process.argv[1],auth,async(path,options)=>{
   {id:'u1',display_name:'李运营',login_name:'li.operator',status:'active',role_code:'owner',membership_status:'active',platform_role:null,tenant_id:'t1',lease_expires_at:null}
  ]));
  if(path==='/api/v3/platform/device-bindings?tenant_id=t1')return new Response(JSON.stringify([
-  {id:'b1',device_id:'device-001',device_name:'客户前台 Mac',tenant_id:'t1',tenant_name:'甲公司',user_id:'u1',user_display_name:'李运营',login_name:'li.operator',status:'active',login_mode:'auto_login',expires_at:null}
+  {id:'b1',device_id:'device-001',device_name:'客户前台 Mac',device_status:'inactive',tenant_id:'t1',tenant_name:'甲公司',user_id:'u1',user_display_name:'李运营',login_name:'li.operator',binding_status:'active',login_mode:'auto_login',expires_at:null},
+  {id:'b2',device_id:'device-002',device_name:'已撤销设备',device_status:'active',tenant_id:'t1',tenant_name:'甲公司',user_id:'u1',user_display_name:'李运营',login_name:'li.operator',binding_status:'revoked',login_mode:'password',expires_at:null}
  ]));
  return defaultResponse(path);
 });
@@ -375,7 +376,8 @@ const html=page.nodes.get('viewRoot').innerHTML;
 assert.match(html,/公司\\s*→\\s*成员/);assert.match(html,/客户访问设备/);
 assert.match(html,/客户前台 Mac/);assert.match(html,/device-001/);
 assert.match(html,/李运营/);assert.match(html,/li\\.operator/);assert.match(html,/甲公司/);
-assert.match(html,/免登录/);
+assert.match(html,/停用/);assert.match(html,/免登录/);
+assert.equal((html.match(/data-account-action="revoke-binding"/g)||[]).length,1);
 assert(paths.includes('/api/v3/platform/device-bindings?tenant_id=t1'));
 """)
 

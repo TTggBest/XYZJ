@@ -145,12 +145,13 @@ class DeviceBindingView(BaseModel):
     id: str
     device_id: str
     device_name: str
+    device_status: str
     tenant_id: str
     tenant_name: str
     user_id: str
     user_display_name: str
     login_name: str
-    status: str
+    binding_status: str
     login_mode: str
     expires_at: UtcStoredTime | None
 

@@ -567,15 +567,31 @@ def test_binding_list_joins_readable_device_user_and_company_for_selected_tenant
         "id": selected.id,
         "device_id": "device",
         "device_name": "客户前台 Mac",
+        "device_status": "active",
         "tenant_id": "tenant",
         "tenant_name": "甲公司",
         "user_id": "staff",
         "user_display_name": "李运营",
         "login_name": "li.operator",
-        "status": "active",
+        "binding_status": "active",
         "login_mode": "auto_login",
         "expires_at": None,
     }]
+
+
+def test_binding_view_keeps_inactive_device_status_distinct_from_active_binding(admin):
+    selected = enroll(admin, lambda binding, secret: None)
+    with Session(admin.engine) as db:
+        db.get(Device, "device").status = "inactive"
+        db.commit()
+
+    response = admin.client.get(BINDINGS)
+
+    assert response.status_code == 200
+    item = next(item for item in response.json() if item["id"] == selected.id)
+    assert item["device_status"] == "inactive"
+    assert item["binding_status"] == "active"
+    assert "status" not in item
 
 
 def test_failed_local_writer_rolls_back_binding_and_audit(admin):
