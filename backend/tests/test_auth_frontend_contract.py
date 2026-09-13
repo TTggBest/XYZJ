@@ -81,6 +81,17 @@ assert.equal(auth.canView('skills','worker'),false);
 """)
 
 
+def test_sticky_panels_follow_the_rendered_topbar_height_when_super_admin_banner_wraps():
+    app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+    styles = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'setProperty("--topbar-height"' in app_source
+    assert "new ResizeObserver(syncTopbarHeight)" in app_source
+    assert "top: var(--topbar-height, 78px)" in styles
+    assert ".package-list-page > .section > .section-head { position: sticky; top: 78px;" not in styles
+    assert ".media-assets-fixed-panel { position: sticky; top: 78px;" not in styles
+
+
 def test_switch_tenant_clears_old_context_preserves_actor_and_uses_server_options():
     run_node("""
 await auth.resolveBootstrap(async()=>({...superUser,device:null}));
