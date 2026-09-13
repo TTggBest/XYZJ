@@ -664,7 +664,7 @@ def test_media_page_shows_batch_coverage_video_id_and_missing_image_navigation()
     assert 'data-action="media-run-history-page"' in source
     assert ".media-gallery-group.is-complete" in styles
     assert ".media-gallery-group.is-incomplete" in styles
-    assert ".media-assets-fixed-panel { position: sticky; top: 78px;" in styles
+    assert ".media-assets-fixed-panel { position: sticky; top: var(--topbar-height, 78px);" in styles
     assert ".media-assets-section #mediaGalleryContent { overflow: visible; }" in styles
     assert "height: calc(100vh - 104px)" not in styles
 

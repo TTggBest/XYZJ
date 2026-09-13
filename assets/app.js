@@ -162,6 +162,12 @@
     el("tenantBanner").textContent = rights.superAdmin ? `超级管理员模式 · 当前管理：${user.current_tenant?.company_name || "请选择主账号"}` : "";
     el("tenantSwitchForm").hidden = !rights.switchTenant;
     el("tenantSelect").innerHTML = rights.switchTenant ? `<option value="">请选择公司</option>${(user.switchable_tenants || []).map(item => `<option value="${esc(item.id)}" ${item.id === user.tenant_id ? "selected" : ""}>${esc(item.company_name)}（${esc(item.short_name)}）</option>`).join("")}` : "";
+    syncTopbarHeight();
+  }
+
+  function syncTopbarHeight() {
+    const height = Math.ceil(document.querySelector(".topbar")?.getBoundingClientRect().height || 0);
+    if (height) document.documentElement.style.setProperty("--topbar-height", `${height}px`);
   }
   async function startApplication() {
     if (!auth.current()) return;
@@ -2027,7 +2033,9 @@
   });
   el("scrollTopButton").addEventListener("click", () => window.scrollTo({ top: 0, behavior: "smooth" }));
   window.addEventListener("scroll", updateScrollTopButton, { passive: true });
-  window.addEventListener("resize", updateScrollTopButton);
+  window.addEventListener("resize", () => { updateScrollTopButton(); syncTopbarHeight(); });
+  const topbarObserver = "ResizeObserver" in window ? new ResizeObserver(syncTopbarHeight) : null;
+  topbarObserver?.observe(document.querySelector(".topbar"));
   el("mobileMenu").addEventListener("click", () => el("appShell").classList.toggle("mobile-nav-open"));
   el("refreshView").addEventListener("click", async () => { await checkHealth(); await loadView(state.view, { preservePosition: true }); });
   el("modalBackdrop").addEventListener("click", event => { if (event.target === el("modalBackdrop")) closeModal(); });
