@@ -80,6 +80,7 @@ assert.equal(auth.access().platform,false);assert.equal(auth.canView('settings',
 auth.setDeployment('cloud');
 assert.equal(auth.access().platform,true);assert.equal(auth.access().tenants,true);
 assert.equal(auth.canView('settings','worker'),true);assert.equal(auth.current().device,null);
+assert.equal(auth.canView('skills','worker'),false);assert.equal(auth.canView('logs','worker'),false);
 await auth.resolveBootstrap(async()=>({...principal,tenant_id:null,current_tenant:null,membership_role:null,device:null}));
 assert.equal(auth.access().platform,false);assert.equal(auth.access().tenants,false);
 auth.setDeployment('local');await auth.resolveBootstrap(async()=>deviceLessSuper);
@@ -94,6 +95,7 @@ assert.equal(auth.canView('settings','builder'),false);assert.equal(auth.canView
 await auth.resolveBootstrap(async()=>({...superUser,permissions:[...superUser.permissions,'platform.environment.manage','audit.read']}));
 assert.equal(auth.canView('settings','builder'),true);assert.equal(auth.canView('logs','builder'),true);
 assert.equal(auth.canView('settings','worker'),false);assert.equal(auth.canView('skills','worker'),false);
+assert.equal(auth.canView('logs','worker'),false);
 """)
 
 
@@ -479,6 +481,8 @@ assert.equal(paths.includes('/api/v3/events/stream'),false);
 assert.equal(auth.current().device,null);assert.equal(auth.access().platform,true);
 assert.equal(auth.canView('settings','worker'),true);
 assert.equal(page.nodes.get('nav-settings').hidden,false);
+assert.equal(page.nodes.get('nav-skills').hidden,true);
+assert.equal(page.nodes.get('nav-logs').hidden,true);
 assert.match(page.nodes.get('viewRoot').innerHTML,/data-account-action="new-tenant"/);
 assert.match(page.nodes.get('viewRoot').innerHTML,/创建公司/);
 assert.equal(page.nodes.get('pageTitle').textContent,'账号中心');
