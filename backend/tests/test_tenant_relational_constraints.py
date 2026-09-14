@@ -40,6 +40,8 @@ TENANT_BUSINESS_TABLES = frozenset(
         "youtube_video_status_history", "youtube_comments", "youtube_comment_replies",
         "youtube_video_daily_metrics", "youtube_analytics_breakdowns", "api_request_logs",
         "quota_usage_logs", "demo_data_batches", "demo_data_entities", "audit_events",
+        "youtube_channel_import_sessions", "youtube_channel_import_candidates",
+        "oauth_token_secrets",
     }
 )
 
@@ -56,6 +58,16 @@ TENANT_UNIQUE_KEYS = {
     "api_request_logs": {("tenant_id", "request_key")},
     "audit_events": {("tenant_id", "idempotency_key")},
     "media_assets": {("tenant_id", "storage_provider", "storage_key")},
+    "youtube_channel_import_candidates": {
+        ("tenant_id", "import_session_id", "youtube_channel_id")
+    },
+    "oauth_token_secrets": {("tenant_id", "oauth_grant_id")},
+}
+
+YOUTUBE_IMPORT_TABLES = {
+    "youtube_channel_import_sessions",
+    "youtube_channel_import_candidates",
+    "oauth_token_secrets",
 }
 
 
@@ -140,14 +152,15 @@ def test_mysql_constraint_and_index_names_fit_the_actual_identifier_limit():
                 assert len(str(item.name)) <= 64, (table_name, item.name)
 
 
-def test_two_relational_revisions_form_the_only_head_chain():
+def test_relational_revisions_form_the_only_head_chain():
     config = Config(ROOT / "alembic.ini")
     config.set_main_option("script_location", str(ROOT / "backend" / "alembic"))
     scripts = ScriptDirectory.from_config(config)
     revisions = {revision.revision: revision for revision in scripts.walk_revisions()}
     assert revisions["c8e1f4a9b387"].down_revision == "b7d0e3f8a276"
     assert revisions["d9f2a5b0c498"].down_revision == "c8e1f4a9b387"
-    assert scripts.get_heads() == ["d9f2a5b0c498"]
+    assert revisions["0d7a4c9e12f6"].down_revision == "d9f2a5b0c498"
+    assert scripts.get_heads() == ["0d7a4c9e12f6"]
 
 
 def _revision_module(revision_id: str):
@@ -214,7 +227,7 @@ def test_composite_revision_matches_the_model_graph_and_orders_index_before_fk(m
     migration = _revision_module("d9f2a5b0c498")
     expected = {
         (table_name, _column_names(fk)[1], fk.referred_table.name, fk.ondelete)
-        for table_name in TENANT_BUSINESS_TABLES
+        for table_name in TENANT_BUSINESS_TABLES - YOUTUBE_IMPORT_TABLES
         for fk in Base.metadata.tables[table_name].foreign_key_constraints
         if fk.referred_table.name in TENANT_BUSINESS_TABLES
     }

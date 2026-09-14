@@ -42,7 +42,13 @@ from zhiju.models.identity import (
     OAuthGrantScope,
 )
 from zhiju.models.integration import (
-    Integration, IntegrationAccount, IntegrationCredential, OAuthAuthorizationState,
+    Integration,
+    IntegrationAccount,
+    IntegrationCredential,
+    OAuthAuthorizationState,
+    OAuthTokenSecret,
+    YouTubeChannelImportCandidate,
+    YouTubeChannelImportSession,
 )
 from zhiju.models.settings import (
     AppIconSetting,
@@ -161,6 +167,7 @@ __all__ = [
     "OAuthGrant",
     "OAuthGrantScope",
     "OAuthAuthorizationState",
+    "OAuthTokenSecret",
     "OperationPackage",
     "OperationTask",
     "PackageArtifact",
@@ -201,4 +208,6 @@ __all__ = [
     "YoutubeVideoDailyMetric",
     "YoutubeVideoPlaylistMembership",
     "YoutubeVideoStatusHistory",
+    "YouTubeChannelImportCandidate",
+    "YouTubeChannelImportSession",
 ]
