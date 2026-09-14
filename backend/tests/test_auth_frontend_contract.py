@@ -600,6 +600,47 @@ assert.match(html,/device-001/);assert.match(html,/客户前台 Mac/);
 """)
 
 
+def test_cloud_credentials_keep_working_when_local_youtube_oauth_is_unavailable():
+    run_node(APP_FIXTURE + """
+serverUser={...superUser,permissions:[...superUser.permissions,'platform.environment.manage']};
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker","deployment":"cloud"}');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"detail":"云端部署不支持依赖 macOS 钥匙串和本机回调的功能"}',{status:501});
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'settings'}}:null}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-settings-tab]'?{dataset:{settingsTab:'credentials'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/第三方凭证/);assert.match(html,/云端 YouTube OAuth 尚未接入/);
+assert.doesNotMatch(html,/数据读取失败/);
+assert(paths.includes('/api/v3/integrations'));assert(paths.includes('/api/v3/settings/youtube-oauth'));
+""")
+
+
+def test_cloud_super_without_company_is_sent_to_account_center_from_settings():
+    run_node(APP_FIXTURE + """
+serverUser={...superUser,tenant_id:null,current_tenant:null,switchable_tenants:[],device:null,
+ permissions:[...superUser.permissions,'platform.environment.manage']};
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker","deployment":"cloud"}');
+ if(path==='/api/v3/platform/tenants')return new Response('[]');
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'settings'}}:null}});
+await settle(page);
+assert.equal(page.nodes.get('pageTitle').textContent,'账号中心');
+assert.match(page.nodes.get('viewRoot').innerHTML,/data-account-action="new-tenant"/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/创建公司/);
+assert.equal(paths.includes('/api/v3/settings/youtube-oauth'),false);
+""")
+
+
 def test_real_app_bulk_dispatch_does_not_send_next_old_id_after_tenant_switch():
     run_node(APP_FIXTURE + """
 let release;

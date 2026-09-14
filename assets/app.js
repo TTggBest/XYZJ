@@ -1204,6 +1204,10 @@
     return `<form class="form-grid" id="channelDramaTypeForm"><input type="hidden" name="type_id" value="${esc(item.id || "")}"><div class="field"><label>稳定编码</label><input class="input mono" name="code" value="${esc(item.code || "")}" required maxlength="80" ${editing ? "disabled" : ""}></div><div class="field"><label>显示名称</label><input class="input" name="name" value="${esc(item.name || "")}" required maxlength="120"></div><div class="field field-wide"><label>业务说明</label><textarea class="textarea" name="description">${esc(item.description || "")}</textarea></div><div class="field"><label>排序</label><input class="input" type="number" name="sort_order" value="${Number(item.sort_order || 0)}" min="0" required></div><div class="field"><label>状态</label><select class="select" name="status"><option value="active" ${item.status !== "disabled" ? "selected" : ""}>启用</option><option value="disabled" ${item.status === "disabled" ? "selected" : ""}>停用</option></select></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存类型</button></div></form>`;
   }
   async function showSettings() {
+    if (!auth.current()?.tenant_id) {
+      await loadView("accounts");
+      return;
+    }
     let body;
     if (state.settingsTab === "cadence") {
       const templates = await api("/cadence-templates");
@@ -1243,7 +1247,15 @@
       const iconPanel = `<section class="app-icon-panel"><img src="${esc(appIcon.preview_url)}" alt="当前智矩应用图标"><div class="app-icon-copy"><h3>应用图标</h3><p>当前来源：${appIcon.source_type === "custom" ? "自定义上传" : "系统默认"} · 更新于 ${fmtUtc(appIcon.applied_at)}</p><p class="mono">${esc(appIcon.desktop_app_path)}</p><form id="appIconForm" class="app-icon-form"><input class="input" type="file" name="icon_file" accept="image/png,image/jpeg" required><button class="button button-primary" type="submit">${icon("upload")} 上传并应用</button><button class="button button-secondary" type="button" data-action="restore-default-icon">恢复默认图标</button></form><span class="settings-muted">请选择至少 512×512 的正方形 PNG 或 JPEG，最大 10 MB。系统会自动生成透明圆角、安全边距和桌面阴影。</span></div></section>`;
       body = `<header class="settings-content-head"><div><h2>运行包打包</h2><p>构建不含业务数据和密钥的仅代码生产运行包；所有运行包固定为 production。</p></div><button class="button button-primary" data-action="build-runtime-package">${icon("package-plus")} 构建生产运行包</button></header>${iconPanel}<div class="settings-subhead"><h3>构建历史</h3></div>${packages.length ? table(["版本", "状态", "目标环境", "文件", "大小", "完成时间", "下载"], rows, 980) : empty("还没有运行包", "点击构建后，只保留版本和构建结果记录。", "build-runtime-package", "构建生产运行包")}`;
     } else {
-      const [integrations, googleAccounts, oauthGrants, youtubeOAuth] = await Promise.all([api("/integrations"), api("/accounts"), api("/oauth-grants"), api("/settings/youtube-oauth")]);
+      const [integrations, googleAccounts, oauthGrants, youtubeOAuth] = await Promise.all([
+        api("/integrations"),
+        api("/accounts"),
+        api("/oauth-grants"),
+        api("/settings/youtube-oauth").catch(error => {
+          if (error.status === 501) return { unavailable: true, configured: false, can_manage: false, legacy_file_available: false };
+          throw error;
+        }),
+      ]);
       const integrationCards = await Promise.all(integrations.map(async integration => {
         const accounts = await api(`/integrations/${integration.id}/accounts`);
         const accountCards = await Promise.all(accounts.map(async account => {
@@ -1254,7 +1266,11 @@
         return `<section class="integration-card"><header><div><h3>${esc(integration.name)}</h3><p>${esc(integration.provider_type)} · ${esc(integration.code)}</p></div>${tag(integration.status)}</header>${accountCards.join("") || `<p class="settings-muted">尚未绑定账号</p>`}<button class="button button-secondary button-small" data-action="add-integration-account" data-id="${integration.id}">${icon("user-plus")} 添加账号</button></section>`;
       }));
       const youtubeRows = googleAccounts.map(account => `<div class="credential-row"><div><strong>${esc(account.nickname)}</strong><span>${esc(account.google_email)} · ${oauthGrants.filter(grant => grant.account_id === account.id).length} 个授权</span></div>${tag(account.authorization_status)}</div>`).join("");
-      const clientDetails = youtubeOAuth.configured ? `<div class="credential-row"><div><strong>Google OAuth 客户端</strong><span>${esc(youtubeOAuth.project_id || "未命名项目")} · ${esc(youtubeOAuth.client_type || "—")}</span><span class="mono">${esc(youtubeOAuth.redirect_uri || "—")}</span><span class="mono">${esc(youtubeOAuth.credential_ref || "—")}</span></div>${tag("active")}</div>` : `<p class="settings-muted">尚未导入 Google OAuth 客户端凭证</p>`;
+      const clientDetails = youtubeOAuth.unavailable
+        ? `<p class="settings-muted">云端 YouTube OAuth 尚未接入；其他第三方凭证可继续正常管理。</p>`
+        : youtubeOAuth.configured
+          ? `<div class="credential-row"><div><strong>Google OAuth 客户端</strong><span>${esc(youtubeOAuth.project_id || "未命名项目")} · ${esc(youtubeOAuth.client_type || "—")}</span><span class="mono">${esc(youtubeOAuth.redirect_uri || "—")}</span><span class="mono">${esc(youtubeOAuth.credential_ref || "—")}</span></div>${tag("active")}</div>`
+          : `<p class="settings-muted">尚未导入 Google OAuth 客户端凭证</p>`;
       const importButton = youtubeOAuth.can_manage && youtubeOAuth.legacy_file_available ? `<button class="button button-secondary button-small" data-action="import-legacy-youtube-oauth">${icon("download")} ${youtubeOAuth.configured ? "重新导入旧版凭证" : "导入旧版凭证"}</button>` : "";
       body = `<header class="settings-content-head"><div><h2>第三方凭证</h2><p>统一管理外部服务账号与 Secret 引用，不保存或显示密钥明文。</p></div><button class="button button-primary" data-action="add-integration">${icon("plus")} 新增服务</button></header><div class="integration-grid"><section class="integration-card"><header><div><h3>YouTube OAuth</h3><p>Google OAuth 客户端、主账号与频道授权</p></div>${tag(youtubeOAuth.configured ? "active" : "pending")}</header>${clientDetails}${importButton}${youtubeRows || `<p class="settings-muted">尚未登记 YouTube 授权账号</p>`}</section>${integrationCards.join("")}</div>`;
     }
