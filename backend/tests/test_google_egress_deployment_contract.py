@@ -15,6 +15,7 @@ def test_relay_is_loopback_only_and_filters_destinations() -> None:
 
     assert "Listen 127.0.0.1" in config
     assert "Port 17888" in config
+    assert "Group nogroup" in config
     assert "FilterDefaultDeny Yes" in config
     assert "ConnectPort 443" in config
     assert "oauth2\\.googleapis\\.com" in destinations
