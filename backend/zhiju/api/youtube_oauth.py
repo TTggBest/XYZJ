@@ -43,6 +43,14 @@ callback_relay = OAuthCallbackRelay()
 OAUTH_STATE_TTL_SECONDS = 600
 
 
+def _require_macos_capability() -> None:
+    if getattr(get_settings(), "deployment", "local") == "cloud":
+        raise HTTPException(
+            status_code=501,
+            detail="云端部署不支持依赖 macOS 钥匙串和本机回调的功能",
+        )
+
+
 def _legacy_client_path() -> Path:
     candidates = (
         APP_ROOT.parent / "client_secret.json",
@@ -57,6 +65,7 @@ def _legacy_client_path() -> Path:
     dependencies=[Depends(require_platform_permission)],
 )
 def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
+    _require_macos_capability()
     settings = get_settings()
     try:
         return YouTubeOAuthClientStatus.model_validate(
@@ -76,6 +85,7 @@ def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
     dependencies=[Depends(require_platform_permission)],
 )
 def post_import_legacy_youtube_oauth() -> YouTubeOAuthClientStatus:
+    _require_macos_capability()
     settings = get_settings()
     if settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以导入YouTube OAuth凭证")
@@ -99,6 +109,7 @@ def post_start_youtube_authorization(
     principal: Principal = Depends(get_current_principal),
     session: Session = Depends(get_tenant_db),
 ) -> YouTubeAuthorizationStart:
+    _require_macos_capability()
     settings = get_settings()
     if settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube授权")
@@ -130,6 +141,7 @@ def post_sync_youtube_channel_videos(
     channel_id: str,
     session: Session = Depends(get_tenant_db),
 ) -> YouTubeVideoSyncResult:
+    _require_macos_capability()
     settings = get_settings()
     if settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube视频同步")
@@ -156,6 +168,7 @@ def post_create_youtube_playlist(
     playlist_id: str,
     session: Session = Depends(get_tenant_db),
 ) -> PlaylistRead:
+    _require_macos_capability()
     settings = get_settings()
     if settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以创建YouTube播放列表")
@@ -179,6 +192,10 @@ def get_youtube_oauth_callback(
     error: str | None = None,
     session: Session = Depends(get_db),
 ) -> HTMLResponse:
+    try:
+        _require_macos_capability()
+    except HTTPException as exc:
+        return _callback_page(False, str(exc.detail))
     settings = get_settings()
     if settings.device_role != "builder":
         return _callback_page(False, "仅代码机可以完成YouTube授权")

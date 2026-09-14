@@ -1,0 +1,19 @@
+[Unit]
+Description=Xiaoyu Zhiju cloud service
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zhiju
+Group=zhiju
+WorkingDirectory=/opt/zhiju/current
+EnvironmentFile=/etc/zhiju/zhiju-cloud.env
+Environment=PYTHONPATH=/opt/zhiju/current/backend
+ExecStart=/opt/zhiju/current/.venv/bin/uvicorn zhiju.app:app --host 127.0.0.1 --port 19732 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

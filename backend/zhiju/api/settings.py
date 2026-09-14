@@ -7,6 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
+from zhiju.config import get_settings
 from zhiju.database import (
     can_switch_database_environment,
     database_router,
@@ -45,6 +46,14 @@ from zhiju.services.settings import (
 
 
 router = APIRouter(prefix="/v3", tags=["settings"])
+
+
+def _require_macos_icon_capability() -> None:
+    if getattr(get_settings(), "deployment", "local") == "cloud":
+        raise HTTPException(
+            status_code=501,
+            detail="云端部署不支持依赖 macOS 桌面工具的应用图标写入",
+        )
 
 
 @router.get(
@@ -112,6 +121,13 @@ def put_runtime_environment(
     _session: Session = Depends(get_db),
 ) -> RuntimeOverview:
     try:
+        if not can_switch_database_environment():
+            detail = (
+                "云端部署禁止切换数据库环境"
+                if getattr(get_settings(), "deployment", "local") == "cloud"
+                else "仅代码机允许切换数据库环境"
+            )
+            raise PermissionError(detail)
         if payload.environment == "production":
             upgrade_production_database()
         database_router.switch_environment(
@@ -204,6 +220,7 @@ def get_app_icon(
     dependencies=[Depends(require_platform_permission)],
 )
 def put_app_icon(payload: AppIconUpload, session: Session = Depends(get_db)) -> AppIconSettingRead:
+    _require_macos_icon_capability()
     try:
         return upload_app_icon(session, payload.filename, payload.data_url)
     except (ValueError, RuntimeError) as exc:
@@ -216,4 +233,5 @@ def put_app_icon(payload: AppIconUpload, session: Session = Depends(get_db)) -> 
     dependencies=[Depends(require_platform_permission)],
 )
 def post_restore_app_icon(session: Session = Depends(get_db)) -> AppIconSettingRead:
+    _require_macos_icon_capability()
     return restore_default_app_icon(session)

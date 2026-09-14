@@ -241,7 +241,7 @@ database_router = DatabaseRouter(
 
 
 def can_switch_database_environment() -> bool:
-    return settings.device_role == "builder"
+    return getattr(settings, "deployment", "local") != "cloud" and settings.device_role == "builder"
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -1,11 +1,23 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
+STUDIO_DATABASE_HOSTS = {"192.168.8.251", "172.16.10.61"}
+
+
+def validate_cloud_database_url(value: str, *, label: str) -> None:
+    url = make_url(value)
+    if url.database != "zhiju_cloud":
+        raise ValueError(f"云端 {label} 必须指向 zhiju_cloud")
+    host = (url.host or "").strip().lower().rstrip(".")
+    if host in STUDIO_DATABASE_HOSTS or "studio" in host:
+        raise ValueError(f"云端 {label} 禁止指向 Studio 数据库主机")
 
 
 class Settings(BaseSettings):
@@ -18,6 +30,7 @@ class Settings(BaseSettings):
     )
 
     env: str = "development"
+    deployment: Literal["local", "cloud"] = "local"
     database_url: str = Field(min_length=1)
     migration_database_url: str | None = None
     host: str = "127.0.0.1"
@@ -43,6 +56,22 @@ class Settings(BaseSettings):
     feishu_channel_schedule_directory_sheet_id: str = "2FrKIE"
     zhihe_api_base_url: str = ""
     zhihe_api_token: str = ""
+
+    @model_validator(mode="after")
+    def validate_cloud_contract(self):
+        if self.deployment != "cloud":
+            return self
+        if self.env != "production":
+            raise ValueError("云端部署必须保持 ZHJ_ENV=production")
+        if self.host != "127.0.0.1":
+            raise ValueError("云端 Uvicorn 必须仅监听 127.0.0.1")
+        validate_cloud_database_url(self.database_url, label="ZHJ_DATABASE_URL")
+        if not self.migration_database_url:
+            raise ValueError("云端部署必须提供 ZHJ_MIGRATION_DATABASE_URL")
+        validate_cloud_database_url(
+            self.migration_database_url, label="ZHJ_MIGRATION_DATABASE_URL"
+        )
+        return self
 
 
 @lru_cache

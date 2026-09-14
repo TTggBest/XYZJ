@@ -26,6 +26,8 @@
 !config/**
 !docs/
 !docs/**
+!deploy/
+!deploy/**
 !scripts/
 !scripts/**
 !tools/

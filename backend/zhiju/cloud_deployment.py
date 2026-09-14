@@ -1,0 +1,163 @@
+from datetime import datetime, timezone
+from pathlib import Path
+import re
+from typing import Callable
+
+from sqlalchemy import func, inspect, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
+
+from zhiju.config import validate_cloud_database_url
+from zhiju.models import AppUser, Tenant
+from zhiju.security import hash_password
+
+
+DEFAULT_EXISTING_TENANT_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def _read_env_template(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _upload_limit_megabytes(nginx: str) -> int:
+    match = re.search(r"client_max_body_size\s+(\d+)([mMgG])\s*;", nginx)
+    if not match:
+        raise ValueError("Nginx 缺少 client_max_body_size")
+    amount = int(match.group(1))
+    return amount * 1024 if match.group(2).lower() == "g" else amount
+
+
+def validate_deployment_artifacts(root: Path) -> dict[str, object]:
+    env = _read_env_template(root / "zhiju-cloud.env.example")
+    systemd = (root / "zhiju.service").read_text(encoding="utf-8")
+    nginx = (root / "nginx.conf").read_text(encoding="utf-8")
+
+    if env.get("ZHJ_ENV") != "production" or env.get("ZHJ_DEPLOYMENT") != "cloud":
+        raise ValueError("云端模板必须使用 production 运行姿态和 cloud marker")
+    for key in ("ZHJ_DATABASE_URL", "ZHJ_MIGRATION_DATABASE_URL"):
+        value = env.get(key, "")
+        validate_cloud_database_url(value, label=key)
+        password = make_url(value).password or ""
+        if password not in {"CHANGE_ME", "${ZHJ_DB_PASSWORD}"}:
+            raise ValueError(f"{key} 模板中禁止嵌入真实密码")
+    if env.get("ZHJ_HOST") != "127.0.0.1":
+        raise ValueError("cloud environment must keep Uvicorn on loopback")
+
+    exec_start = next(
+        (line for line in systemd.splitlines() if line.strip().startswith("ExecStart=")),
+        "",
+    )
+    if not re.search(r"--host\s+127\.0\.0\.1(?:\s|$)", exec_start):
+        raise ValueError("systemd must bind Uvicorn to loopback")
+
+    upload_limit = _upload_limit_megabytes(nginx)
+    if upload_limit < 512:
+        raise ValueError("Nginx upload limit is too small for 100-200 image batches")
+    sse_location = re.search(
+        r"location\s+[^\{]*(?:realtime|events)[^\{]*\{(?P<body>.*?)\}",
+        nginx,
+        flags=re.DOTALL,
+    )
+    if not sse_location or not re.search(
+        r"proxy_buffering\s+off\s*;", sse_location.group("body")
+    ):
+        raise ValueError("Nginx SSE proxy must disable buffering")
+
+    return {
+        "deployment": "cloud",
+        "database": "zhiju_cloud",
+        "uvicorn_host": "127.0.0.1",
+        "sse_buffering": "off",
+        "upload_limit_megabytes": upload_limit,
+    }
+
+
+def _remove_empty_legacy_tenant(session: Session) -> None:
+    tenant = session.get(Tenant, DEFAULT_EXISTING_TENANT_ID)
+    if tenant is None:
+        return
+    bind = session.get_bind()
+    inspector = inspect(bind)
+    references: list[str] = []
+    for table_name in inspector.get_table_names():
+        if table_name == "tenants":
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if "tenant_id" not in columns:
+            continue
+        quoted = inspector.dialect.identifier_preparer.quote(table_name)
+        count = session.scalar(
+            text(f"SELECT COUNT(*) FROM {quoted} WHERE tenant_id = :tenant_id"),
+            {"tenant_id": DEFAULT_EXISTING_TENANT_ID},
+        )
+        if count:
+            references.append(table_name)
+    if references:
+        raise ValueError(
+            "云端初始化拒绝删除存在业务引用的旧默认主账号："
+            + "、".join(sorted(references))
+        )
+    session.delete(tenant)
+    session.flush()
+
+
+def _require_empty_cloud_database(session: Session) -> None:
+    if session.scalar(
+        select(func.count()).select_from(Tenant).where(
+            Tenant.id != DEFAULT_EXISTING_TENANT_ID
+        )
+    ):
+        raise ValueError("云端 bootstrap 要求非空业务主账号为零")
+    inspector = inspect(session.get_bind())
+    occupied: list[str] = []
+    for table_name in inspector.get_table_names():
+        if table_name == "tenants":
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if "tenant_id" not in columns:
+            continue
+        quoted = inspector.dialect.identifier_preparer.quote(table_name)
+        if session.scalar(text(f"SELECT COUNT(*) FROM {quoted}")):
+            occupied.append(table_name)
+    if occupied:
+        raise ValueError("云端 bootstrap 要求业务表为空：" + "、".join(sorted(occupied)))
+
+
+def bootstrap_super_admin(
+    session: Session,
+    *,
+    login_name: str,
+    display_name: str,
+    password: str,
+    output: Callable[[str], None] = print,
+) -> bool:
+    login_name = login_name.strip()
+    display_name = display_name.strip()
+    if not login_name or not display_name or not password:
+        raise ValueError("超级管理员登录名、显示名和密码均不能为空")
+    if session.scalar(select(func.count()).select_from(AppUser)):
+        raise ValueError("用户已存在，云库非空，拒绝重复 bootstrap")
+    _require_empty_cloud_database(session)
+
+    _remove_empty_legacy_tenant(session)
+    now = datetime.now(timezone.utc)
+    session.add(
+        AppUser(
+            display_name=display_name,
+            login_name=login_name,
+            password_hash=hash_password(password),
+            platform_role="super_admin",
+            status="active",
+            password_changed_at=now,
+        )
+    )
+    session.commit()
+    output(f"云端超级管理员已创建：{login_name}")
+    return True
