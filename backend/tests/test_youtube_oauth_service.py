@@ -20,6 +20,8 @@ from zhiju.services.youtube_oauth import (
     parse_oauth_client_document,
     refresh_oauth_access_token,
     save_oauth_token,
+    parse_youtube_channel_candidates,
+    fetch_youtube_channels,
     youtube_channel_identity,
 )
 
@@ -132,6 +134,46 @@ def test_youtube_channel_identity_uses_title_and_highest_avatar() -> None:
 
     assert title == "Actual Channel"
     assert avatar_url == "https://img.example/high.jpg"
+
+
+def test_fetch_youtube_channels_requests_all_import_parts(monkeypatch) -> None:
+    requested = []
+
+    def fake_request(url, **kwargs):
+        requested.append(url)
+        return {"items": []}
+
+    monkeypatch.setattr("zhiju.services.youtube_oauth._request_json", fake_request)
+
+    fetch_youtube_channels("access")
+
+    assert "part=id,snippet,contentDetails,brandingSettings" in requested[0]
+    assert "mine=true" in requested[0]
+
+
+def test_parse_youtube_channel_candidates_keeps_every_managed_channel() -> None:
+    rows = parse_youtube_channel_candidates({
+        "items": [
+            {
+                "id": "UC-one",
+                "snippet": {
+                    "title": "One",
+                    "description": "First channel",
+                    "customUrl": "@one",
+                    "country": "US",
+                    "defaultLanguage": "en",
+                    "thumbnails": {"high": {"url": "https://img.example/one.jpg"}},
+                },
+                "contentDetails": {"relatedPlaylists": {"uploads": "UU-one"}},
+            },
+            {"id": "UC-two", "snippet": {"title": "Two"}},
+        ]
+    })
+
+    assert [row["youtube_channel_id"] for row in rows] == ["UC-one", "UC-two"]
+    assert rows[0]["uploads_playlist_id"] == "UU-one"
+    assert rows[0]["avatar_url"] == "https://img.example/one.jpg"
+    assert rows[0]["custom_url"] == "@one"
 
 
 def test_oauth_token_is_saved_in_keychain_and_returns_reference() -> None:
