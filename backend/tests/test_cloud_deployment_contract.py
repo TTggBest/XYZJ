@@ -1,27 +1,52 @@
 from __future__ import annotations
 
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import datetime, timezone
+import os
 from pathlib import Path
+from threading import Barrier
+import time
 from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import create_engine, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from zhiju.cloud_deployment import bootstrap_super_admin, validate_deployment_artifacts
-from zhiju.config import Settings
-from zhiju.models import AppUser, Base, Tenant
+from zhiju.config import Settings, validate_cloud_database_url
+from zhiju.models import (
+    AppIconSetting,
+    AppUser,
+    Base,
+    Permission,
+    RuntimePackageBuild,
+    SchemaComment,
+    Tenant,
+)
 from zhiju.security import verify_password
 import zhiju.api.settings as settings_api
 import zhiju.api.youtube_oauth as youtube_oauth_api
+import zhiju.cloud_deployment as cloud_deployment_module
 import zhiju.database as database_module
 
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOYMENT_ROOT = ROOT / "deploy" / "tencent-cloud" / "v1"
+
+
+@pytest.fixture
+def sqlite_bootstrap(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        cloud_deployment_module,
+        "_bootstrap_database_lock",
+        lambda _session: nullcontext(),
+    )
+    return bootstrap_super_admin
 
 
 def cloud_settings(**overrides: str) -> Settings:
@@ -53,7 +78,7 @@ def cloud_settings(**overrides: str) -> Settings:
         ),
         (
             {"database_url": "mysql+pymysql://u:p@192.168.8.251/zhiju_cloud"},
-            "Studio",
+            "本机 TCP",
         ),
         ({"host": "0.0.0.0"}, "127.0.0.1"),
     ],
@@ -72,6 +97,33 @@ def test_cloud_settings_reject_unsafe_targets_before_engine_creation(
         cloud_settings(**overrides)
 
     assert engine_calls == []
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["127.0.0.1", "localhost", "LOCALHOST.", "[::1]"],
+)
+def test_cloud_database_accepts_only_normalized_local_tcp_hosts(host: str) -> None:
+    validate_cloud_database_url(
+        f"mysql+pymysql://user:secret@{host}:3306/zhiju_cloud",
+        label="test",
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "mysql+pymysql://user:secret@127.0.0.2:3306/zhiju_cloud",
+        "mysql+pymysql://user:secret@192.168.8.251:3306/zhiju_cloud",
+        "mysql+pymysql://user:secret@192.168.8.99:3306/zhiju_cloud",
+        "mysql+pymysql://user:secret@studio-alias.internal:3306/zhiju_cloud",
+        "mysql+pymysql://user:secret@db.internal:3306/zhiju_cloud",
+        "mysql+pymysql://user:secret@localhost/zhiju_cloud?unix_socket=/tmp/mysql.sock",
+    ],
+)
+def test_cloud_database_rejects_nonlocal_aliases_and_socket_bypasses(url: str) -> None:
+    with pytest.raises(ValueError, match="本机 TCP"):
+        validate_cloud_database_url(url, label="test")
 
 
 def test_cloud_marker_keeps_production_runtime_and_disables_environment_switch(
@@ -187,7 +239,9 @@ def test_deployment_validator_catches_public_uvicorn_and_missing_sse_settings(
         validate_deployment_artifacts(tmp_path)
 
 
-def test_bootstrap_creates_one_super_admin_without_exposing_password() -> None:
+def test_bootstrap_creates_one_super_admin_without_exposing_password(
+    sqlite_bootstrap,
+) -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     messages: list[str] = []
@@ -203,7 +257,7 @@ def test_bootstrap_creates_one_super_admin_without_exposing_password() -> None:
         )
         session.commit()
 
-        created = bootstrap_super_admin(
+        created = sqlite_bootstrap(
             session,
             login_name="cloud-admin",
             display_name="Cloud Admin",
@@ -221,7 +275,7 @@ def test_bootstrap_creates_one_super_admin_without_exposing_password() -> None:
         assert "never-print-this-password" not in "\n".join(messages)
 
         with pytest.raises(ValueError, match="已存在"):
-            bootstrap_super_admin(
+            sqlite_bootstrap(
                 session,
                 login_name="another-admin",
                 display_name="Another Admin",
@@ -231,7 +285,7 @@ def test_bootstrap_creates_one_super_admin_without_exposing_password() -> None:
     engine.dispose()
 
 
-def test_bootstrap_refuses_a_nonempty_cloud_tenant_database() -> None:
+def test_bootstrap_refuses_a_nonempty_cloud_tenant_database(sqlite_bootstrap) -> None:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -247,12 +301,109 @@ def test_bootstrap_refuses_a_nonempty_cloud_tenant_database() -> None:
         session.commit()
 
         with pytest.raises(ValueError, match="非空"):
-            bootstrap_super_admin(
+            sqlite_bootstrap(
                 session,
                 login_name="cloud-admin",
                 display_name="Cloud Admin",
                 password="not-logged",
             )
+    engine.dispose()
+
+
+def test_bootstrap_allows_only_migration_seed_tables(sqlite_bootstrap) -> None:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                Permission(id="permission", code="tenant.read", name_zh="查看主账号"),
+                SchemaComment(
+                    table_name="channels",
+                    column_name="id",
+                    chinese_comment="系统主键",
+                    updated_at=now,
+                ),
+                AppIconSetting(
+                    id="current-app-icon",
+                    source_type="default",
+                    source_path="assets/app-icon-default.png",
+                    original_filename="app-icon-default.png",
+                    applied_at=now,
+                ),
+            ]
+        )
+        session.commit()
+
+        assert sqlite_bootstrap(
+            session,
+            login_name="cloud-admin",
+            display_name="Cloud Admin",
+            password="not-logged",
+            output=lambda _message: None,
+        )
+    engine.dispose()
+
+
+def test_bootstrap_refuses_non_tenant_runtime_records_without_writing_user(
+    sqlite_bootstrap,
+) -> None:
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        session.add(
+            RuntimePackageBuild(
+                build_number=1,
+                version="3.0.0-build.1",
+                target_environment="production",
+                status="succeeded",
+                artifact_path=None,
+                file_count=1,
+                size_bytes=1,
+                started_at=now,
+                completed_at=now,
+            )
+        )
+        session.commit()
+
+        with pytest.raises(ValueError, match="runtime_package_builds"):
+            sqlite_bootstrap(
+                session,
+                login_name="cloud-admin",
+                display_name="Cloud Admin",
+                password="not-logged",
+                output=lambda _message: None,
+            )
+
+        assert session.scalar(select(AppUser)) is None
+    engine.dispose()
+
+
+def test_two_independent_mysql_sessions_serialize_bootstrap_competition() -> None:
+    database_url = os.environ.get("ZHJ_DATABASE_URL", "")
+    if not database_url or make_url(database_url).database != "zhiju_dev":
+        pytest.skip("requires the code-machine zhiju_dev test database")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    start = Barrier(2)
+    bootstrap_state: list[int] = []
+
+    def attempt(index: int) -> str:
+        with Session(engine) as session:
+            start.wait()
+            with cloud_deployment_module._bootstrap_database_lock(session):
+                if bootstrap_state:
+                    return "refused"
+                time.sleep(0.15)
+                bootstrap_state.append(index)
+                session.commit()
+                return "created"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(attempt, (1, 2)))
+
+    assert sorted(results) == ["created", "refused"]
+    assert len(bootstrap_state) == 1
     engine.dispose()
 
 
@@ -277,3 +428,16 @@ def test_cloud_runbook_covers_operational_and_macos_boundaries() -> None:
 
     for topic in ("部署", "更新", "回滚", "备份", "Certbot", "macOS"):
         assert topic in runbook
+
+
+def test_environment_file_permissions_match_service_and_bootstrap_user() -> None:
+    env_instructions = (DEPLOYMENT_ROOT / "zhiju-cloud.env.example").read_text(
+        encoding="utf-8"
+    )
+    runbook = (DEPLOYMENT_ROOT / "README.md").read_text(encoding="utf-8")
+    service = (DEPLOYMENT_ROOT / "zhiju.service").read_text(encoding="utf-8")
+
+    assert "root:zhiju 0640" in env_instructions
+    assert "install -o root -g zhiju -m 0640" in runbook
+    assert "sudo -u zhiju -g zhiju" in runbook
+    assert "User=zhiju" in service and "Group=zhiju" in service

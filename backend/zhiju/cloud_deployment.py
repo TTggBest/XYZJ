@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import re
@@ -13,6 +14,17 @@ from zhiju.security import hash_password
 
 
 DEFAULT_EXISTING_TENANT_ID = "00000000-0000-4000-8000-000000000001"
+BOOTSTRAP_LOCK_NAME = "zhiju_cloud.bootstrap_super_admin.v1"
+ALLOWED_MIGRATION_SEED_TABLES = frozenset(
+    {
+        "alembic_version",
+        "app_icon_settings",
+        "permissions",
+        "publish_cadence_template_slots",
+        "role_permissions",
+        "schema_comments",
+    }
+)
 
 
 def _read_env_template(path: Path) -> dict[str, str]:
@@ -118,16 +130,38 @@ def _require_empty_cloud_database(session: Session) -> None:
     inspector = inspect(session.get_bind())
     occupied: list[str] = []
     for table_name in inspector.get_table_names():
-        if table_name == "tenants":
-            continue
-        columns = {column["name"] for column in inspector.get_columns(table_name)}
-        if "tenant_id" not in columns:
+        if table_name == "tenants" or table_name in ALLOWED_MIGRATION_SEED_TABLES:
             continue
         quoted = inspector.dialect.identifier_preparer.quote(table_name)
         if session.scalar(text(f"SELECT COUNT(*) FROM {quoted}")):
             occupied.append(table_name)
     if occupied:
         raise ValueError("云端 bootstrap 要求业务表为空：" + "、".join(sorted(occupied)))
+
+
+@contextmanager
+def _bootstrap_database_lock(session: Session):
+    bind = session.get_bind()
+    dialect = bind.dialect.name
+    if dialect != "mysql":
+        raise RuntimeError(f"云端 bootstrap 只支持 MySQL，当前为：{dialect}")
+    with bind.connect() as lock_connection:
+        acquired_mysql_lock = lock_connection.scalar(
+            text("SELECT GET_LOCK(:lock_name, 30)"),
+            {"lock_name": BOOTSTRAP_LOCK_NAME},
+        ) == 1
+        if not acquired_mysql_lock:
+            raise RuntimeError("无法获取云端 bootstrap 数据库锁")
+        try:
+            yield
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            lock_connection.execute(
+                text("SELECT RELEASE_LOCK(:lock_name)"),
+                {"lock_name": BOOTSTRAP_LOCK_NAME},
+            )
 
 
 def bootstrap_super_admin(
@@ -142,22 +176,23 @@ def bootstrap_super_admin(
     display_name = display_name.strip()
     if not login_name or not display_name or not password:
         raise ValueError("超级管理员登录名、显示名和密码均不能为空")
-    if session.scalar(select(func.count()).select_from(AppUser)):
-        raise ValueError("用户已存在，云库非空，拒绝重复 bootstrap")
-    _require_empty_cloud_database(session)
+    with _bootstrap_database_lock(session):
+        if session.scalar(select(func.count()).select_from(AppUser)):
+            raise ValueError("用户已存在，云库非空，拒绝重复 bootstrap")
+        _require_empty_cloud_database(session)
 
-    _remove_empty_legacy_tenant(session)
-    now = datetime.now(timezone.utc)
-    session.add(
-        AppUser(
-            display_name=display_name,
-            login_name=login_name,
-            password_hash=hash_password(password),
-            platform_role="super_admin",
-            status="active",
-            password_changed_at=now,
+        _remove_empty_legacy_tenant(session)
+        now = datetime.now(timezone.utc)
+        session.add(
+            AppUser(
+                display_name=display_name,
+                login_name=login_name,
+                password_hash=hash_password(password),
+                platform_role="super_admin",
+                status="active",
+                password_changed_at=now,
+            )
         )
-    )
-    session.commit()
+        session.commit()
     output(f"云端超级管理员已创建：{login_name}")
     return True

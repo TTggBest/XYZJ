@@ -1,4 +1,5 @@
 from functools import lru_cache
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
 
@@ -8,16 +9,22 @@ from sqlalchemy.engine import make_url
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
-STUDIO_DATABASE_HOSTS = {"192.168.8.251", "172.16.10.61"}
-
-
 def validate_cloud_database_url(value: str, *, label: str) -> None:
     url = make_url(value)
     if url.database != "zhiju_cloud":
         raise ValueError(f"云端 {label} 必须指向 zhiju_cloud")
+    query_keys = {key.lower() for key in url.normalized_query}
+    if query_keys & {"unix_socket", "socket"}:
+        raise ValueError(f"云端 {label} 只允许本机 TCP 连接")
     host = (url.host or "").strip().lower().rstrip(".")
-    if host in STUDIO_DATABASE_HOSTS or "studio" in host:
-        raise ValueError(f"云端 {label} 禁止指向 Studio 数据库主机")
+    if host == "localhost":
+        return
+    try:
+        address = ip_address(host)
+    except ValueError as exc:
+        raise ValueError(f"云端 {label} 只允许本机 TCP 连接") from exc
+    if address not in {ip_address("127.0.0.1"), ip_address("::1")}:
+        raise ValueError(f"云端 {label} 只允许本机 TCP 连接")
 
 
 class Settings(BaseSettings):

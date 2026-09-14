@@ -6,15 +6,15 @@
 
 1. 准备 Ubuntu 24.04 LTS 主机、域名 A/AAAA 记录和仅对外开放 22/80/443 的防火墙。MySQL 和 Uvicorn 不对公网开放。
 2. 把经审核的应用源码放到服务器临时目录，以 root 运行 `scripts/provision_ubuntu.sh APP_SOURCE DOMAIN`。它安装 Python 3.12、MySQL、Nginx 和 Certbot，建立 `zhiju` 系统用户和版本 release 目录。
-3. 在 MySQL 本机 root socket 中创建空库 `zhiju_cloud`、仅具业务 DML 权限的 `zhiju_app` 账号和可执行 Alembic DDL 的 `zhiju_migrator` 账号。两个随机密码只写入 `/etc/zhiju/zhiju-cloud.env`，权限设为 `root:zhiju 0640`；不写入 Git、shell 历史或命令行。
-4. 从 `zhiju-cloud.env.example` 创建 `/etc/zhiju/zhiju-cloud.env`，替换两个 `CHANGE_ME`，然后运行 `scripts/initialize_database.sh`。该脚本先执行无副作用校验，再运行项目唯一 Alembic 链。迁移可以 seed 系统权限目录，但此时所有业务表必须为空。
+3. 在 MySQL 本机 root socket 中创建空库 `zhiju_cloud`、仅具业务 DML 权限的 `zhiju_app` 账号和可执行 Alembic DDL 的 `zhiju_migrator` 账号。云端两个 URL 只允许 `127.0.0.1`、`::1` 或规范化的 `localhost` TCP；其他 IP、DNS 别名和 Unix socket 都会在连接前被拒绝。
+4. 在 root 可读的临时文件中从 `zhiju-cloud.env.example` 准备配置并替换两个 `CHANGE_ME`，然后用 `install -o root -g zhiju -m 0640 <prepared-env> /etc/zhiju/zhiju-cloud.env` 安装。密码不写入 Git、shell 历史或命令行。运行 `scripts/initialize_database.sh`；该脚本先执行无副作用校验，再运行项目唯一 Alembic 链。迁移可以 seed Alembic 版本、权限目录、表注释、默认图标和发布时间模板，但其他业务/运行表必须为空。
 5. 创建首个超级管理员：
 
    ```bash
-   sudo -u zhiju env -i bash -c 'set -a; source /etc/zhiju/zhiju-cloud.env; set +a; PYTHONPATH=/opt/zhiju/current/backend /opt/zhiju/current/.venv/bin/python /opt/zhiju/current/deploy/tencent-cloud/v1/scripts/bootstrap_super_admin.py --login-name cloud-admin --display-name "Cloud Admin"'
+   sudo -u zhiju -g zhiju env -i bash -c 'set -a; source /etc/zhiju/zhiju-cloud.env; set +a; PYTHONPATH=/opt/zhiju/current/backend /opt/zhiju/current/.venv/bin/python /opt/zhiju/current/deploy/tencent-cloud/v1/scripts/bootstrap_super_admin.py --login-name cloud-admin --display-name "Cloud Admin"'
    ```
 
-   密码由 `getpass` 从 TTY/stdin 两次读取。自动化时可临时从秘密管理器注入 `ZHJ_BOOTSTRAP_PASSWORD`；禁止把密码放入 argv、源码或日志。bootstrap 只允许首次创建，已有超管时拒绝重复执行，并仅在无业务引用时删除旧默认租户。
+   `zhiju` 组因 `root:zhiju 0640` 合同可读取配置，systemd 与此 bootstrap 命令使用同一 `zhiju:zhiju` 身份。密码由 `getpass` 从 TTY/stdin 两次读取。自动化时可临时从秘密管理器注入 `ZHJ_BOOTSTRAP_PASSWORD`；禁止把密码放入 argv、源码或日志。bootstrap 通过数据库锁串行化并发首次创建，已有任何用户时拒绝重复执行，并仅在无业务引用时删除旧默认租户。
 6. `systemctl enable --now zhiju`，检查 `curl http://127.0.0.1:19732/api/health` 中本地数据库健康。只有健康后才执行 `certbot --nginx -d DOMAIN`，然后从外部访问 HTTPS 并验收登录。
 
 systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。Nginx 是唯一公网入口，`client_max_body_size 1024m` 适配 100–200 张图片的批量上传；`/api/v3/events/stream` 使用 HTTP/1.1、关闭 buffering/cache 并保持长读超时，以支持 SSE。
