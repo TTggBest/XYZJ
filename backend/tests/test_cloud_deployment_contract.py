@@ -272,6 +272,19 @@ def test_web_service_environment_has_no_migration_credentials() -> None:
     assert "zhiju-app.env" in bootstrap and "zhiju-admin.env" in bootstrap
 
 
+def test_cloud_runbook_configures_web_youtube_oauth_without_studio_secrets() -> None:
+    app_env = (DEPLOYMENT_ROOT / "zhiju-app.env.example").read_text(encoding="utf-8")
+    runbook = (DEPLOYMENT_ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "ZHJ_YOUTUBE_OAUTH_CLIENT_ID=" in app_env
+    assert "ZHJ_YOUTUBE_OAUTH_CLIENT_SECRET=" in app_env
+    assert "ZHJ_YOUTUBE_OAUTH_REDIRECT_URI=https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback" in app_env
+    assert "ZHJ_OAUTH_ENCRYPTION_KEY=" in app_env
+    assert "Web 应用" in runbook
+    assert "Studio" in runbook
+    assert "不要复用" in runbook
+
+
 def test_deployment_validator_catches_public_uvicorn_and_missing_sse_settings(
     tmp_path: Path,
 ) -> None:

@@ -17,6 +17,12 @@
    bootstrap 必须以 root 一次性运行，它自行读取 `/etc/zhiju/zhiju-app.env` 和 root-only `/etc/zhiju/zhiju-admin.env`；不要把管理配置改成服务用户可读。密码由 `getpass` 从 TTY/stdin 两次读取。自动化时可临时从秘密管理器注入 `ZHJ_BOOTSTRAP_PASSWORD`；禁止把密码放入 argv、源码或日志。bootstrap 通过数据库锁串行化并发首次创建，已有任何用户时拒绝重复执行，并仅在无业务引用时删除旧默认租户。
 6. `systemctl enable --now zhiju`，检查 `curl http://127.0.0.1:19732/api/health` 中本地数据库健康。只有健康后才执行 `certbot --nginx -d DOMAIN`，然后从外部访问 HTTPS 并验收登录。
 
+## 云端 YouTube 授权
+
+在 Google Cloud 控制台创建类型为“Web 应用”的 OAuth 2.0 客户端：授权来源填写 `https://xyzj.chronaraxy.com`，授权回调固定填写 `https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback`。把客户端 ID、客户端 Secret 和回调地址写入 `/etc/zhiju/zhiju-app.env`；另生成一枚 Fernet 密钥写入 `ZHJ_OAUTH_ENCRYPTION_KEY`，用于加密数据库中的刷新令牌。四项配置由 `root:zhiju 0640` 的环境文件提供，不写入源码或数据库明文字段。
+
+云端不要复用 Studio 钥匙串中的 installed/macOS OAuth 凭证。配置完成并重启服务后，频道页显示“授权并导入频道”：Google 授权成功后自动读取账号可管理的全部 YouTube 频道，用户多选频道，再补充目标国家和默认题材。国家选择自动推荐语言和时区，二者仍可编辑。
+
 systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。`ProtectSystem=strict` 下，源码和 venv 保持只读；systemd 单独创建 `/run/zhiju` 并设为 `TMPDIR`，运行包构建/下载只在该受控临时目录生成文件，每次启动前会以 `zhiju` 身份执行无数据库写入探测。Nginx 是唯一公网入口，`client_max_body_size 1024m` 适配 100–200 张图片的批量上传；`/api/v3/events/stream` 使用 HTTP/1.1、关闭 buffering/cache 并保持长读超时，以支持 SSE。
 
 ## 更新
@@ -33,6 +39,6 @@ systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。`ProtectSystem=strict` 下，�
 
 ## macOS-only 能力边界
 
-Studio/代码机默认 `ZHJ_DEPLOYMENT=local`，原有 macOS 钥匙串、本机 OAuth 回调、`sips`/`iconutil` 桌面图标和 `.app` 行为保持不变。在 `cloud` 模式下，YouTube 钥匙串/本机 OAuth 以及 macOS 桌面图标写入 API 会明确返回 HTTP 501，不调用 macOS 命令，不伪装成功。云端还会在任何迁移之前以 HTTP 403 拒绝数据库环境切换。
+Studio/代码机默认 `ZHJ_DEPLOYMENT=local`，原有 macOS 钥匙串、本机 OAuth 回调、`sips`/`iconutil` 桌面图标和 `.app` 行为保持不变。在 `cloud` 模式下，YouTube 改用服务器环境变量、HTTPS 回调和数据库密文令牌，不调用 macOS 钥匙串；macOS 桌面图标写入 API 仍会明确返回 HTTP 501。云端还会在任何迁移之前以 HTTP 403 拒绝数据库环境切换。
 
 云端 bootstrap 超级管理员不创建浏览器设备或 MAC 绑定；其 `platform_role=super_admin` 足以访问平台管理控制面并创建首个公司。Studio/local 仍同时要求真实 `super_code_machine` 设备信任，原有双条件不变。
