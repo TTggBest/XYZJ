@@ -285,6 +285,12 @@ def test_cloud_runbook_configures_web_youtube_oauth_without_studio_secrets() -> 
     assert "不要复用" in runbook
 
 
+def test_cloud_runtime_installs_oauth_encryption_dependency() -> None:
+    requirements = (ROOT / "requirements-runtime.txt").read_text(encoding="utf-8")
+
+    assert "cryptography>=45,<47" in requirements
+
+
 def test_deployment_validator_catches_public_uvicorn_and_missing_sse_settings(
     tmp_path: Path,
 ) -> None:
