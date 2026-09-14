@@ -280,11 +280,19 @@
   }
 
   async function showChannels() {
-    const [channels, logoProfiles, oauthStatus] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles"), api("/settings/youtube-oauth")]);
+    const [channels, logoProfiles, oauthStatus] = await Promise.all([
+      api("/channels/overview"),
+      api("/channels/logo-profiles"),
+      api("/settings/youtube-oauth").catch(error => {
+        if (error.status === 501) return { unavailable: true, configured: false, can_manage: false };
+        throw error;
+      })
+    ]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
     const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
-    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
+    const oauthHint = oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : "";
+    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存${oauthHint}`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
   }
   function channelLogoForm(channel) {
     return `<form class="form-grid" id="channelLogoForm"><input type="hidden" name="channel_id" value="${esc(channel.channel_id)}"><div class="field field-wide"><label>频道</label><input class="input" value="${esc(channel.display_name)}" disabled></div><div class="field"><label>左 Logo</label><input class="input" type="file" name="left_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field"><label>右 Logo</label><input class="input" type="file" name="right_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field field-wide"><label>tem 模板图</label><input class="input" type="file" name="template" accept="image/png,image/jpeg,image/webp" required></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("wand-sparkles")} 上传并自动校准</button></div></form>`;

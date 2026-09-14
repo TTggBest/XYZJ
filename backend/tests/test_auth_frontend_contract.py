@@ -621,6 +621,30 @@ assert(paths.includes('/api/v3/integrations'));assert(paths.includes('/api/v3/se
 """)
 
 
+def test_cloud_channels_keep_rendering_when_local_youtube_oauth_is_unavailable():
+    run_node(APP_FIXTURE + """
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker","deployment":"cloud"}');
+ if(path==='/api/v3/channels/overview')return new Response(JSON.stringify([{
+  channel_id:'channel-1',original_name:'云端测试频道',operational_name:'云端测试频道',
+  youtube_channel_id:'UC-cloud-test',default_language:'zh-CN',daily_publish_count:1,
+  authorized_account_count:0,status:'active',youtube_avatar_url:null
+ }]));
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"detail":"云端部署不支持依赖 macOS 钥匙串和本机回调的功能"}',{status:501});
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/频道清单/);assert.match(html,/云端测试频道/);
+assert.match(html,/云端 YouTube 授权尚未接入/);assert.doesNotMatch(html,/数据读取失败/);
+assert(paths.includes('/api/v3/channels/overview'));assert(paths.includes('/api/v3/settings/youtube-oauth'));
+""")
+
+
 def test_cloud_super_without_company_is_sent_to_account_center_from_settings():
     run_node(APP_FIXTURE + """
 serverUser={...superUser,tenant_id:null,current_tenant:null,switchable_tenants:[],device:null,
