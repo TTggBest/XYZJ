@@ -79,7 +79,7 @@ await auth.resolveBootstrap(async()=>deviceLessSuper);
 assert.equal(auth.access().platform,false);assert.equal(auth.canView('settings','builder'),false);
 auth.setDeployment('cloud');
 assert.equal(auth.access().platform,true);assert.equal(auth.access().tenants,true);
-assert.equal(auth.canView('settings','builder'),true);assert.equal(auth.current().device,null);
+assert.equal(auth.canView('settings','worker'),true);assert.equal(auth.current().device,null);
 await auth.resolveBootstrap(async()=>({...principal,tenant_id:null,current_tenant:null,membership_role:null,device:null}));
 assert.equal(auth.access().platform,false);assert.equal(auth.access().tenants,false);
 auth.setDeployment('local');await auth.resolveBootstrap(async()=>deviceLessSuper);
@@ -93,7 +93,7 @@ await auth.resolveBootstrap(async()=>({...principal,device:superUser.device}));
 assert.equal(auth.canView('settings','builder'),false);assert.equal(auth.canView('logs','builder'),false);
 await auth.resolveBootstrap(async()=>({...superUser,permissions:[...superUser.permissions,'platform.environment.manage','audit.read']}));
 assert.equal(auth.canView('settings','builder'),true);assert.equal(auth.canView('logs','builder'),true);
-assert.equal(auth.canView('skills','worker'),false);
+assert.equal(auth.canView('settings','worker'),false);assert.equal(auth.canView('skills','worker'),false);
 """)
 
 
@@ -468,7 +468,7 @@ const page=start(process.argv[1],auth,async path=>{
  paths.push(path);
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(cloudAdmin));
  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"environment":"production","web_port":19732}');
- if(path==='/api/v3/realtime/config')return new Response('{"enabled":true,"device_role":"builder","deployment":"cloud","stream_url":"/api/v3/events/stream"}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":true,"device_role":"worker","deployment":"cloud","stream_url":"/api/v3/events/stream"}');
  if(path==='/api/v3/platform/tenants')return new Response('[]');
  throw new Error(path);
 });
@@ -477,7 +477,8 @@ assert.equal(paths[0],'/api/v3/auth/me');
 for(const path of ['/api/health','/api/v3/realtime/config','/api/v3/platform/tenants'])assert(paths.includes(path));
 assert.equal(paths.includes('/api/v3/events/stream'),false);
 assert.equal(auth.current().device,null);assert.equal(auth.access().platform,true);
-assert.equal(auth.canView('settings','builder'),true);
+assert.equal(auth.canView('settings','worker'),true);
+assert.equal(page.nodes.get('nav-settings').hidden,false);
 assert.match(page.nodes.get('viewRoot').innerHTML,/data-account-action="new-tenant"/);
 assert.match(page.nodes.get('viewRoot').innerHTML,/创建公司/);
 assert.equal(page.nodes.get('pageTitle').textContent,'账号中心');
@@ -499,6 +500,25 @@ for(let i=0;i<6;i++)await page.tick();
 assert.match(page.nodes.get('viewRoot').innerHTML,/没有可管理的公司|未获得公司成员权限/);
 assert.equal(paths.includes('/api/v3/platform/tenants'),false);
 assert.equal(auth.access().platform,false);
+""")
+
+
+def test_super_without_tenant_shows_blocking_error_when_runtime_config_fails():
+    run_node("""
+const cloudAdmin={...superUser,tenant_id:null,current_tenant:null,device:null,switchable_tenants:[]};
+const paths=[];const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const page=start(process.argv[1],auth,async path=>{
+ paths.push(path);
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(cloudAdmin));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"environment":"production","web_port":19732}');
+ if(path==='/api/v3/realtime/config')return new Response('{"detail":"runtime unavailable"}',{status:503});
+ throw new Error(path);
+});
+for(let i=0;i<6;i++)await page.tick();
+assert.match(page.nodes.get('viewRoot').innerHTML,/系统配置读取失败/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/请刷新重试/);
+assert.doesNotMatch(page.nodes.get('viewRoot').innerHTML,/没有可管理的公司|未获得公司成员权限/);
+assert.equal(paths.includes('/api/v3/platform/tenants'),false);
 """)
 
 

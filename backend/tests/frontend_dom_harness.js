@@ -18,10 +18,19 @@ function target(id = "") {
 
 function start(root, auth, fetcher, browserGlobals = {}) {
   const nodes = new Map();
-  for (const match of fs.readFileSync(root + "/index.html", "utf8").matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)) {
+  const html = fs.readFileSync(root + "/index.html", "utf8");
+  for (const match of html.matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)) {
     const item = target(match[1]); item.hidden = /\bhidden\b/.test(match[0]); nodes.set(item.id, item);
   }
-  const document = Object.assign(target("document"), { visibilityState: "visible", getElementById: id => nodes.get(id), createElement: () => target(), body: target("body") });
+  const builderItems = [...html.matchAll(/<[^>]+\bdata-builder-only\b[^>]*>/g)].map(match => {
+    const view = match[0].match(/\bdata-view="([^"]+)"/)?.[1] || "";
+    const item = target(`nav-${view}`); item.dataset.view = view; item.hidden = /\bhidden\b/.test(match[0]);
+    nodes.set(item.id, item); return item;
+  });
+  const document = Object.assign(target("document"), {
+    visibilityState: "visible", getElementById: id => nodes.get(id), createElement: () => target(), body: target("body"),
+    querySelectorAll: selector => selector === "[data-builder-only]" ? builderItems : [],
+  });
   const window = Object.assign(target("window"), {
     ZhijuAuthState: auth, ZhijuAccountCenter: require(root + "/assets/account-center.js"),
     ZhijuOperationsPageData: require(root + "/assets/operations-page-data.js"),
