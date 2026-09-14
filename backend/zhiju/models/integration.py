@@ -109,9 +109,9 @@ class YouTubeChannelImportSession(TenantOwnedMixin, IdMixin, TimestampMixin, Bas
         String(36), comment="回调完成后的Google OAuth授权ID",
     )
     opaque_state: Mapped[str] = mapped_column(String(128), nullable=False, comment="一次性OAuth state")
-    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending_oauth")
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending_oauth", comment="导入会话状态")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="会话过期时间")
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="OAuth回调完成时间")
 
 
 class YouTubeChannelImportCandidate(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
@@ -127,15 +127,15 @@ class YouTubeChannelImportCandidate(TenantOwnedMixin, IdMixin, TimestampMixin, B
     tenant_id: Mapped[str] = mapped_column(
         String(36), index=True, nullable=False, comment="所属主账号ID",
     )
-    import_session_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    youtube_channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    title: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text)
-    avatar_url: Mapped[str | None] = mapped_column(String(1000))
-    custom_url: Mapped[str | None] = mapped_column(String(500))
-    youtube_country_code: Mapped[str | None] = mapped_column(String(2))
-    youtube_default_language: Mapped[str | None] = mapped_column(String(20))
-    uploads_playlist_id: Mapped[str | None] = mapped_column(String(64))
+    import_session_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="所属导入会话ID")
+    youtube_channel_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="YouTube频道ID")
+    title: Mapped[str] = mapped_column(String(255), nullable=False, comment="YouTube频道名称")
+    description: Mapped[str | None] = mapped_column(Text, comment="YouTube频道说明")
+    avatar_url: Mapped[str | None] = mapped_column(String(1000), comment="YouTube频道头像地址")
+    custom_url: Mapped[str | None] = mapped_column(String(500), comment="YouTube频道自定义地址")
+    youtube_country_code: Mapped[str | None] = mapped_column(String(2), comment="YouTube登记国家代码")
+    youtube_default_language: Mapped[str | None] = mapped_column(String(20), comment="YouTube登记默认语言")
+    uploads_playlist_id: Mapped[str | None] = mapped_column(String(64), comment="YouTube上传播放列表ID")
 
 
 class OAuthTokenSecret(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
@@ -150,9 +150,9 @@ class OAuthTokenSecret(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     tenant_id: Mapped[str] = mapped_column(
         String(36), index=True, nullable=False, comment="所属主账号ID",
     )
-    oauth_grant_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    encrypted_payload: Mapped[str] = mapped_column(Text, nullable=False)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    oauth_grant_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="Google OAuth授权ID")
+    encrypted_payload: Mapped[str] = mapped_column(Text, nullable=False, comment="加密后的OAuth令牌")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="令牌预计失效时间")
 
 
 configure_tenant_relations(

@@ -300,7 +300,7 @@
     const addLabel = cloudImport ? "授权并导入频道" : "新增频道";
     const oauthHint = cloudImport
       ? (oauthStatus.configured ? " · 频道身份由 YouTube 授权自动读取" : " · 管理员尚未配置云端 YouTube OAuth")
-      : (oauthStatus.unavailable ? " · 当前环境不支持 YouTube 授权" : "");
+      : (oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : "");
     const addButton = cloudImport
       ? `<button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 授权并导入频道</button>`
       : `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`;
