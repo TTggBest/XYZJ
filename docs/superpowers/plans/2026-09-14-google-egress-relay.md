@@ -224,19 +224,19 @@ git commit -m "feat: add managed Google SSH tunnel"
 - Consumes: Tasks 1–3 commits
 - Produces: tested deployment candidate on `feature/tencent-cloud-deployment`
 
-- [ ] **Step 1: Run all backend tests**
+- [x] **Step 1: Run all backend tests**
 
 Run: `.venv/bin/pytest backend/tests -q`
 
 Expected: all tests PASS.
 
-- [ ] **Step 2: Run exact deployment static checks**
+- [x] **Step 2: Run exact deployment static checks**
 
 Run: `git diff --check HEAD~3..HEAD && bash -n deploy/google-egress-relay/*.sh deploy/tencent-cloud/v1/scripts/*google_tunnel.sh`
 
 Expected: no output and exit 0.
 
-- [ ] **Step 3: Inspect the final change set**
+- [x] **Step 3: Inspect the final change set**
 
 Run: `git status --short && git log -4 --oneline`
 
@@ -253,23 +253,23 @@ Expected: clean worktree with the design, application proxy, relay package, and 
 - Consumes: verified candidate and a newly generated dedicated SSH keypair
 - Produces: live Tencent `ZHJ_GOOGLE_PROXY_URL=http://127.0.0.1:17888`
 
-- [ ] **Step 1: Capture overseas baseline that can detect collateral changes**
+- [x] **Step 1: Capture overseas baseline that can detect collateral changes**
 
 Run read-only commands for `docker ps -a`, `ss -lntup`, `systemctl is-active openvpn`, the three existing PHP listeners, and `/opt` directory names. If installation changes any existing entry, stop and restore only the newly added relay resources.
 
-- [ ] **Step 2: Generate a dedicated tunnel key and install the relay**
+- [x] **Step 2: Generate a dedicated tunnel key and install the relay**
 
 Generate an Ed25519 key with no passphrase in a temporary directory, copy only the public key plus versioned relay package to the overseas host, then run `install-relay.sh`. Do not edit root's existing `authorized_keys`.
 
-- [ ] **Step 3: Verify overseas isolation**
+- [x] **Step 3: Verify overseas isolation**
 
 Verify `127.0.0.1:17888` listens, `38.244.7.7:17888` is unreachable externally, the container is healthy, the restricted user cannot receive an interactive shell, and existing OpenVPN/PHP processes and ports match Step 1.
 
-- [ ] **Step 4: Back up Tencent Cloud and install the tunnel**
+- [x] **Step 4: Back up Tencent Cloud and install the tunnel**
 
 Run the existing database backup script before changing the application release. Install the private key, pinned host key, tunnel unit, and `ZHJ_GOOGLE_PROXY_URL=http://127.0.0.1:17888`; do not copy any OAuth secret to the overseas host.
 
-- [ ] **Step 5: Deploy the verified application release**
+- [x] **Step 5: Deploy the verified application release**
 
 Set `release_id="google-egress-$(date -u +%Y%m%d%H%M%S)"` and create the immutable release at `/opt/zhiju/releases/$release_id` using the existing Tencent deployment contract. Install dependencies as root, validate as `zhiju`, switch `/opt/zhiju/current`, and restart `zhiju`. Do not migrate Studio or use `zhiju_prod`.
 
@@ -277,6 +277,6 @@ Set `release_id="google-egress-$(date -u +%Y%m%d%H%M%S)"` and create the immutab
 
 Verify the tunnel systemd unit, local proxy reachability to Google, `/api/health`, HTTPS login, OAuth callback, channel discovery, and a YouTube read request. Confirm proxy logs contain no token/body and Studio remains unchanged.
 
-- [ ] **Step 7: Record exact removal procedure**
+- [x] **Step 7: Record exact removal procedure**
 
 Record the live key fingerprint, container image ID, installed paths, and exact two uninstall commands in the deployment handoff. Do not record private-key contents, passwords, OAuth secrets, or tokens.
