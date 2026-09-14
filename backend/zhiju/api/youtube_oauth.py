@@ -1,4 +1,5 @@
 import json
+import logging
 from html import escape
 from pathlib import Path
 
@@ -56,6 +57,7 @@ from zhiju.services.youtube_channel_import import (
 
 
 router = APIRouter(prefix="/v3", tags=["youtube-oauth"])
+logger = logging.getLogger(__name__)
 callback_relay = OAuthCallbackRelay()
 OAUTH_STATE_TTL_SECONDS = 600
 
@@ -304,6 +306,7 @@ def get_youtube_oauth_callback(
 ) -> HTMLResponse:
     settings = get_settings()
     if getattr(settings, "deployment", "local") == "cloud":
+        failure_stage = "state_lookup"
         try:
             import_context = session.scalar(
                 select(YouTubeChannelImportSession).where(
@@ -317,12 +320,16 @@ def get_youtube_oauth_callback(
             if not code:
                 raise ValueError("Google回调缺少授权码")
             config = cloud_oauth_client_config(settings)
+            failure_stage = "token_exchange"
             token = exchange_authorization_code(config, code)
             access_token = str(token.get("access_token") or "")
             if not access_token:
                 raise ValueError("Google未返回访问令牌")
+            failure_stage = "google_identity"
             identity = fetch_google_identity(access_token)
+            failure_stage = "youtube_channels"
             youtube_payload = fetch_youtube_channels(access_token)
+            failure_stage = "persist_import"
             with TenantSession(
                 bind=session.get_bind(), autoflush=False, expire_on_commit=False,
                 info={
@@ -350,6 +357,11 @@ def get_youtube_oauth_callback(
             )
         except (ConflictError, RuntimeError, ValueError) as exc:
             session.rollback()
+            logger.warning(
+                "Cloud YouTube OAuth callback failed at %s: %s",
+                failure_stage,
+                exc,
+            )
             return _callback_page(False, str(exc))
 
     if settings.device_role != "builder":

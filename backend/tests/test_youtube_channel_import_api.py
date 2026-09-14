@@ -1,4 +1,5 @@
 import json
+import logging
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -134,3 +135,42 @@ def test_cloud_callback_completes_import_and_notifies_opener(monkeypatch) -> Non
     assert response.status_code == 200
     assert "youtube-channel-import-ready" in response.body.decode()
     assert "import-a" in response.body.decode()
+
+
+def test_cloud_callback_logs_safe_failure_stage(monkeypatch, caplog) -> None:
+    settings = SimpleNamespace(
+        deployment="cloud",
+        youtube_oauth_configured=True,
+        youtube_oauth_client_id="client-id",
+        youtube_oauth_client_secret="client-secret",
+        youtube_oauth_redirect_uri="https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback",
+        oauth_encryption_key="encryption-key",
+    )
+    context = SimpleNamespace(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        auth_session_id="auth-session-a",
+    )
+    outer_session = SimpleNamespace(
+        scalar=lambda query: context,
+        rollback=lambda: None,
+    )
+    monkeypatch.setattr(youtube_oauth_api, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        youtube_oauth_api,
+        "exchange_authorization_code",
+        lambda config, code: (_ for _ in ()).throw(ValueError("Google OAuth 请求失败：HTTP 400")),
+    )
+
+    with caplog.at_level(logging.WARNING, logger=youtube_oauth_api.__name__):
+        response = youtube_oauth_api.get_youtube_oauth_callback(
+            state="state-secret",
+            code="authorization-code-secret",
+            session=outer_session,
+        )
+
+    assert response.status_code == 400
+    assert "token_exchange" in caplog.text
+    assert "Google OAuth 请求失败：HTTP 400" in caplog.text
+    assert "state-secret" not in caplog.text
+    assert "authorization-code-secret" not in caplog.text
