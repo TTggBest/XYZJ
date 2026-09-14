@@ -645,6 +645,29 @@ assert(paths.includes('/api/v3/channels/overview'));assert(paths.includes('/api/
 """)
 
 
+def test_cloud_channel_import_opens_google_in_standard_browser_tab():
+    run_node(APP_FIXTURE + """
+serverUser={...superUser,permissions:[...superUser.permissions,'channel.manage']};
+const openCalls=[];
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker","deployment":"cloud"}');
+ if(path==='/api/v3/channels/overview')return new Response('[]');
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true,"channel_import_enabled":true}');
+ if(path==='/api/v3/youtube/channel-imports/start')return new Response('{"authorization_url":"https://accounts.google.test/auth","expires_in_seconds":600}');
+ return defaultResponse(path);
+},{windowOpen:(...args)=>{openCalls.push(args);return {focus(){}};}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+await clickAction(page,'start-youtube-channel-import');
+await settle(page);
+assert(paths.includes('/api/v3/youtube/channel-imports/start'));
+assert.deepEqual(openCalls,[['https://accounts.google.test/auth','_blank']]);
+""")
+
+
 def test_cloud_super_without_company_is_sent_to_account_center_from_settings():
     run_node(APP_FIXTURE + """
 serverUser={...superUser,tenant_id:null,current_tenant:null,switchable_tenants:[],device:null,

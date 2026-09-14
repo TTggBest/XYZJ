@@ -1460,9 +1460,9 @@
         if (!state.oauthStatus?.configured) throw new Error("云端 YouTube OAuth 尚未配置，请联系超级管理员");
         button.disabled = true;
         const authorization = await api("/youtube/channel-imports/start", { method: "POST" });
-        const popup = window.open(authorization.authorization_url, "zhiju-youtube-channel-import", "popup,width=680,height=780");
-        if (!popup) { button.disabled = false; throw new Error("浏览器阻止了授权窗口，请允许此站点打开弹窗"); }
-        popup.focus();
+        const authTab = window.open(authorization.authorization_url, "_blank");
+        if (!authTab) { button.disabled = false; throw new Error("浏览器阻止了授权页面，请允许此站点打开新标签页"); }
+        authTab.focus();
       }
       else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
       else if (action === "add-drama") openModal("新增剧目", dramaForm());
