@@ -1,0 +1,19 @@
+[Unit]
+Description=Xiaoyu Zhiju Google egress SSH tunnel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zhiju
+Group=zhiju
+ExecStart=/usr/bin/ssh -NT -p 63785 -i /etc/zhiju/google-egress_ed25519 -o BatchMode=yes -o PasswordAuthentication=no -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/zhiju/google-egress_known_hosts -o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:17888:127.0.0.1:17888 zhiju-egress@38.244.7.7
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

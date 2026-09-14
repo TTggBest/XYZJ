@@ -520,6 +520,38 @@ def test_cloud_runbook_covers_operational_and_macos_boundaries() -> None:
         assert topic in runbook
 
 
+def test_google_tunnel_is_loopback_only_and_fail_closed() -> None:
+    unit = (DEPLOYMENT_ROOT / "zhiju-google-tunnel.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "-L 127.0.0.1:17888:127.0.0.1:17888" in unit
+    assert "ExitOnForwardFailure=yes" in unit
+    assert "StrictHostKeyChecking=yes" in unit
+    assert "Restart=always" in unit
+    assert "User=zhiju" in unit
+    assert "38.244.7.7" in unit
+    assert "63785" in unit
+
+
+def test_google_tunnel_install_and_uninstall_are_exact() -> None:
+    installer = (
+        DEPLOYMENT_ROOT / "scripts" / "install_google_tunnel.sh"
+    ).read_text(encoding="utf-8")
+    uninstaller = (
+        DEPLOYMENT_ROOT / "scripts" / "uninstall_google_tunnel.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "zhiju-google-tunnel.service" in installer
+    assert "google-egress_ed25519" in installer
+    assert "google-egress_known_hosts" in installer
+    assert "systemctl enable --now zhiju-google-tunnel.service" in installer
+    assert "systemctl disable --now zhiju-google-tunnel.service" in uninstaller
+    assert 'rm -f -- "/etc/zhiju/google-egress_ed25519"' in uninstaller
+    assert 'rm -f -- "/etc/zhiju/google-egress_known_hosts"' in uninstaller
+    assert "zhiju.service" not in uninstaller
+
+
 def test_environment_file_permissions_match_service_and_bootstrap_user() -> None:
     app_env_instructions = (DEPLOYMENT_ROOT / "zhiju-app.env.example").read_text(
         encoding="utf-8"

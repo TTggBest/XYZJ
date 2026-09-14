@@ -23,6 +23,30 @@
 
 云端不要复用 Studio 钥匙串中的 installed/macOS OAuth 凭证。配置完成并重启服务后，频道页显示“授权并导入频道”：Google 授权成功后自动读取账号可管理的全部 YouTube 频道，用户多选频道，再补充目标国家和默认题材。国家选择自动推荐语言和时区，二者仍可编辑。
 
+### Google 海外出口
+
+当腾讯云无法稳定访问 Google 服务时，可安装项目的独立海外出口。海外代理只监听对方本机 `127.0.0.1:17888`；腾讯云用 `zhiju-google-tunnel.service` 建立加密隐道，再在 `/etc/zhiju/zhiju-app.env` 设置：
+
+```bash
+ZHJ_GOOGLE_PROXY_URL=http://127.0.0.1:17888
+```
+
+安装隐道时传入专用私钥和经现场校验的 SSH host key：
+
+```bash
+sudo deploy/tencent-cloud/v1/scripts/install_google_tunnel.sh \
+  /secure/path/google-egress_ed25519 \
+  /secure/path/google-egress_known_hosts
+```
+
+替换为 AWS 并验证新隐道后，用精确卸载脚本删除旧隐道：
+
+```bash
+sudo deploy/tencent-cloud/v1/scripts/uninstall_google_tunnel.sh
+```
+
+海外节点不保存 OAuth Client Secret、Token 或频道数据。此代理只用于 Google/YouTube 服务端请求，不改变飞书、数据库、图片或其他请求的出口。
+
 systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。`ProtectSystem=strict` 下，源码和 venv 保持只读；systemd 单独创建 `/run/zhiju` 并设为 `TMPDIR`，运行包构建/下载只在该受控临时目录生成文件，每次启动前会以 `zhiju` 身份执行无数据库写入探测。Nginx 是唯一公网入口，`client_max_body_size 1024m` 适配 100–200 张图片的批量上传；`/api/v3/events/stream` 使用 HTTP/1.1、关闭 buffering/cache 并保持长读超时，以支持 SSE。
 
 ## 更新
