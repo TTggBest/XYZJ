@@ -5,7 +5,7 @@
 ## 首次部署
 
 1. 准备 Ubuntu 24.04 LTS 主机、域名 A/AAAA 记录和仅对外开放 22/80/443 的防火墙。MySQL 和 Uvicorn 不对公网开放。
-2. 把经审核的应用源码放到服务器临时目录，以 root 运行 `scripts/provision_ubuntu.sh APP_SOURCE DOMAIN`。它安装 Python 3.12、MySQL、Nginx 和 Certbot，建立 `zhiju` 系统用户和版本 release 目录。`/opt/zhiju/releases` 及每个 release 均由 `root:zhiju` 所有：虚拟环境和依赖由 root 在切换 `current` 前安装完成，服务用户只有读/执行权限。服务只能写 `/var/lib/zhiju/shared` 中声明的运行数据；备份目录由 root 管理。
+2. 把经审核的应用源码放到服务器临时目录，以 root 运行 `scripts/provision_ubuntu.sh APP_SOURCE DOMAIN`。它安装 Python 3.12、MySQL、Nginx 和 Certbot，建立 `zhiju` 系统用户和版本 release 目录。`/opt/zhiju/releases` 及每个 release 均由 `root:zhiju` 所有：虚拟环境和依赖由 root 先安装，再统一设为目录 `755`、普通文件 `644`、可执行文件 `755`，并以 `sudo -u zhiju` 真实执行 venv Python 和 Uvicorn 入口后才切换 `current`。服务用户可读/执行但不可写 release。服务只能写 `/var/lib/zhiju/shared` 中声明的运行数据；备份目录由 root 管理。
 3. 在 MySQL 本机 root socket 中创建空库 `zhiju_cloud`、仅具业务 DML 权限的 `zhiju_app` 账号和可执行 Alembic DDL 的 `zhiju_migrator` 账号。云端两个 URL 只允许 `127.0.0.1`、`::1` 或规范化的 `localhost` TCP；其他 IP、DNS 别名和 Unix socket 都会在连接前被拒绝。
 4. 分别准备两份配置并替换 `CHANGE_ME`：用 `install -o root -g zhiju -m 0640 <prepared-app-env> /etc/zhiju/zhiju-app.env` 安装 `zhiju-app.env.example` 对应的常驻配置，它只包含 DML 账号和 Web 运行参数；用 `install -o root -g root -m 0600 <prepared-admin-env> /etc/zhiju/zhiju-admin.env` 安装 `zhiju-admin.env.example` 对应的一次性 DDL 配置。systemd Web 服务只读取 `zhiju-app.env`，无权读取也不会加载 `zhiju-admin.env`。密码不写入 Git、shell 历史或命令行。以 root 运行 `scripts/initialize_database.sh`；该一次性脚本加载两份配置，先执行无副作用校验，再运行项目唯一 Alembic 链。迁移可以 seed Alembic 版本、权限目录、表注释、默认图标和发布时间模板，但其他业务/运行表必须为空。
 5. 创建首个超级管理员：
@@ -17,7 +17,7 @@
    bootstrap 必须以 root 一次性运行，它自行读取 `/etc/zhiju/zhiju-app.env` 和 root-only `/etc/zhiju/zhiju-admin.env`；不要把管理配置改成服务用户可读。密码由 `getpass` 从 TTY/stdin 两次读取。自动化时可临时从秘密管理器注入 `ZHJ_BOOTSTRAP_PASSWORD`；禁止把密码放入 argv、源码或日志。bootstrap 通过数据库锁串行化并发首次创建，已有任何用户时拒绝重复执行，并仅在无业务引用时删除旧默认租户。
 6. `systemctl enable --now zhiju`，检查 `curl http://127.0.0.1:19732/api/health` 中本地数据库健康。只有健康后才执行 `certbot --nginx -d DOMAIN`，然后从外部访问 HTTPS 并验收登录。
 
-systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。Nginx 是唯一公网入口，`client_max_body_size 1024m` 适配 100–200 张图片的批量上传；`/api/v3/events/stream` 使用 HTTP/1.1、关闭 buffering/cache 并保持长读超时，以支持 SSE。
+systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。`ProtectSystem=strict` 下，源码和 venv 保持只读；systemd 单独创建 `/run/zhiju` 并设为 `TMPDIR`，运行包构建/下载只在该受控临时目录生成文件，每次启动前会以 `zhiju` 身份执行无数据库写入探测。Nginx 是唯一公网入口，`client_max_body_size 1024m` 适配 100–200 张图片的批量上传；`/api/v3/events/stream` 使用 HTTP/1.1、关闭 buffering/cache 并保持长读超时，以支持 SSE。
 
 ## 更新
 

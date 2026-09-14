@@ -255,6 +255,12 @@ def test_deployment_validator_catches_public_uvicorn_and_missing_sse_settings(
     admin_env = tmp_path / "zhiju-admin.env.example"
     systemd.write_text(
         "EnvironmentFile=/etc/zhiju/zhiju-app.env\n"
+        "Environment=TMPDIR=/run/zhiju\n"
+        "RuntimeDirectory=zhiju\n"
+        "RuntimeDirectoryMode=0750\n"
+        "ReadWritePaths=/var/lib/zhiju/shared /run/zhiju\n"
+        "ExecStartPre=/opt/zhiju/current/.venv/bin/python -c "
+        '"import tempfile; tempfile.TemporaryFile().close()"\n'
         "ExecStart=/opt/zhiju/current/.venv/bin/uvicorn zhiju.app:app --host 0.0.0.0 --port 19732\n",
         encoding="utf-8",
     )
@@ -493,13 +499,27 @@ def test_release_tree_is_root_owned_read_only_before_current_switch() -> None:
     )
     service = (DEPLOYMENT_ROOT / "zhiju.service").read_text(encoding="utf-8")
 
-    assert "install -d -o root -g zhiju -m 0750 /opt/zhiju/releases" in provision
+    assert "install -d -o root -g zhiju -m 0755 /opt/zhiju/releases" in provision
     assert 'chown -R root:zhiju "$release"' in provision
-    assert 'chmod -R u=rwX,g=rX,o= "$release"' in provision
+    assert 'chmod -R a=rX,u+w "$release"' in provision
     assert "chown -R zhiju:zhiju" not in provision
-    assert provision.index('"$release/.venv/bin/pip" install') < provision.index(
-        'ln -sfn "$release" /opt/zhiju/current'
-    )
+    pip_install = provision.index('"$release/.venv/bin/pip" install')
+    ownership = provision.index('chown -R root:zhiju "$release"')
+    permission_probe = provision.index('sudo -u zhiju -- "$release/.venv/bin/python"')
+    uvicorn_probe = provision.index('sudo -u zhiju -- "$release/.venv/bin/uvicorn"')
+    current_switch = provision.index('ln -sfn "$release" /opt/zhiju/current')
+    assert pip_install < ownership < permission_probe < uvicorn_probe < current_switch
     assert "ProtectSystem=strict" in service
     assert "ReadOnlyPaths=/opt/zhiju" in service
     assert "ReadWritePaths=/var/lib/zhiju/shared" in service
+
+
+def test_systemd_runtime_directory_supports_package_build_and_download_tempfiles() -> None:
+    validate_deployment_artifacts(DEPLOYMENT_ROOT)
+    service = (DEPLOYMENT_ROOT / "zhiju.service").read_text(encoding="utf-8")
+
+    assert "RuntimeDirectory=zhiju" in service
+    assert "RuntimeDirectoryMode=0750" in service
+    assert "Environment=TMPDIR=/run/zhiju" in service
+    assert "ReadWritePaths=/var/lib/zhiju/shared /run/zhiju" in service
+    assert "ExecStartPre=" in service and "TemporaryFile" in service

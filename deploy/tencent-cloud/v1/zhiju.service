@@ -10,13 +10,17 @@ Group=zhiju
 WorkingDirectory=/opt/zhiju/current
 EnvironmentFile=/etc/zhiju/zhiju-app.env
 Environment=PYTHONPATH=/opt/zhiju/current/backend
+Environment=TMPDIR=/run/zhiju
+RuntimeDirectory=zhiju
+RuntimeDirectoryMode=0750
+ExecStartPre=/opt/zhiju/current/.venv/bin/python -c "import tempfile; tempfile.TemporaryFile().close()"
 ExecStart=/opt/zhiju/current/.venv/bin/uvicorn zhiju.app:app --host 127.0.0.1 --port 19732 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=5
 UMask=0077
 ProtectSystem=strict
 ReadOnlyPaths=/opt/zhiju
-ReadWritePaths=/var/lib/zhiju/shared
+ReadWritePaths=/var/lib/zhiju/shared /run/zhiju
 
 [Install]
 WantedBy=multi-user.target

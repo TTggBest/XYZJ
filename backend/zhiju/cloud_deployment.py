@@ -76,6 +76,16 @@ def validate_deployment_artifacts(root: Path) -> dict[str, object]:
         raise ValueError("systemd must load only the cloud app environment")
     if "zhiju-admin.env" in systemd or "ZHJ_MIGRATION_DATABASE_URL" in systemd:
         raise ValueError("systemd Web process must not receive migration credentials")
+    runtime_requirements = (
+        "RuntimeDirectory=zhiju",
+        "RuntimeDirectoryMode=0750",
+        "Environment=TMPDIR=/run/zhiju",
+        "ReadWritePaths=/var/lib/zhiju/shared /run/zhiju",
+        "ExecStartPre=/opt/zhiju/current/.venv/bin/python -c",
+        "tempfile.TemporaryFile().close()",
+    )
+    if any(requirement not in systemd for requirement in runtime_requirements):
+        raise ValueError("systemd must provide and probe a writable runtime directory")
 
     exec_start = next(
         (line for line in systemd.splitlines() if line.strip().startswith("ExecStart=")),
