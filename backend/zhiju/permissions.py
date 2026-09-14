@@ -23,7 +23,11 @@ def require_permission(code: str) -> Callable[..., Principal]:
 def require_super_code_machine(
     principal: Principal = Depends(get_current_principal),
 ) -> Principal:
-    if principal.platform_role != "super_admin" or principal.device_trust_level != "super_code_machine":
+    requires_super_code_machine = get_settings().deployment != "cloud"
+    if principal.platform_role != "super_admin" or (
+        requires_super_code_machine
+        and principal.device_trust_level != "super_code_machine"
+    ):
         raise HTTPException(status_code=403, detail="仅超级代码机上的超级管理员可以执行该操作")
     return principal
 

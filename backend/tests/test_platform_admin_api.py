@@ -12,6 +12,7 @@ from starlette.requests import Request
 from zhiju.app import create_app
 from zhiju.auth_context import get_current_principal
 from zhiju.database import get_db
+import zhiju.permissions as permissions_module
 from zhiju.models import (
     AppUser, AuthEvent, AuthSession, Base, Device, DeviceUserBinding,
     Permission, RolePermission, Tenant, TenantMembership,
@@ -160,6 +161,28 @@ def test_tenant_create_persists_one_separate_owner_and_real_actor(admin):
     assert listing.status_code == 200
     assert {item["id"] for item in listing.json()} == {"tenant", "other-tenant", tenant_id}
     assert response.headers["cache-control"] == listing.headers["cache-control"] == "no-store"
+
+
+def test_cloud_bootstrap_super_admin_can_create_first_tenant_without_device(
+    admin, monkeypatch
+):
+    monkeypatch.setattr(
+        permissions_module, "get_settings", lambda: SimpleNamespace(deployment="cloud")
+    )
+    with Session(admin.engine) as db:
+        session = db.get(AuthSession, "session-super")
+        session.tenant_id = None
+        session.device_id = None
+        db.commit()
+
+    response = admin.client.post(TENANTS, json=tenant_payload())
+
+    assert response.status_code == 201
+    with Session(admin.engine) as db:
+        created = db.scalar(select(Tenant).where(Tenant.short_name == "new-company"))
+        assert created is not None and created.created_by_user_id == "super"
+        assert db.get(AuthSession, "session-super").device_id is None
+        assert list(db.scalars(select(DeviceUserBinding))) == []
 
 
 @pytest.mark.parametrize("user_id,device_id", [("owner", "super-device"), ("super", "device")])

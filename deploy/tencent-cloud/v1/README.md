@@ -34,3 +34,5 @@ systemd 把 Uvicorn 固定在 `127.0.0.1:19732`。`ProtectSystem=strict` 下，�
 ## macOS-only 能力边界
 
 Studio/代码机默认 `ZHJ_DEPLOYMENT=local`，原有 macOS 钥匙串、本机 OAuth 回调、`sips`/`iconutil` 桌面图标和 `.app` 行为保持不变。在 `cloud` 模式下，YouTube 钥匙串/本机 OAuth 以及 macOS 桌面图标写入 API 会明确返回 HTTP 501，不调用 macOS 命令，不伪装成功。云端还会在任何迁移之前以 HTTP 403 拒绝数据库环境切换。
+
+云端 bootstrap 超级管理员不创建浏览器设备或 MAC 绑定；其 `platform_role=super_admin` 足以访问平台管理控制面并创建首个公司。Studio/local 仍同时要求真实 `super_code_machine` 设备信任，原有双条件不变。

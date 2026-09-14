@@ -18,6 +18,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from zhiju.cloud_deployment import bootstrap_super_admin, validate_deployment_artifacts
+from zhiju.auth_context import Principal
 from zhiju.config import Settings, validate_cloud_database_url
 from zhiju.models import (
     AppIconSetting,
@@ -33,6 +34,8 @@ import zhiju.api.settings as settings_api
 import zhiju.api.youtube_oauth as youtube_oauth_api
 import zhiju.cloud_deployment as cloud_deployment_module
 import zhiju.database as database_module
+import zhiju.permissions as permissions_module
+from zhiju.permissions import require_super_code_machine
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -68,6 +71,24 @@ def test_cloud_web_settings_do_not_require_migration_credentials() -> None:
 
     assert settings.database_url.endswith("/zhiju_cloud")
     assert settings.migration_database_url is None
+
+
+def test_cloud_platform_control_accepts_bootstrap_admin_without_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(permissions_module, "get_settings", cloud_settings)
+    principal = Principal(
+        user_id="cloud-admin",
+        tenant_id=None,
+        membership_role=None,
+        platform_role="super_admin",
+        device_id=None,
+        device_trust_level="normal",
+        permissions=frozenset({"platform.tenant.manage"}),
+    )
+
+    assert require_super_code_machine(principal) is principal
+    assert principal.device_id is None
 
 
 @pytest.mark.parametrize(

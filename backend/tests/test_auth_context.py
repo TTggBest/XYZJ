@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from zhiju import auth_context
+import zhiju.permissions as permissions_module
 from zhiju.auth_context import Principal, get_current_principal, get_optional_principal
 from zhiju.database import get_db
 from zhiju.models import (
@@ -245,7 +246,12 @@ def test_viewer_can_read_but_cannot_write_or_match_permission_prefix(context):
     ("super_admin", "production_device", False),
     ("super_admin", "super_code_machine", True),
 ])
-def test_super_gate_requires_both_user_role_and_device_trust(context, platform_role, trust_level, allowed):
+def test_super_gate_requires_both_user_role_and_device_trust(
+    context, platform_role, trust_level, allowed, monkeypatch
+):
+    monkeypatch.setattr(
+        permissions_module, "get_settings", lambda: SimpleNamespace(deployment="local")
+    )
     context.user.platform_role = platform_role
     context.device.trust_level = trust_level
     context.db.commit()
@@ -257,6 +263,43 @@ def test_super_gate_requires_both_user_role_and_device_trust(context, platform_r
         with pytest.raises(HTTPException) as exc:
             require_super_code_machine(principal)
         assert exc.value.status_code == 403
+
+
+def test_cloud_super_admin_gate_does_not_require_a_device(monkeypatch):
+    monkeypatch.setattr(
+        permissions_module, "get_settings", lambda: SimpleNamespace(deployment="cloud")
+    )
+    principal = Principal(
+        user_id="cloud-admin",
+        tenant_id=None,
+        membership_role=None,
+        platform_role="super_admin",
+        device_id=None,
+        device_trust_level="normal",
+        permissions=frozenset({"platform.tenant.manage"}),
+    )
+
+    assert require_super_code_machine(principal) is principal
+
+
+def test_cloud_gate_still_rejects_non_platform_admin(monkeypatch):
+    monkeypatch.setattr(
+        permissions_module, "get_settings", lambda: SimpleNamespace(deployment="cloud")
+    )
+    principal = Principal(
+        user_id="ordinary-user",
+        tenant_id="tenant",
+        membership_role="owner",
+        platform_role=None,
+        device_id=None,
+        device_trust_level="normal",
+        permissions=frozenset(),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        require_super_code_machine(principal)
+
+    assert error.value.status_code == 403
 
 
 @pytest.mark.parametrize("tenant_id", [None, "tenant"])
