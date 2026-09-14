@@ -5,10 +5,11 @@
 - `/opt/zhiju-google-egress`
 - `/var/lib/zhiju-egress`
 - 系统用户 `zhiju-egress`
+- 仅作用于该用户的 SSH 配置 `/etc/ssh/sshd_config.d/90-zhiju-google-egress.conf`
 - Docker 镜像 `zhiju-google-egress:1`
 - Docker 容器 `zhiju-google-egress`
 
-它不修改防火墙、OpenVPN、PHP、sshd 全局配置或 Docker 全局配置。代理只监听 `127.0.0.1:17888`，需要通过受限 SSH 隐道使用。
+它不修改防火墙、OpenVPN、PHP、sshd 全局设置或 Docker 全局配置。若服务器全局关闭公钥登录，它通过 `Match User zhiju-egress` 只为专用隧道账号开启公钥认证。代理只监听 `127.0.0.1:17888`，需要通过受限 SSH 隐道使用。
 
 ## 安装
 

@@ -15,6 +15,10 @@ fi
 if getent passwd zhiju-egress >/dev/null; then
   userdel zhiju-egress
 fi
+rm -f -- "/etc/ssh/sshd_config.d/90-zhiju-google-egress.conf"
+if sshd -t; then
+  systemctl reload ssh
+fi
 rm -rf -- "/var/lib/zhiju-egress"
 rm -rf -- "/opt/zhiju-google-egress"
 

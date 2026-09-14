@@ -43,6 +43,10 @@ def test_install_uses_restricted_dedicated_authorized_key() -> None:
     assert "useradd --system" in script
     assert "zhiju-egress" in script
     assert 'restrict,port-forwarding,permitopen="127.0.0.1:17888"' in script
+    assert "Match User zhiju-egress" in script
+    assert "PubkeyAuthentication yes" in script
+    assert "PasswordAuthentication no" in script
+    assert "AllowTcpForwarding local" in script
     assert "/root/.ssh" not in script
 
 
@@ -52,6 +56,7 @@ def test_uninstall_has_only_exact_targets() -> None:
     assert "docker rm -f zhiju-google-egress" in script
     assert "docker image rm zhiju-google-egress:1" in script
     assert "userdel zhiju-egress" in script
+    assert 'rm -f -- "/etc/ssh/sshd_config.d/90-zhiju-google-egress.conf"' in script
     assert 'rm -rf -- "/opt/zhiju-google-egress"' in script
     assert "docker system prune" not in script
     assert "ufw" not in script
