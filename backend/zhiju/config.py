@@ -65,6 +65,21 @@ class Settings(BaseSettings):
     feishu_channel_schedule_directory_sheet_id: str = "2FrKIE"
     zhihe_api_base_url: str = ""
     zhihe_api_token: str = ""
+    youtube_oauth_client_id: str = ""
+    youtube_oauth_client_secret: str = ""
+    youtube_oauth_redirect_uri: str = (
+        "https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback"
+    )
+    oauth_encryption_key: str = ""
+
+    @property
+    def youtube_oauth_configured(self) -> bool:
+        return bool(
+            self.youtube_oauth_client_id.strip()
+            and self.youtube_oauth_client_secret.strip()
+            and self.oauth_encryption_key.strip()
+            and self.youtube_oauth_redirect_uri.startswith("https://")
+        )
 
     @model_validator(mode="after")
     def validate_cloud_contract(self):
