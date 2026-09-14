@@ -63,6 +63,13 @@ def cloud_settings(**overrides: str) -> Settings:
     return Settings(_env_file=None, **values)
 
 
+def test_cloud_web_settings_do_not_require_migration_credentials() -> None:
+    settings = cloud_settings(migration_database_url=None)
+
+    assert settings.database_url.endswith("/zhiju_cloud")
+    assert settings.migration_database_url is None
+
+
 @pytest.mark.parametrize(
     "overrides, message",
     [
@@ -213,13 +220,41 @@ def test_versioned_templates_pass_the_executable_deployment_validator() -> None:
     }
 
 
+def test_web_service_environment_has_no_migration_credentials() -> None:
+    app_env = (DEPLOYMENT_ROOT / "zhiju-app.env.example").read_text(encoding="utf-8")
+    admin_env = (DEPLOYMENT_ROOT / "zhiju-admin.env.example").read_text(
+        encoding="utf-8"
+    )
+    service = (DEPLOYMENT_ROOT / "zhiju.service").read_text(encoding="utf-8")
+    initializer = (DEPLOYMENT_ROOT / "scripts" / "initialize_database.sh").read_text(
+        encoding="utf-8"
+    )
+    bootstrap = (
+        DEPLOYMENT_ROOT / "scripts" / "bootstrap_super_admin.py"
+    ).read_text(encoding="utf-8")
+
+    assert "ZHJ_DATABASE_URL=" in app_env
+    assert "ZHJ_MIGRATION_DATABASE_URL" not in app_env
+    assert "ZHJ_MIGRATION_DATABASE_URL=" in admin_env
+    assert "ZHJ_DATABASE_URL=" not in admin_env.replace(
+        "ZHJ_MIGRATION_DATABASE_URL=", ""
+    )
+    assert "EnvironmentFile=/etc/zhiju/zhiju-app.env" in service
+    assert "zhiju-admin.env" not in service
+    assert "ZHJ_MIGRATION_DATABASE_URL" not in service
+    assert "zhiju-app.env" in initializer and "zhiju-admin.env" in initializer
+    assert "zhiju-app.env" in bootstrap and "zhiju-admin.env" in bootstrap
+
+
 def test_deployment_validator_catches_public_uvicorn_and_missing_sse_settings(
     tmp_path: Path,
 ) -> None:
     systemd = tmp_path / "zhiju.service"
     nginx = tmp_path / "nginx.conf"
-    env = tmp_path / "zhiju-cloud.env.example"
+    app_env = tmp_path / "zhiju-app.env.example"
+    admin_env = tmp_path / "zhiju-admin.env.example"
     systemd.write_text(
+        "EnvironmentFile=/etc/zhiju/zhiju-app.env\n"
         "ExecStart=/opt/zhiju/current/.venv/bin/uvicorn zhiju.app:app --host 0.0.0.0 --port 19732\n",
         encoding="utf-8",
     )
@@ -227,11 +262,15 @@ def test_deployment_validator_catches_public_uvicorn_and_missing_sse_settings(
         "server { client_max_body_size 10m; location /api/v3/realtime/events { proxy_pass http://127.0.0.1:19732; } }\n",
         encoding="utf-8",
     )
-    env.write_text(
+    app_env.write_text(
         "ZHJ_ENV=production\nZHJ_DEPLOYMENT=cloud\n"
         "ZHJ_DATABASE_URL=mysql+pymysql://user:CHANGE_ME@127.0.0.1/zhiju_cloud\n"
-        "ZHJ_MIGRATION_DATABASE_URL=mysql+pymysql://user:CHANGE_ME@127.0.0.1/zhiju_cloud\n"
         "ZHJ_HOST=127.0.0.1\n",
+        encoding="utf-8",
+    )
+    admin_env.write_text(
+        "ZHJ_MIGRATION_DATABASE_URL="
+        "mysql+pymysql://user:CHANGE_ME@127.0.0.1/zhiju_cloud\n",
         encoding="utf-8",
     )
 
@@ -431,13 +470,36 @@ def test_cloud_runbook_covers_operational_and_macos_boundaries() -> None:
 
 
 def test_environment_file_permissions_match_service_and_bootstrap_user() -> None:
-    env_instructions = (DEPLOYMENT_ROOT / "zhiju-cloud.env.example").read_text(
+    app_env_instructions = (DEPLOYMENT_ROOT / "zhiju-app.env.example").read_text(
+        encoding="utf-8"
+    )
+    admin_env_instructions = (DEPLOYMENT_ROOT / "zhiju-admin.env.example").read_text(
         encoding="utf-8"
     )
     runbook = (DEPLOYMENT_ROOT / "README.md").read_text(encoding="utf-8")
     service = (DEPLOYMENT_ROOT / "zhiju.service").read_text(encoding="utf-8")
 
-    assert "root:zhiju 0640" in env_instructions
+    assert "root:zhiju 0640" in app_env_instructions
+    assert "root:root 0600" in admin_env_instructions
     assert "install -o root -g zhiju -m 0640" in runbook
-    assert "sudo -u zhiju -g zhiju" in runbook
+    assert "install -o root -g root -m 0600" in runbook
+    assert "sudo -u zhiju -g zhiju" not in runbook
     assert "User=zhiju" in service and "Group=zhiju" in service
+
+
+def test_release_tree_is_root_owned_read_only_before_current_switch() -> None:
+    provision = (DEPLOYMENT_ROOT / "scripts" / "provision_ubuntu.sh").read_text(
+        encoding="utf-8"
+    )
+    service = (DEPLOYMENT_ROOT / "zhiju.service").read_text(encoding="utf-8")
+
+    assert "install -d -o root -g zhiju -m 0750 /opt/zhiju/releases" in provision
+    assert 'chown -R root:zhiju "$release"' in provision
+    assert 'chmod -R u=rwX,g=rX,o= "$release"' in provision
+    assert "chown -R zhiju:zhiju" not in provision
+    assert provision.index('"$release/.venv/bin/pip" install') < provision.index(
+        'ln -sfn "$release" /opt/zhiju/current'
+    )
+    assert "ProtectSystem=strict" in service
+    assert "ReadOnlyPaths=/opt/zhiju" in service
+    assert "ReadWritePaths=/var/lib/zhiju/shared" in service

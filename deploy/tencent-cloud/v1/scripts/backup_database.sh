@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${ZHJ_ENV_FILE:-/etc/zhiju/zhiju-cloud.env}"
+ENV_FILE="${ZHJ_APP_ENV_FILE:-/etc/zhiju/zhiju-app.env}"
 BACKUP_DIR="${ZHJ_BACKUP_DIR:-/var/lib/zhiju/backups}"
 set -a
 source "$ENV_FILE"

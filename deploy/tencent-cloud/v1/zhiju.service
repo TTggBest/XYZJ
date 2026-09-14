@@ -8,12 +8,15 @@ Type=simple
 User=zhiju
 Group=zhiju
 WorkingDirectory=/opt/zhiju/current
-EnvironmentFile=/etc/zhiju/zhiju-cloud.env
+EnvironmentFile=/etc/zhiju/zhiju-app.env
 Environment=PYTHONPATH=/opt/zhiju/current/backend
 ExecStart=/opt/zhiju/current/.venv/bin/uvicorn zhiju.app:app --host 127.0.0.1 --port 19732 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=5
 UMask=0077
+ProtectSystem=strict
+ReadOnlyPaths=/opt/zhiju
+ReadWritePaths=/var/lib/zhiju/shared
 
 [Install]
 WantedBy=multi-user.target

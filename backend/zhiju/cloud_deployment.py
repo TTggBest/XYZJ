@@ -47,20 +47,35 @@ def _upload_limit_megabytes(nginx: str) -> int:
 
 
 def validate_deployment_artifacts(root: Path) -> dict[str, object]:
-    env = _read_env_template(root / "zhiju-cloud.env.example")
+    app_env = _read_env_template(root / "zhiju-app.env.example")
+    admin_env = _read_env_template(root / "zhiju-admin.env.example")
     systemd = (root / "zhiju.service").read_text(encoding="utf-8")
     nginx = (root / "nginx.conf").read_text(encoding="utf-8")
 
-    if env.get("ZHJ_ENV") != "production" or env.get("ZHJ_DEPLOYMENT") != "cloud":
+    if (
+        app_env.get("ZHJ_ENV") != "production"
+        or app_env.get("ZHJ_DEPLOYMENT") != "cloud"
+    ):
         raise ValueError("云端模板必须使用 production 运行姿态和 cloud marker")
-    for key in ("ZHJ_DATABASE_URL", "ZHJ_MIGRATION_DATABASE_URL"):
-        value = env.get(key, "")
+    if "ZHJ_MIGRATION_DATABASE_URL" in app_env:
+        raise ValueError("Web 运行配置禁止包含 DDL 凭据")
+    if "ZHJ_DATABASE_URL" in admin_env:
+        raise ValueError("一次性管理配置不应重复 Web 凭据")
+    for values, key in (
+        (app_env, "ZHJ_DATABASE_URL"),
+        (admin_env, "ZHJ_MIGRATION_DATABASE_URL"),
+    ):
+        value = values.get(key, "")
         validate_cloud_database_url(value, label=key)
         password = make_url(value).password or ""
         if password not in {"CHANGE_ME", "${ZHJ_DB_PASSWORD}"}:
             raise ValueError(f"{key} 模板中禁止嵌入真实密码")
-    if env.get("ZHJ_HOST") != "127.0.0.1":
+    if app_env.get("ZHJ_HOST") != "127.0.0.1":
         raise ValueError("cloud environment must keep Uvicorn on loopback")
+    if "EnvironmentFile=/etc/zhiju/zhiju-app.env" not in systemd:
+        raise ValueError("systemd must load only the cloud app environment")
+    if "zhiju-admin.env" in systemd or "ZHJ_MIGRATION_DATABASE_URL" in systemd:
+        raise ValueError("systemd Web process must not receive migration credentials")
 
     exec_start = next(
         (line for line in systemd.splitlines() if line.strip().startswith("ExecStart=")),

@@ -9,6 +9,8 @@ from sqlalchemy.engine import make_url
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
+
+
 def validate_cloud_database_url(value: str, *, label: str) -> None:
     url = make_url(value)
     if url.database != "zhiju_cloud":
@@ -73,11 +75,10 @@ class Settings(BaseSettings):
         if self.host != "127.0.0.1":
             raise ValueError("云端 Uvicorn 必须仅监听 127.0.0.1")
         validate_cloud_database_url(self.database_url, label="ZHJ_DATABASE_URL")
-        if not self.migration_database_url:
-            raise ValueError("云端部署必须提供 ZHJ_MIGRATION_DATABASE_URL")
-        validate_cloud_database_url(
-            self.migration_database_url, label="ZHJ_MIGRATION_DATABASE_URL"
-        )
+        if self.migration_database_url:
+            validate_cloud_database_url(
+                self.migration_database_url, label="ZHJ_MIGRATION_DATABASE_URL"
+            )
         return self
 
 

@@ -4,12 +4,19 @@ from __future__ import annotations
 import argparse
 import getpass
 import os
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from zhiju.cloud_deployment import bootstrap_super_admin
-from zhiju.config import get_settings
+from zhiju.config import Settings
+
+
+APP_ENV_FILE = Path(os.environ.get("ZHJ_APP_ENV_FILE", "/etc/zhiju/zhiju-app.env"))
+ADMIN_ENV_FILE = Path(
+    os.environ.get("ZHJ_ADMIN_ENV_FILE", "/etc/zhiju/zhiju-admin.env")
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,9 +39,13 @@ def _read_password() -> str:
 
 def main() -> None:
     args = build_parser().parse_args()
-    settings = get_settings()  # Validates cloud target before create_engine.
+    settings = Settings(
+        _env_file=(APP_ENV_FILE, ADMIN_ENV_FILE)
+    )  # Validates both targets before create_engine.
     if settings.deployment != "cloud":
         raise SystemExit("Cloud bootstrap requires ZHJ_DEPLOYMENT=cloud")
+    if not settings.migration_database_url:
+        raise SystemExit("Cloud bootstrap requires ZHJ_MIGRATION_DATABASE_URL")
     password = _read_password()
     engine = create_engine(settings.migration_database_url, pool_pre_ping=True)
     try:
