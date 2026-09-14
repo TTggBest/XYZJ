@@ -6,6 +6,7 @@
   "use strict";
 
   let principal = null;
+  let deployment = "local";
   let revision = 0;
   const listeners = new Set();
   const roles = { super_admin: "超级管理员", owner: "主账号所有者", admin: "主账号管理员", operator: "运营人员", viewer: "只读人员" };
@@ -17,10 +18,11 @@
   function accept(value) { principal = value; revision += 1; listeners.forEach(listener => listener(value)); return value; }
   function clear() { accept(null); }
   function can(permission) { return Boolean(principal?.permissions?.includes(permission)); }
+  function setDeployment(value) { deployment = value === "cloud" ? "cloud" : "local"; }
   function roleLabel(role) { return roles[role] || "未分配角色"; }
   function access() {
     const superAdmin = principal?.platform_role === "super_admin";
-    const platform = superAdmin && principal?.device?.trust_level === "super_code_machine";
+    const platform = superAdmin && (deployment === "cloud" || principal?.device?.trust_level === "super_code_machine");
     const tenants = platform && can("platform.tenant.manage");
     const owner = principal?.membership_role === "owner" && Boolean(principal?.tenant_id);
     return {
@@ -100,5 +102,5 @@
     }
     return data;
   }
-  return { current, capture, isCurrent, subscribe, clear, can, roleLabel, managedRoles, access, canManageUser, canChangeUserRole, canView, usersPath, resolveBootstrap, login, logout, switchTenant, request };
+  return { current, capture, isCurrent, subscribe, clear, can, setDeployment, roleLabel, managedRoles, access, canManageUser, canChangeUserRole, canView, usersPath, resolveBootstrap, login, logout, switchTenant, request };
 });

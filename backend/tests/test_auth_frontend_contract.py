@@ -71,6 +71,22 @@ assert.equal(auth.access().users,false); assert.equal(auth.access().devices,fals
 """)
 
 
+def test_cloud_platform_access_uses_server_deployment_without_fabricating_device():
+    run_node("""
+const deviceLessSuper={...superUser,tenant_id:null,current_tenant:null,device:null,
+ permissions:[...superUser.permissions,'platform.environment.manage','audit.read']};
+await auth.resolveBootstrap(async()=>deviceLessSuper);
+assert.equal(auth.access().platform,false);assert.equal(auth.canView('settings','builder'),false);
+auth.setDeployment('cloud');
+assert.equal(auth.access().platform,true);assert.equal(auth.access().tenants,true);
+assert.equal(auth.canView('settings','builder'),true);assert.equal(auth.current().device,null);
+await auth.resolveBootstrap(async()=>({...principal,tenant_id:null,current_tenant:null,membership_role:null,device:null}));
+assert.equal(auth.access().platform,false);assert.equal(auth.access().tenants,false);
+auth.setDeployment('local');await auth.resolveBootstrap(async()=>deviceLessSuper);
+assert.equal(auth.access().platform,false);assert.equal(auth.canView('settings','builder'),false);
+""")
+
+
 def test_builder_runtime_role_does_not_grant_platform_navigation_to_normal_user():
     run_node("""
 await auth.resolveBootstrap(async()=>({...principal,device:superUser.device}));
@@ -424,15 +440,65 @@ assert.equal(page.nodes.get('loginPassword').value,'');
 def test_real_app_super_without_tenant_keeps_banner_and_logout_returns_to_login():
     run_node("""
 const paths=[];const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
-const page=start(process.argv[1],auth,async path=>{paths.push(path);return new Response(JSON.stringify(path.endsWith('/logout')?{status:'ok'}:{...superUser,tenant_id:null,current_tenant:null}));});
+const page=start(process.argv[1],auth,async path=>{paths.push(path);
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify({...superUser,tenant_id:null,current_tenant:null}));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"environment":"production","web_port":19732}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker","deployment":"local"}');
+ if(path==='/api/v3/platform/tenants')return new Response('[]');
+ if(path==='/api/v3/auth/logout')return new Response('{"status":"ok"}');
+ throw new Error(path);
+});
 for(let i=0;i<4;i++)await page.tick();
-assert.deepEqual(paths,['/api/v3/auth/me']);assert.equal(page.nodes.get('appShell').hidden,false);
+assert.deepEqual(paths,['/api/v3/auth/me','/api/health','/api/v3/realtime/config','/api/v3/platform/tenants']);assert.equal(page.nodes.get('appShell').hidden,false);
 assert.equal(page.nodes.get('tenantBanner').hidden,false);assert.match(page.nodes.get('tenantBanner').textContent,/超级管理员模式/);
 assert.match(page.nodes.get('tenantSelect').innerHTML,/甲公司/);assert.match(page.nodes.get('tenantSelect').innerHTML,/乙公司/);
 await page.nodes.get('logoutButton').emit('click');await page.tick();
 assert.equal(page.nodes.get('loginShell').hidden,false);assert.equal(page.nodes.get('appShell').hidden,true);
 assert.equal(page.nodes.get('accountIdentity').textContent,'');assert.equal(page.nodes.get('tenantSelect').innerHTML,'');
-assert.deepEqual(paths,['/api/v3/auth/me','/api/v3/auth/logout']);
+assert.deepEqual(paths,['/api/v3/auth/me','/api/health','/api/v3/realtime/config','/api/v3/platform/tenants','/api/v3/auth/logout']);
+""")
+
+
+def test_cloud_super_without_tenant_loads_runtime_and_opens_company_creation():
+    run_node("""
+const cloudAdmin={...superUser,tenant_id:null,current_tenant:null,device:null,switchable_tenants:[],
+ permissions:[...superUser.permissions,'platform.environment.manage','audit.read']};
+const paths=[];const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const page=start(process.argv[1],auth,async path=>{
+ paths.push(path);
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(cloudAdmin));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"environment":"production","web_port":19732}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":true,"device_role":"builder","deployment":"cloud","stream_url":"/api/v3/events/stream"}');
+ if(path==='/api/v3/platform/tenants')return new Response('[]');
+ throw new Error(path);
+});
+for(let i=0;i<7;i++)await page.tick();
+assert.equal(paths[0],'/api/v3/auth/me');
+for(const path of ['/api/health','/api/v3/realtime/config','/api/v3/platform/tenants'])assert(paths.includes(path));
+assert.equal(paths.includes('/api/v3/events/stream'),false);
+assert.equal(auth.current().device,null);assert.equal(auth.access().platform,true);
+assert.equal(auth.canView('settings','builder'),true);
+assert.match(page.nodes.get('viewRoot').innerHTML,/data-account-action="new-tenant"/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/创建公司/);
+assert.equal(page.nodes.get('pageTitle').textContent,'账号中心');
+""")
+
+
+def test_ordinary_user_without_tenant_keeps_no_access_prompt():
+    run_node("""
+const ordinary={...principal,tenant_id:null,current_tenant:null,membership_role:null,memberships:[],switchable_tenants:[],device:null};
+const paths=[];const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const page=start(process.argv[1],auth,async path=>{
+ paths.push(path);
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(ordinary));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"environment":"production","web_port":19732}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":true,"device_role":"builder","deployment":"cloud","stream_url":"/api/v3/events/stream"}');
+ throw new Error(path);
+});
+for(let i=0;i<6;i++)await page.tick();
+assert.match(page.nodes.get('viewRoot').innerHTML,/没有可管理的公司|未获得公司成员权限/);
+assert.equal(paths.includes('/api/v3/platform/tenants'),false);
+assert.equal(auth.access().platform,false);
 """)
 
 

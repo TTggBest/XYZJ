@@ -21,8 +21,24 @@ def test_realtime_config_uses_local_stream_by_default() -> None:
 
     assert response.status_code == 200
     assert response.json()["enabled"] is True
+    assert response.json()["deployment"] in {"local", "cloud"}
     assert response.json()["stream_url"] == "/api/v3/events/stream"
     assert isinstance(response.json()["subscriber_count"], int)
+
+
+def test_realtime_config_exposes_cloud_deployment_to_frontend(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "zhiju.api.realtime.get_settings",
+        lambda: SimpleNamespace(
+            deployment="cloud", device_role="builder", realtime_hub_url=""
+        ),
+    )
+
+    response = TestClient(app).get("/api/v3/realtime/config")
+
+    assert response.status_code == 200
+    assert response.json()["deployment"] == "cloud"
+    assert response.json()["device_role"] == "builder"
 
 
 def test_realtime_stream_stays_on_the_authenticated_api_origin(monkeypatch) -> None:

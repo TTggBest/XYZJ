@@ -172,12 +172,17 @@
   async function startApplication() {
     if (!auth.current()) return;
     el("loginShell").hidden = true; el("appShell").hidden = false; renderAccount(); renderIcons();
+    await Promise.all([checkHealth(), connectRealtime()]);
+    if (!auth.current()) return;
     if (!auth.current().tenant_id) {
-      root.innerHTML = empty("请选择主账号", "在右上角账号菜单中选择需要管理的公司。", "", "");
-      el("accountMenu").hidden = false; el("accountButton").setAttribute("aria-expanded", "true");
+      if (auth.current().platform_role === "super_admin" && auth.canView("accounts", state.deviceRole)) {
+        await loadView("accounts");
+      } else {
+        root.innerHTML = empty("没有可管理的公司", "当前账号未获得公司成员权限，请联系超级管理员。", "", "");
+        el("accountMenu").hidden = false; el("accountButton").setAttribute("aria-expanded", "true");
+      }
       return;
     }
-    await Promise.all([checkHealth(), connectRealtime()]);
     await loadView("dashboard");
   }
   async function bootstrapAuth() {
@@ -1331,12 +1336,16 @@
     document.querySelectorAll("[data-builder-only]").forEach(item => { item.hidden = !auth.canView(item.dataset.view, state.deviceRole); });
   }
   async function connectRealtime() {
-    if (!auth.current()?.tenant_id || document.visibilityState !== "visible" || state.realtimeConnecting || state.realtimeSource) return;
+    if (!auth.current() || document.visibilityState !== "visible" || state.realtimeConnecting || state.realtimeSource) return;
     state.realtimeConnecting = true;
     try {
+      const actor = auth.current();
       const config = await api("/realtime/config");
-      if (!auth.current()?.tenant_id || document.visibilityState !== "visible") return;
+      if (actor !== auth.current() || document.visibilityState !== "visible") return;
+      auth.setDeployment(config.deployment);
       applyDeviceRole(config.device_role);
+      renderAccount();
+      if (!auth.current()?.tenant_id) return;
       if (!config.enabled || !config.stream_url) return;
       if (config.device_role !== "builder" && BUILDER_ONLY_VIEWS.has(state.view)) await loadView("dashboard");
       closeRealtime();

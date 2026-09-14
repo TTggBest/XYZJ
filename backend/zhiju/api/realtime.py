@@ -21,6 +21,7 @@ def get_realtime_config() -> dict[str, object]:
     return {
         "enabled": True,
         "device_role": settings.device_role,
+        "deployment": settings.deployment,
         "environment": database_router.active_environment,
         "stream_url": realtime_stream_url(),
         "subscriber_count": broker.subscriber_count,
