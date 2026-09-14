@@ -93,6 +93,14 @@ def create_app() -> FastAPI:
     def root() -> FileResponse:
         return FileResponse(frontend_root / "index.html")
 
+    @app.get("/privacy", include_in_schema=False)
+    def privacy_policy() -> FileResponse:
+        return FileResponse(frontend_root / "privacy.html")
+
+    @app.get("/terms", include_in_schema=False)
+    def terms_of_service() -> FileResponse:
+        return FileResponse(frontend_root / "terms.html")
+
     return app
 
 
