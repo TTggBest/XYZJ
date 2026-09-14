@@ -1,0 +1,6 @@
+^accounts\.google\.com$
+^oauth2\.googleapis\.com$
+^openidconnect\.googleapis\.com$
+^www\.googleapis\.com$
+^youtube\.googleapis\.com$
+^youtubeanalytics\.googleapis\.com$
