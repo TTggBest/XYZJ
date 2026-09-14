@@ -87,6 +87,7 @@ def get_youtube_oauth_status() -> YouTubeOAuthClientStatus:
         return YouTubeOAuthClientStatus(
             configured=configured,
             can_manage=True,
+            channel_import_enabled=True,
             client_type="web" if configured else None,
             redirect_uri=getattr(settings, "youtube_oauth_redirect_uri", None),
             credential_ref="env://ZHJ_YOUTUBE_OAUTH_CLIENT_ID" if configured else None,

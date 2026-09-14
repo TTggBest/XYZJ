@@ -47,6 +47,21 @@ def test_frontend_exposes_oauth_client_import_and_per_channel_authorization() ->
     assert "youtube-auth-complete" in app_js
 
 
+def test_cloud_frontend_uses_oauth_first_multi_channel_import() -> None:
+    app_js = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'data-action="start-youtube-channel-import"' in app_js
+    assert "youtube-channel-import-ready" in app_js
+    assert 'id="youtubeChannelImportForm"' in app_js
+    assert "data-import-candidate" in app_js
+    assert "data-import-country" in app_js
+    assert "recommended_language" in app_js
+    assert "recommended_timezone" in app_js
+    assert "/youtube/channel-imports/${encodeURIComponent(importSessionId)}/commit" in app_js
+
+
 def test_channel_list_shows_youtube_identity_and_chinese_language_name() -> None:
     app_js = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(
         encoding="utf-8"

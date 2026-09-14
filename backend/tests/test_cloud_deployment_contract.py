@@ -206,6 +206,7 @@ def test_cloud_oauth_status_uses_server_configuration_without_macos_tools(
     result = youtube_oauth_api.get_youtube_oauth_status()
 
     assert result.configured is False
+    assert result.channel_import_enabled is True
     assert result.redirect_uri == "https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback"
 
 

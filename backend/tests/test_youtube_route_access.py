@@ -171,6 +171,7 @@ def test_oauth_redacted_status_allows_ordinary_tenant_user(oauth_settings_app):
         response = client.get("/api/v3/settings/youtube-oauth")
 
     assert response.status_code == 200
+    assert response.json()["channel_import_enabled"] is False
     assert "secret" not in response.text.lower()
 
 

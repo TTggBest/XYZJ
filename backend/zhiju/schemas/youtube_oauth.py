@@ -8,6 +8,7 @@ from zhiju.schemas.identity import ChannelRead
 class YouTubeOAuthClientStatus(BaseModel):
     configured: bool
     can_manage: bool
+    channel_import_enabled: bool = False
     client_type: str | None = None
     project_id: str | None = None
     redirect_uri: str | None = None
