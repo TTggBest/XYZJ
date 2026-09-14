@@ -149,7 +149,6 @@ def oauth_settings_app(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("method,path", [
-    ("GET", "/api/v3/settings/youtube-oauth"),
     ("POST", "/api/v3/settings/youtube-oauth/import-legacy"),
 ])
 def test_oauth_platform_settings_reject_ordinary_tenant_user(
@@ -162,6 +161,17 @@ def test_oauth_platform_settings_reject_ordinary_tenant_user(
         response = client.request(method, path)
 
     assert response.status_code == 403
+
+
+def test_oauth_redacted_status_allows_ordinary_tenant_user(oauth_settings_app):
+    oauth_settings_app.dependency_overrides[auth_context.get_current_principal] = (
+        lambda: TENANT_PRINCIPAL
+    )
+    with TestClient(oauth_settings_app) as client:
+        response = client.get("/api/v3/settings/youtube-oauth")
+
+    assert response.status_code == 200
+    assert "secret" not in response.text.lower()
 
 
 @pytest.mark.parametrize("method,path", [

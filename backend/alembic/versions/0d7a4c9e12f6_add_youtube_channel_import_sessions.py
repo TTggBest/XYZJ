@@ -11,6 +11,14 @@ depends_on = None
 
 
 def upgrade():
+    op.drop_constraint(
+        "uq_google_accounts_google_email", "google_accounts", type_="unique",
+    )
+    op.create_unique_constraint(
+        "uq_google_accounts_tenant_email",
+        "google_accounts",
+        ["tenant_id", "google_email"],
+    )
     op.create_table(
         "youtube_channel_import_sessions",
         sa.Column("tenant_id", sa.String(36), nullable=False),
@@ -95,3 +103,9 @@ def downgrade():
     op.drop_table("oauth_token_secrets")
     op.drop_table("youtube_channel_import_candidates")
     op.drop_table("youtube_channel_import_sessions")
+    op.drop_constraint(
+        "uq_google_accounts_tenant_email", "google_accounts", type_="unique",
+    )
+    op.create_unique_constraint(
+        "uq_google_accounts_google_email", "google_accounts", ["google_email"],
+    )

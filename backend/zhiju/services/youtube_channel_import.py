@@ -108,8 +108,6 @@ def complete_channel_import_oauth(
     if not subject or not email:
         raise ValueError("Google账号身份信息不完整")
     saved_token = dict(token)
-    if not saved_token.get("refresh_token"):
-        raise ValueError("Google未返回刷新令牌，请重新授权并允许离线访问")
 
     tenant_id = str(import_session.tenant_id)
     account = session.scalar(select(GoogleAccount).where(
@@ -147,6 +145,8 @@ def complete_channel_import_oauth(
     previous_token = secret_store.get(grant.id)
     if not saved_token.get("refresh_token") and previous_token:
         saved_token["refresh_token"] = previous_token.get("refresh_token")
+    if not saved_token.get("refresh_token"):
+        raise ValueError("Google未返回刷新令牌，请重新授权并允许离线访问")
     grant.credential_ref = secret_store.put(grant.id, saved_token)
     grant.status = "active"
     expires_in = int(saved_token.get("expires_in") or 0)

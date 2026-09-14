@@ -15,6 +15,9 @@ def test_authorization_control_plane_routes_are_registered() -> None:
     assert "get" in paths["/api/v3/settings/youtube-oauth"]
     assert "post" in paths["/api/v3/settings/youtube-oauth/import-legacy"]
     assert "post" in paths["/api/v3/channels/{channel_id}/youtube-authorization/start"]
+    assert "post" in paths["/api/v3/youtube/channel-imports/start"]
+    assert "get" in paths["/api/v3/youtube/channel-imports/{import_session_id}"]
+    assert "post" in paths["/api/v3/youtube/channel-imports/{import_session_id}/commit"]
     assert "get" in paths["/api/v3/youtube/oauth/callback"]
 
 

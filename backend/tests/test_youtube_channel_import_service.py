@@ -101,6 +101,43 @@ def test_complete_oauth_keeps_all_discovered_channels_and_encrypts_token() -> No
         engine.dispose()
 
 
+def test_reauthorization_reuses_existing_refresh_token_when_google_omits_it() -> None:
+    engine, session = _session()
+    try:
+        store = EncryptedDatabaseSecretStore(session, Fernet.generate_key().decode())
+        first_state = create_channel_import_state(session, PRINCIPAL, now=NOW)
+        complete_channel_import_oauth(
+            session,
+            store,
+            opaque_state=first_state,
+            identity={"sub": "google-sub", "email": "owner@example.com"},
+            token={"access_token": "first", "refresh_token": "saved-refresh"},
+            youtube_payload={"items": [{"id": "UC-one", "snippet": {"title": "One"}}]},
+            now=NOW,
+        )
+        second_state = create_channel_import_state(
+            session, PRINCIPAL, now=NOW + timedelta(minutes=1),
+        )
+
+        complete_channel_import_oauth(
+            session,
+            store,
+            opaque_state=second_state,
+            identity={"sub": "google-sub", "email": "owner@example.com"},
+            token={"access_token": "second"},
+            youtube_payload={"items": [{"id": "UC-one", "snippet": {"title": "One"}}]},
+            now=NOW + timedelta(minutes=1),
+        )
+
+        grant = session.scalar(select(OAuthGrant))
+        assert grant is not None
+        assert store.get(grant.id)["refresh_token"] == "saved-refresh"
+        assert store.get(grant.id)["access_token"] == "second"
+    finally:
+        session.close()
+        engine.dispose()
+
+
 def test_multi_select_import_is_atomic_when_one_channel_already_exists() -> None:
     engine, session = _session()
     try:

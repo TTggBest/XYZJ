@@ -183,13 +183,19 @@ def test_cloud_marker_keeps_production_runtime_and_disables_environment_switch(
     assert events == []
 
 
-def test_cloud_macos_only_endpoints_fail_clearly_without_invoking_macos_tools(
+def test_cloud_oauth_status_uses_server_configuration_without_macos_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         youtube_oauth_api,
         "get_settings",
-        lambda: SimpleNamespace(deployment="cloud", device_role="builder"),
+        lambda: SimpleNamespace(
+            deployment="cloud",
+            device_role="builder",
+            youtube_oauth_configured=False,
+            youtube_oauth_client_id="",
+            youtube_oauth_redirect_uri="https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback",
+        ),
     )
     monkeypatch.setattr(
         youtube_oauth_api,
@@ -197,12 +203,10 @@ def test_cloud_macos_only_endpoints_fail_clearly_without_invoking_macos_tools(
         lambda: pytest.fail("cloud request invoked macOS Keychain"),
     )
 
-    with pytest.raises(HTTPException) as error:
-        youtube_oauth_api.get_youtube_oauth_status()
+    result = youtube_oauth_api.get_youtube_oauth_status()
 
-    assert error.value.status_code == 501
-    assert "macOS" in error.value.detail
-    assert "云端" in error.value.detail
+    assert result.configured is False
+    assert result.redirect_uri == "https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback"
 
 
 def test_cloud_app_icon_write_fails_before_invoking_macos_renderer(

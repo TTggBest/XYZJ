@@ -69,6 +69,22 @@ class OAuthTenantContext:
     channel_id: str
 
 
+def cloud_oauth_client_config(settings: object) -> OAuthClientConfig:
+    if not bool(getattr(settings, "youtube_oauth_configured", False)):
+        raise ValueError("云端YouTube OAuth尚未配置")
+    return OAuthClientConfig(
+        client_type="web",
+        client_id=str(getattr(settings, "youtube_oauth_client_id", "")).strip(),
+        client_secret_value=str(
+            getattr(settings, "youtube_oauth_client_secret", "")
+        ).strip(),
+        project_id=None,
+        auth_uri="https://accounts.google.com/o/oauth2/v2/auth",
+        token_uri="https://oauth2.googleapis.com/token",
+        redirect_uri=str(getattr(settings, "youtube_oauth_redirect_uri", "")).strip(),
+    )
+
+
 def create_oauth_state(
     session: Session,
     principal: Principal,

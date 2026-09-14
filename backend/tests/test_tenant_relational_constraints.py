@@ -46,6 +46,7 @@ TENANT_BUSINESS_TABLES = frozenset(
 )
 
 TENANT_UNIQUE_KEYS = {
+    "google_accounts": {("tenant_id", "google_email")},
     "dramas": {("tenant_id", "drama_code"), ("tenant_id", "normalized_title")},
     "drama_aliases": {("tenant_id", "normalized_alias")},
     "production_batches": {("tenant_id", "batch_number")},
