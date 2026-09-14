@@ -71,6 +71,7 @@ class Settings(BaseSettings):
         "https://xyzj.chronaraxy.com/api/v3/youtube/oauth/callback"
     )
     oauth_encryption_key: str = ""
+    google_proxy_url: str = ""
 
     @property
     def youtube_oauth_configured(self) -> bool:

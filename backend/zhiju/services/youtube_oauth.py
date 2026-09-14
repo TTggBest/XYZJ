@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -28,6 +28,7 @@ from zhiju.models.integration import OAuthAuthorizationState
 from zhiju.auth_context import Principal
 from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError
+from zhiju.services.google_http import open_google_url
 
 
 YOUTUBE_OAUTH_SCOPES = (
@@ -436,7 +437,7 @@ def _request_json(
         request_headers["Content-Type"] = "application/x-www-form-urlencoded"
     request = Request(url, data=body, headers=request_headers, method=method)
     try:
-        with urlopen(request, timeout=20) as response:
+        with open_google_url(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise ValueError(f"Google OAuth 请求失败：HTTP {exc.code}") from exc

@@ -36,3 +36,15 @@ def test_cloud_youtube_oauth_is_unconfigured_when_any_secret_is_missing() -> Non
     )
 
     assert settings.youtube_oauth_configured is False
+
+
+def test_google_proxy_is_optional_and_defaults_to_direct_connection() -> None:
+    settings = Settings(
+        _env_file=None,
+        env="production",
+        deployment="cloud",
+        database_url="mysql+pymysql://app:secret@127.0.0.1/zhiju_cloud",
+        host="127.0.0.1",
+    )
+
+    assert settings.google_proxy_url == ""

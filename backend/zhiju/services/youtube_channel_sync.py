@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from zhiju.models import (
 from zhiju.schemas.youtube import SyncComplete, SyncStart, VideoUpsert
 from zhiju.services.channel import NotFoundError
 from zhiju.services.identity import ConflictError, _audit
+from zhiju.services.google_http import open_google_url
 from zhiju.services.youtube import complete_sync, start_sync, upsert_video
 from zhiju.services.youtube_oauth import (
     OAUTH_TOKEN_KEYCHAIN_SERVICE,
@@ -91,7 +92,7 @@ def ensure_grant_access_token(
 def _youtube_request_json(url: str, access_token: str) -> Mapping[str, object]:
     request = Request(url, headers={"Authorization": f"Bearer {access_token}"})
     try:
-        with urlopen(request, timeout=30) as response:
+        with open_google_url(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise ValueError(f"YouTube API请求失败：HTTP {exc.code}") from exc
@@ -119,7 +120,7 @@ def _youtube_post_json(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with open_google_url(request, timeout=30) as response:
             result = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise ValueError(f"YouTube API请求失败：HTTP {exc.code}") from exc
