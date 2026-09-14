@@ -44,6 +44,7 @@ def test_google_proxy_is_optional_and_defaults_to_direct_connection() -> None:
         env="production",
         deployment="cloud",
         database_url="mysql+pymysql://app:secret@127.0.0.1/zhiju_cloud",
+        migration_database_url="mysql+pymysql://migrator:secret@127.0.0.1/zhiju_cloud",
         host="127.0.0.1",
     )
 
