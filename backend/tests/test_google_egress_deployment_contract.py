@@ -12,10 +12,13 @@ def _read(name: str) -> str:
 def test_relay_is_loopback_only_and_filters_destinations() -> None:
     config = _read("tinyproxy.conf")
     destinations = _read("google-domains.filter")
+    image = _read("Dockerfile")
 
     assert "Listen 127.0.0.1" in config
     assert "Port 17888" in config
-    assert "Group nogroup" in config
+    assert "User " not in config
+    assert "Group " not in config
+    assert "USER nobody:nobody" in image
     assert "FilterDefaultDeny Yes" in config
     assert "ConnectPort 443" in config
     assert "oauth2\\.googleapis\\.com" in destinations
