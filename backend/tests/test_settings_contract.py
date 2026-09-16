@@ -11,8 +11,11 @@ from sqlalchemy.orm import Session
 
 from zhiju.auth_context import Principal, get_current_principal
 from zhiju.app import app, create_app
+from zhiju.config import get_settings
 from zhiju.database import get_db
 from zhiju.models import AppIconSetting, Base, Device, RuntimePackageBuild
+from zhiju.runtime_package_registry import get_runtime_package_db
+from zhiju.services import settings as settings_service
 from zhiju.services.settings import _included_files
 
 
@@ -46,6 +49,7 @@ def test_settings_read_models_come_from_runtime_and_database(tmp_path: Path) -> 
 
     test_app = create_app()
     test_app.dependency_overrides[get_db] = open_db
+    test_app.dependency_overrides[get_runtime_package_db] = open_db
     test_app.dependency_overrides[get_current_principal] = lambda: PLATFORM_PRINCIPAL
     try:
         with TestClient(test_app) as client:
@@ -343,6 +347,7 @@ def test_only_current_runtime_package_has_download_endpoint(tmp_path: Path) -> N
 
     test_app = create_app()
     test_app.dependency_overrides[get_db] = open_db
+    test_app.dependency_overrides[get_runtime_package_db] = open_db
     test_app.dependency_overrides[get_current_principal] = lambda: PLATFORM_PRINCIPAL
     try:
         client = TestClient(test_app)
@@ -358,3 +363,75 @@ def test_only_current_runtime_package_has_download_endpoint(tmp_path: Path) -> N
         assert old_response.status_code == 409
     finally:
         engine.dispose()
+
+
+def test_runtime_package_history_does_not_follow_active_business_database(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    development_engine = create_engine(f"sqlite:///{tmp_path / 'development.db'}")
+    production_engine = create_engine(f"sqlite:///{tmp_path / 'production.db'}")
+    for engine in (development_engine, production_engine):
+        Base.metadata.create_all(engine, tables=[RuntimePackageBuild.__table__])
+    with Session(development_engine) as session:
+        legacy = RuntimePackageBuild(
+            build_number=7,
+            version="3.0.0-build.7",
+            target_environment="production",
+            status="succeeded",
+            file_count=10,
+            size_bytes=2048,
+            started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            completed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        session.add(legacy)
+        session.commit()
+        legacy_id = legacy.id
+
+    active_engine = {"value": development_engine}
+
+    def open_active_db():
+        with Session(active_engine["value"]) as session:
+            yield session
+
+    monkeypatch.setenv(
+        "ZHJ_RUNTIME_PACKAGE_REGISTRY_PATH",
+        str(tmp_path / "runtime-package-registry.db"),
+    )
+    monkeypatch.setattr(
+        settings_service,
+        "_write_runtime_archive",
+        lambda _artifact, _version: (12, 3456),
+    )
+    get_settings.cache_clear()
+
+    test_app = create_app()
+    test_app.dependency_overrides[get_db] = open_active_db
+    test_app.dependency_overrides[get_current_principal] = lambda: PLATFORM_PRINCIPAL
+    try:
+        with TestClient(test_app) as client:
+            built = client.post("/api/v3/runtime-packages/build")
+            assert built.status_code == 201
+            assert built.json()["build_number"] == 8
+            assert built.json()["target_environment"] == "production"
+
+            active_engine["value"] = production_engine
+            packages = client.get("/api/v3/runtime-packages")
+            assert packages.status_code == 200
+            assert [item["id"] for item in packages.json()] == [built.json()["id"], legacy_id]
+
+            second = client.post("/api/v3/runtime-packages/build")
+            assert second.status_code == 201
+            assert second.json()["build_number"] == built.json()["build_number"] + 1
+            assert second.json()["target_environment"] == "production"
+
+            active_engine["value"] = development_engine
+            packages = client.get("/api/v3/runtime-packages")
+            assert [item["id"] for item in packages.json()] == [
+                second.json()["id"],
+                built.json()["id"],
+                legacy_id,
+            ]
+    finally:
+        get_settings.cache_clear()
+        development_engine.dispose()
+        production_engine.dispose()

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     port: int = 19732
     log_level: str = "INFO"
     artifact_root: Path = APP_ROOT / ".runtime" / "artifacts"
+    runtime_package_registry_path: Path = APP_ROOT / ".runtime" / "runtime-package-builds.sqlite3"
     device_id: str = ""
     device_role: str = "builder"
     device_key: str = ""
