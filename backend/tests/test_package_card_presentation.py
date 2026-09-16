@@ -249,6 +249,21 @@ def test_package_summary_separates_ready_images_from_copy_progress() -> None:
     }
 
 
+def test_package_card_reports_missing_images_before_review_status() -> None:
+    result = render_presentation(
+        {
+            "channel_name": "测试频道",
+            "package_status": "review_pending",
+            "source_complete": True,
+            "community_count": 0,
+            "covers": [],
+            "media_assets": [],
+        }
+    )
+
+    assert result["display_status"] == "images_pending"
+
+
 def test_package_summary_counts_ready_images_without_copy_click_history() -> None:
     titles = [{"id": f"title-{variant}", "variant_number": variant} for variant in (1, 2, 3)]
     covers = [
@@ -335,6 +350,7 @@ def test_package_summary_renders_distinct_semantic_badges() -> None:
     assert 'class="package-progress-stat is-completed"' in markup
     assert 'class="package-progress-stat is-visible"' in markup
     assert "<span>一共</span><strong>53</strong>" in markup
+    assert "<span>文案已生成</span><strong>51</strong>" in markup
     assert "<span>已完成</span><strong>6</strong>" in markup
     assert "<span>当前显示</span><strong>42</strong>" in markup
 
