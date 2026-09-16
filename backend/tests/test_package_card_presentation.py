@@ -184,7 +184,7 @@ def test_package_card_exposes_all_channel_playlists_and_marks_selected_one() -> 
     assert result["chinese_description"] == "中文说明"
 
 
-def test_package_summary_uses_work_orders_click_progress_and_logo_outputs() -> None:
+def test_package_summary_separates_ready_images_from_copy_progress() -> None:
     def package(
         package_id: str,
         *,
@@ -205,7 +205,11 @@ def test_package_summary_uses_work_orders_click_progress_and_logo_outputs() -> N
             for variant in (1, 2, 3)
             for ratio in ("4:5", "16:9")
         ]
-        community = [{"id": f"{package_id}-community-1", "image_prompt": "community prompt"}]
+        community = [{
+            "id": f"{package_id}-community-1",
+            "image_prompt": "community prompt",
+            "asset_ids": [f"{package_id}-community-asset"] if logos_complete else [],
+        }]
         copied_keys = []
         if image_clicks_complete:
             copied_keys = [f"cover:{cover['id']}" for cover in covers]
@@ -213,7 +217,9 @@ def test_package_summary_uses_work_orders_click_progress_and_logo_outputs() -> N
         media_assets = [
             {"id": f"{package_id}-logo-{variant}", "asset_role": "thumbnail", "status": "ready"}
             for variant in (1, 2, 3)
-        ] if logos_complete else []
+        ] + ([
+            {"id": f"{package_id}-community-asset", "asset_role": "community_image", "status": "ready"}
+        ] if logos_complete else [])
         return {
             "package_id": package_id,
             "source_complete": source_complete,
@@ -238,15 +244,62 @@ def test_package_summary_uses_work_orders_click_progress_and_logo_outputs() -> N
     assert result == {
         "total": 4,
         "generated": 2,
-        "images_completed": 2,
+        "images_completed": 1,
         "completed": 1,
     }
 
 
-def test_package_summary_requires_all_six_cover_clicks_and_required_community_clicks() -> None:
+def test_package_summary_counts_ready_images_without_copy_click_history() -> None:
     titles = [{"id": f"title-{variant}", "variant_number": variant} for variant in (1, 2, 3)]
     covers = [
-        {"id": f"cover-{variant}-{ratio}", "title_id": f"title-{variant}", "aspect_ratio": ratio, "creative_prompt": "prompt"}
+        {
+            "id": f"cover-{variant}-{ratio}",
+            "title_id": f"title-{variant}",
+            "aspect_ratio": ratio,
+            "creative_prompt": "prompt",
+            "asset_id": f"logo-{variant}" if ratio == "16:9" else None,
+        }
+        for variant in (1, 2, 3)
+        for ratio in ("4:5", "16:9")
+    ]
+    item = {
+        "package_id": "studio-complete",
+        "source_complete": True,
+        "community_count": 1,
+        "titles": titles,
+        "covers": covers,
+        "community_posts": [
+            {"id": "community-1", "image_prompt": "prompt", "asset_ids": ["community-asset-1"]}
+        ],
+        "copied_keys": [],
+        "copy_status": "not_started",
+        "media_assets": [
+            *[
+                {"id": f"logo-{variant}", "asset_role": "thumbnail", "status": "ready"}
+                for variant in (1, 2, 3)
+            ],
+            {"id": "community-asset-1", "asset_role": "community_image", "status": "ready"},
+        ],
+    }
+
+    assert summarize_packages([item], total=1) == {
+        "total": 1,
+        "generated": 1,
+        "images_completed": 1,
+        "completed": 0,
+    }
+
+
+def test_package_summary_requires_each_required_community_image_asset() -> None:
+    titles = [{"id": f"title-{variant}", "variant_number": variant} for variant in (1, 2, 3)]
+    covers = [
+        {
+            "id": f"cover-{variant}-{ratio}",
+            "title_id": f"title-{variant}",
+            "aspect_ratio": ratio,
+            "creative_prompt": "prompt",
+            "asset_id": f"logo-{variant}" if ratio == "16:9" else None,
+        }
         for variant in (1, 2, 3)
         for ratio in ("4:5", "16:9")
     ]
@@ -255,10 +308,15 @@ def test_package_summary_requires_all_six_cover_clicks_and_required_community_cl
         "community_count": 1,
         "titles": titles,
         "covers": covers,
-        "community_posts": [{"id": "community-1", "image_prompt": "prompt"}],
-        "copied_keys": [f"cover:{cover['id']}" for cover in covers[:-1]],
+        "community_posts": [
+            {"id": "community-1", "image_prompt": "prompt", "asset_ids": ["missing-community-asset"]}
+        ],
+        "copied_keys": [],
         "copy_status": "in_progress",
-        "media_assets": [],
+        "media_assets": [
+            {"id": f"logo-{variant}", "asset_role": "thumbnail", "status": "ready"}
+            for variant in (1, 2, 3)
+        ],
     }
 
     assert summarize_packages([item], total=1)["images_completed"] == 0
@@ -382,11 +440,11 @@ def test_progress_inspection_finds_first_missing_cell_for_each_incomplete_packag
     ]
     assert inspection_targets(items, "images") == [
         {"package_id": "not-generated", "kind": "card"},
-        {"package_id": "missing-cover-click", "kind": "output", "output_type": "cover", "output_id": "cover-3-16:9"},
+        {"package_id": "missing-logo", "kind": "logo"},
     ]
     assert inspection_targets(items, "completed") == [
         {"package_id": "not-generated", "kind": "card"},
-        {"package_id": "missing-cover-click", "kind": "output", "output_type": "cover", "output_id": "cover-3-16:9"},
+        {"package_id": "missing-cover-click", "kind": "output", "output_type": "title", "output_id": "title-1"},
         {"package_id": "missing-copy", "kind": "output", "output_type": "title", "output_id": "title-1"},
         {"package_id": "missing-logo", "kind": "logo"},
     ]
