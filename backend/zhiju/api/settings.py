@@ -14,6 +14,7 @@ from zhiju.database import (
     upgrade_production_database,
 )
 from zhiju.permissions import require_platform_permission
+from zhiju.runtime_package_registry import get_runtime_package_db
 from zhiju.schemas.identity import DeviceRead, DeviceRegister
 from zhiju.schemas.settings import (
     AppIconSettingRead,
@@ -38,6 +39,7 @@ from zhiju.services.settings import (
     list_runtime_packages,
     restore_default_app_icon,
     runtime_overview,
+    seed_runtime_package_registry,
     stream_runtime_package,
     update_channel_drama_type,
     upload_app_icon,
@@ -157,8 +159,10 @@ def post_current_device(session: Session = Depends(get_db)) -> DeviceRead:
 @router.get("/runtime-packages", response_model=list[RuntimePackageBuildRead])
 def get_runtime_packages(
     _principal: Principal = Depends(get_current_principal),
-    session: Session = Depends(get_db),
+    current_database: Session = Depends(get_db),
+    session: Session = Depends(get_runtime_package_db),
 ) -> list[RuntimePackageBuildRead]:
+    seed_runtime_package_registry(session, current_database)
     return list_runtime_packages(session)
 
 
@@ -168,7 +172,11 @@ def get_runtime_packages(
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_platform_permission)],
 )
-def post_runtime_package(session: Session = Depends(get_db)) -> RuntimePackageBuildRead:
+def post_runtime_package(
+    current_database: Session = Depends(get_db),
+    session: Session = Depends(get_runtime_package_db),
+) -> RuntimePackageBuildRead:
+    seed_runtime_package_registry(session, current_database)
     return build_runtime_package(session)
 
 
@@ -176,8 +184,10 @@ def post_runtime_package(session: Session = Depends(get_db)) -> RuntimePackageBu
 def download_runtime_package(
     build_id: str,
     _principal: Principal = Depends(get_current_principal),
-    session: Session = Depends(get_db),
+    current_database: Session = Depends(get_db),
+    session: Session = Depends(get_runtime_package_db),
 ) -> StreamingResponse:
+    seed_runtime_package_registry(session, current_database)
     try:
         build = get_current_runtime_package(session, build_id)
     except ValueError as exc:
