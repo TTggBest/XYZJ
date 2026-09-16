@@ -37,6 +37,9 @@
       playlists,
       localized_description: textOr(description.localized_text, "暂无频道语言说明"),
       chinese_description: textOr(description.chinese_translation, "暂无中文对照"),
+      display_status: item.source_complete === true && !packageImagesComplete(item)
+        ? "images_pending"
+        : item.package_status,
     };
   }
 
@@ -146,7 +149,7 @@
   function renderPackageProgressSummary(summary, current) {
     const values = [
       ["一共", summary.total, "is-total"],
-      ["已生成", summary.generated, "is-generated"],
+      ["文案已生成", summary.generated, "is-generated"],
       ["已出图", summary.images_completed, "is-images"],
       ["已完成", summary.completed, "is-completed"],
       ["当前显示", current, "is-visible"],
