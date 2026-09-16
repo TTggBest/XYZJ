@@ -276,7 +276,14 @@
     const [channels, logoProfiles, oauthStatus] = await Promise.all([api("/channels/overview"), api("/channels/logo-profiles"), api("/settings/youtube-oauth")]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
-    const rows = channels.map(item => { const profile = profileByChannel.get(item.channel_id); const authorized = item.authorized_account_count > 0; return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`; });
+    const rows = channels.map(item => {
+      const profile = profileByChannel.get(item.channel_id);
+      const authorized = item.authorized_account_count > 0;
+      const deleteButton = auth.can("channel.delete")
+        ? `<button class="button button-danger button-small" data-action="delete-channel" data-id="${item.channel_id}">${icon("trash-2")} 删除</button>`
+        : "";
+      return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button>${deleteButton}<button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
+    });
     root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
   }
   function channelLogoForm(channel) {
@@ -1610,6 +1617,14 @@
         }
       }
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
+      else if (action === "delete-channel") {
+        const channel = state.channels.find(item => item.channel_id === id);
+        if (!channel || !auth.can("channel.delete")) return;
+        if (!window.confirm(`确认从智矩中删除频道“${channel.original_name}”？\n\n该操作会停止此频道后续任务并从正常列表隐藏；历史数据会保留。`)) return;
+        await api(`/channels/${id}${query({ reason: "用户在频道管理页删除频道" })}`, { method: "DELETE" });
+        notify("频道已从智矩列表删除，历史数据已保留");
+        await loadView("channels");
+      }
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "channel-detail-tab") await showChannelDetail(id, button.dataset.channelDetailTab);
       else if (action === "edit-channel-initialization") {

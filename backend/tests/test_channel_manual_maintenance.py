@@ -84,3 +84,12 @@ def test_channel_detail_exposes_manual_maintenance_forms() -> None:
     assert 'data-action="delete-channel-keyword"' in source
     assert 'data-action="activate-pinned-comment"' in source
     assert 'data-action="edit-channel-playlist"' in source
+
+
+def test_channel_list_exposes_permission_gated_delete_action() -> None:
+    source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
+
+    assert 'auth.can("channel.delete")' in source
+    assert 'data-action="delete-channel"' in source
+    assert 'else if (action === "delete-channel")' in source
+    assert 'api(`/channels/${id}${query({ reason: "用户在频道管理页删除频道" })}`, { method: "DELETE" })' in source
