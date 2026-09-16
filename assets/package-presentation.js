@@ -37,9 +37,6 @@
       playlists,
       localized_description: textOr(description.localized_text, "暂无频道语言说明"),
       chinese_description: textOr(description.chinese_translation, "暂无中文对照"),
-      display_status: item.source_complete === true && !packageImagesComplete(item)
-        ? "images_pending"
-        : item.package_status,
     };
   }
 
@@ -52,34 +49,48 @@
       && logoCovers.every(cover => cover.asset_id && readyAssets.has(cover.asset_id));
   }
 
-  function packageImagesComplete(item) {
-    if (item.source_complete !== true || !packageLogosComplete(item)) return false;
+  function packageImageClicksComplete(item) {
+    if (item.source_complete !== true) return false;
+    const copied = new Set(item.copied_keys || []);
+    const covers = item.covers || [];
+    const expectedPairs = new Set([
+      "1:4:5", "1:16:9", "2:4:5", "2:16:9", "3:4:5", "3:16:9",
+    ]);
+    const actualPairs = new Set(covers.map(cover => {
+      const title = (item.titles || []).find(row => row.id === cover.title_id);
+      return `${title?.variant_number || ""}:${cover.aspect_ratio}`;
+    }));
+    const coversComplete = covers.length === 6
+      && [...expectedPairs].every(pair => actualPairs.has(pair))
+      && covers.every(cover => cover.creative_prompt && copied.has(`cover:${cover.id}`));
+    if (!coversComplete) return false;
+
     const communityCount = Number(item.community_count || 0);
     if (communityCount === 0) return true;
     const posts = item.community_posts || [];
-    const readyAssets = new Set((item.media_assets || [])
-      .filter(asset => asset.asset_role === "community_image" && asset.status === "ready")
-      .map(asset => asset.id));
-    return posts.length === communityCount && posts.every(post => {
-      const assetIds = post.asset_ids || [];
-      return assetIds.length > 0 && assetIds.every(assetId => readyAssets.has(assetId));
-    });
+    return posts.length === communityCount
+      && posts.every(post => post.image_prompt && copied.has(`community_image:${post.id}`));
   }
 
   function imageInspectionTarget(item) {
     if (item.source_complete !== true) return { package_id: item.package_id, kind: "card" };
-    if (!packageLogosComplete(item)) return { package_id: item.package_id, kind: "logo" };
+    const copied = new Set(item.copied_keys || []);
+    const titles = [...(item.titles || [])].sort((left, right) => left.variant_number - right.variant_number);
+    const covers = item.covers || [];
+    for (const title of titles) {
+      for (const ratio of ["4:5", "16:9"]) {
+        const cover = covers.find(row => row.title_id === title.id && row.aspect_ratio === ratio);
+        if (!cover || !cover.creative_prompt) return { package_id: item.package_id, kind: "cover_module" };
+        if (!copied.has(`cover:${cover.id}`)) return { package_id: item.package_id, kind: "output", output_type: "cover", output_id: cover.id };
+      }
+    }
+    if (titles.length !== 3 || covers.length !== 6) return { package_id: item.package_id, kind: "cover_module" };
     const communityCount = Number(item.community_count || 0);
     const communities = [...(item.community_posts || [])].sort((left, right) => left.sequence_number - right.sequence_number);
     if (communities.length !== communityCount) return { package_id: item.package_id, kind: "community_module" };
-    const readyAssets = new Set((item.media_assets || [])
-      .filter(asset => asset.asset_role === "community_image" && asset.status === "ready")
-      .map(asset => asset.id));
     for (const post of communities) {
-      const assetIds = post.asset_ids || [];
-      if (!assetIds.length || !assetIds.every(assetId => readyAssets.has(assetId))) {
-        return { package_id: item.package_id, kind: "community_module" };
-      }
+      if (!post.image_prompt) return { package_id: item.package_id, kind: "community_module" };
+      if (!copied.has(`community_image:${post.id}`)) return { package_id: item.package_id, kind: "output", output_type: "community_image", output_id: post.id };
     }
     return null;
   }
@@ -137,7 +148,7 @@
 
   function summarizePackageProgress(items, total) {
     const generatedItems = (items || []).filter(item => item.source_complete === true);
-    const imagesCompletedItems = generatedItems.filter(packageImagesComplete);
+    const imagesCompletedItems = generatedItems.filter(packageImageClicksComplete);
     return {
       total: Number(total || 0),
       generated: generatedItems.length,
@@ -149,7 +160,7 @@
   function renderPackageProgressSummary(summary, current) {
     const values = [
       ["一共", summary.total, "is-total"],
-      ["文案已生成", summary.generated, "is-generated"],
+      ["已生成", summary.generated, "is-generated"],
       ["已出图", summary.images_completed, "is-images"],
       ["已完成", summary.completed, "is-completed"],
       ["当前显示", current, "is-visible"],

@@ -244,27 +244,12 @@ def test_package_summary_separates_ready_images_from_copy_progress() -> None:
     assert result == {
         "total": 4,
         "generated": 2,
-        "images_completed": 1,
+        "images_completed": 2,
         "completed": 1,
     }
 
 
-def test_package_card_reports_missing_images_before_review_status() -> None:
-    result = render_presentation(
-        {
-            "channel_name": "测试频道",
-            "package_status": "review_pending",
-            "source_complete": True,
-            "community_count": 0,
-            "covers": [],
-            "media_assets": [],
-        }
-    )
-
-    assert result["display_status"] == "images_pending"
-
-
-def test_package_summary_counts_ready_images_without_copy_click_history() -> None:
+def test_package_summary_does_not_count_ready_images_without_copy_click_history() -> None:
     titles = [{"id": f"title-{variant}", "variant_number": variant} for variant in (1, 2, 3)]
     covers = [
         {
@@ -300,12 +285,12 @@ def test_package_summary_counts_ready_images_without_copy_click_history() -> Non
     assert summarize_packages([item], total=1) == {
         "total": 1,
         "generated": 1,
-        "images_completed": 1,
+        "images_completed": 0,
         "completed": 0,
     }
 
 
-def test_package_summary_requires_each_required_community_image_asset() -> None:
+def test_package_summary_requires_each_required_community_image_click() -> None:
     titles = [{"id": f"title-{variant}", "variant_number": variant} for variant in (1, 2, 3)]
     covers = [
         {
@@ -326,7 +311,7 @@ def test_package_summary_requires_each_required_community_image_asset() -> None:
         "community_posts": [
             {"id": "community-1", "image_prompt": "prompt", "asset_ids": ["missing-community-asset"]}
         ],
-        "copied_keys": [],
+        "copied_keys": [f"cover:{cover['id']}" for cover in covers],
         "copy_status": "in_progress",
         "media_assets": [
             {"id": f"logo-{variant}", "asset_role": "thumbnail", "status": "ready"}
@@ -350,7 +335,7 @@ def test_package_summary_renders_distinct_semantic_badges() -> None:
     assert 'class="package-progress-stat is-completed"' in markup
     assert 'class="package-progress-stat is-visible"' in markup
     assert "<span>一共</span><strong>53</strong>" in markup
-    assert "<span>文案已生成</span><strong>51</strong>" in markup
+    assert "<span>已生成</span><strong>51</strong>" in markup
     assert "<span>已完成</span><strong>6</strong>" in markup
     assert "<span>当前显示</span><strong>42</strong>" in markup
 
@@ -456,11 +441,11 @@ def test_progress_inspection_finds_first_missing_cell_for_each_incomplete_packag
     ]
     assert inspection_targets(items, "images") == [
         {"package_id": "not-generated", "kind": "card"},
-        {"package_id": "missing-logo", "kind": "logo"},
+        {"package_id": "missing-cover-click", "kind": "output", "output_type": "cover", "output_id": "cover-3-16:9"},
     ]
     assert inspection_targets(items, "completed") == [
         {"package_id": "not-generated", "kind": "card"},
-        {"package_id": "missing-cover-click", "kind": "output", "output_type": "title", "output_id": "title-1"},
+        {"package_id": "missing-cover-click", "kind": "output", "output_type": "cover", "output_id": "cover-3-16:9"},
         {"package_id": "missing-copy", "kind": "output", "output_type": "title", "output_id": "title-1"},
         {"package_id": "missing-logo", "kind": "logo"},
     ]
