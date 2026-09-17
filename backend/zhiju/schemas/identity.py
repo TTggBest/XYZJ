@@ -88,6 +88,7 @@ class ChannelOverview(BaseModel):
     country_name_zh: str | None
     default_language: str | None
     default_genre: str | None
+    channel_type: str | None
     timezone: str
     daily_publish_count: int
     status: str
