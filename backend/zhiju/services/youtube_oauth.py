@@ -175,6 +175,15 @@ class MacOSKeychainSecretStore:
         )
         return result.stdout.rstrip("\n") if result.returncode == 0 else None
 
+class MacOSGrantTokenStore:
+    def __init__(self, store: MacOSKeychainSecretStore | None = None):
+        self._store = store or MacOSKeychainSecretStore()
+
+    def put(self, grant_id: str, token: Mapping[str, object]) -> str:
+        return save_oauth_token(self._store, grant_id, token)
+
+    def get(self, grant_id: str) -> dict[str, object] | None:
+        return load_oauth_token(self._store, grant_id)
 
 def import_oauth_client_file(
     path: Path,
@@ -331,9 +340,41 @@ def fetch_google_identity(access_token: str) -> dict[str, object]:
 
 def fetch_youtube_channels(access_token: str) -> dict[str, object]:
     return _request_json(
-        "https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true&maxResults=50",
+        "https://www.googleapis.com/youtube/v3/channels?part=id,snippet,contentDetails,brandingSettings&mine=true&maxResults=50",
         headers={"Authorization": f"Bearer {access_token}"},
     )
+
+
+def parse_youtube_channel_candidates(
+    payload: Mapping[str, object],
+) -> list[dict[str, object]]:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return []
+    candidates: list[dict[str, object]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        youtube_channel_id = str(item.get("id") or "").strip()
+        snippet = item.get("snippet") if isinstance(item.get("snippet"), dict) else {}
+        title, avatar_url = youtube_channel_identity(item)
+        if not youtube_channel_id or not title:
+            continue
+        content_details = item.get("contentDetails") if isinstance(item.get("contentDetails"), dict) else {}
+        related_playlists = content_details.get("relatedPlaylists") if isinstance(content_details.get("relatedPlaylists"), dict) else {}
+        branding = item.get("brandingSettings") if isinstance(item.get("brandingSettings"), dict) else {}
+        branding_channel = branding.get("channel") if isinstance(branding.get("channel"), dict) else {}
+        candidates.append({
+            "youtube_channel_id": youtube_channel_id,
+            "title": title,
+            "description": str(snippet.get("description") or "").strip() or None,
+            "avatar_url": avatar_url,
+            "custom_url": str(snippet.get("customUrl") or "").strip() or None,
+            "youtube_country_code": str(snippet.get("country") or "").strip().upper() or None,
+            "youtube_default_language": str(branding_channel.get("defaultLanguage") or "").strip() or None,
+            "uploads_playlist_id": str(related_playlists.get("uploads") or "").strip() or None,
+        })
+    return candidates
 
 
 def choose_youtube_channel(

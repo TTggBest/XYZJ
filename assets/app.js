@@ -34,7 +34,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
   const emptyPageState = structuredClone(state);
@@ -284,13 +284,28 @@
         : "";
       return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button><button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button>${deleteButton}<button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
     });
-    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先录入频道，后续排期、任务和分析都以频道 ID 关联。", "add-channel", "新增频道"), `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`)}</div>`;
+    const addButton = `<button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 新增频道</button>`;
+    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", "先授权 Google 账号，再选择要导入的 YouTube 频道。", "start-youtube-channel-import", "新增频道"), addButton)}</div>`;
   }
   function channelLogoForm(channel) {
     return `<form class="form-grid" id="channelLogoForm"><input type="hidden" name="channel_id" value="${esc(channel.channel_id)}"><div class="field field-wide"><label>频道</label><input class="input" value="${esc(channel.display_name)}" disabled></div><div class="field"><label>左 Logo</label><input class="input" type="file" name="left_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field"><label>右 Logo</label><input class="input" type="file" name="right_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field field-wide"><label>tem 模板图</label><input class="input" type="file" name="template" accept="image/png,image/jpeg,image/webp" required></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("wand-sparkles")} 上传并自动校准</button></div></form>`;
   }
   function channelForm() {
     return `<form class="form-grid" id="channelForm"><div class="field field-wide"><label>原始频道名称</label><input class="input" name="original_name" required maxlength="255"></div><div class="field"><label>运营昵称</label><input class="input" name="operational_name" maxlength="255"></div><div class="field"><label>YouTube Channel ID</label><input class="input mono" name="youtube_channel_id" required maxlength="64"></div><div class="field"><label>目标国家/地区</label><input class="input" name="country_name_zh" required maxlength="120" placeholder="孟加拉国"></div><div class="field"><label>国家/地区代码</label><input class="input mono" name="country_code" required minlength="2" maxlength="2" placeholder="BD"></div><div class="field"><label>默认语言</label><input class="input" name="default_language" required placeholder="bn"></div><div class="field"><label>时区</label><input class="input mono" name="timezone" value="Asia/Shanghai" required></div><div class="field field-wide"><label>默认题材</label><input class="input" name="default_genre"></div><input type="hidden" name="daily_publish_count" value="0"><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存频道</button></div></form>`;
+  }
+  function youtubeChannelImportForm(importData) {
+    const countryOptions = selectedCode => importData.countries.map(country => `<option value="${esc(country.code)}" ${country.code === selectedCode ? "selected" : ""}>${esc(country.name_zh)}（${esc(country.code)}）</option>`).join("");
+    const cards = importData.candidates.map(candidate => {
+      const selectedCountry = importData.countries.find(country => country.code === candidate.youtube_country_code) || importData.countries.find(country => country.code === "US") || importData.countries[0];
+      const avatar = candidate.avatar_url ? `<img src="${esc(candidate.avatar_url)}" alt="">` : `<span>${esc((candidate.title || "频").slice(0, 1))}</span>`;
+      return `<section class="channel-import-card" data-import-row data-candidate-id="${esc(candidate.id)}"><header><label class="channel-import-check"><input type="checkbox" data-import-candidate checked> 导入</label><div class="channel-import-identity">${avatar}<div><strong>${esc(candidate.title)}</strong><span class="mono">${esc(candidate.youtube_channel_id)}</span></div></div></header><div class="form-grid"><div class="field"><label>运营昵称（可选）</label><input class="input" data-import-name maxlength="255"></div><div class="field"><label>目标国家/地区</label><select class="select" data-import-country>${countryOptions(selectedCountry?.code)}</select></div><div class="field"><label>默认语言（自动推荐，可修改）</label><input class="input" data-import-language value="${esc(candidate.youtube_default_language || selectedCountry?.recommended_language || "")}" maxlength="20"></div><div class="field"><label>时区（自动推荐，可修改）</label><input class="input mono" data-import-timezone value="${esc(selectedCountry?.recommended_timezone || "")}" maxlength="64"></div><div class="field field-wide"><label>默认题材</label><input class="input" data-import-genre maxlength="120" placeholder="例如：女频·豪门爱情"></div></div></section>`;
+    }).join("");
+    return `<form id="youtubeChannelImportForm" data-import-session-id="${esc(importData.id)}"><div class="channel-import-intro">已从 YouTube 读取 ${importData.candidates.length} 个可管理频道。勾选要导入的频道，并补充运营信息。</div><div class="channel-import-list">${cards}</div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("download")} 导入所选频道</button></div></form>`;
+  }
+  async function openYouTubeChannelImport(importSessionId) {
+    const importData = await api(`/youtube/channel-imports/${encodeURIComponent(importSessionId)}`);
+    state.channelImport = importData;
+    openModal("选择要导入的 YouTube 频道", youtubeChannelImportForm(importData));
   }
   function channelHubForm(detail) {
     const channel = detail.channel, profile = detail.profile || {};
@@ -1398,6 +1413,14 @@
     const action = button.dataset.action, id = button.dataset.id;
     try {
       if (action === "add-channel") openModal("新增频道", channelForm());
+      else if (action === "start-youtube-channel-import") {
+        if (!state.oauthStatus?.configured) throw new Error("YouTube OAuth 尚未配置，请联系超级管理员");
+        button.disabled = true;
+        const authorization = await api("/youtube/channel-imports/start", { method: "POST" });
+        const authTab = window.open(authorization.authorization_url, "_blank");
+        if (!authTab) { button.disabled = false; throw new Error("浏览器阻止了授权页面，请允许此站点打开新标签页"); }
+        authTab.focus();
+      }
       else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
       else if (action === "add-drama") openModal("新增剧目", dramaForm());
       else if (action === "bulk-add-dramas") openModal("批量录入剧目", dramaBulkForm());
@@ -1813,6 +1836,14 @@
 
   document.addEventListener("change", async event => {
     if (event.target.name === "lease_mode") accountCenter.syncLeaseMode(event.target.form);
+    if (event.target.matches("[data-import-country]")) {
+      const country = state.channelImport?.countries?.find(item => item.code === event.target.value);
+      const row = event.target.closest("[data-import-row]");
+      if (country && row) {
+        row.querySelector("[data-import-language]").value = country.recommended_language;
+        row.querySelector("[data-import-timezone]").value = country.recommended_timezone;
+      }
+    }
     if (["scheduleDate", "cadenceDate", "taskDate", "workDate", "packageDate"].includes(event.target.id)) { state.date = event.target.value || localDate(); state.dateManuallySet = true; await loadView(state.view); }
     if (event.target.id === "scheduleChannelFilter") { state.scheduleChannelId = event.target.value; state.scheduleFullPage = 1; await loadView("schedules"); }
     if (event.target.id === "packageChannel") { state.packageChannel = event.target.value; await loadView("packages"); }
@@ -1870,6 +1901,25 @@
       return;
     }
     try {
+      if (form.id === "youtubeChannelImportForm") {
+        const importSessionId = form.dataset.importSessionId;
+        const selections = [...form.querySelectorAll("[data-import-row]")]
+          .filter(row => row.querySelector("[data-import-candidate]").checked)
+          .map(row => ({
+            candidate_id: row.dataset.candidateId,
+            operational_name: row.querySelector("[data-import-name]").value.trim() || null,
+            target_country_code: row.querySelector("[data-import-country]").value,
+            default_language: row.querySelector("[data-import-language]").value.trim() || null,
+            timezone: row.querySelector("[data-import-timezone]").value.trim() || null,
+            default_genre: row.querySelector("[data-import-genre]").value.trim(),
+          }));
+        if (!selections.length) throw new Error("请至少选择一个 YouTube 频道");
+        if (selections.some(item => !item.default_genre)) throw new Error("请填写所选频道的默认题材");
+        const result = await api(`/youtube/channel-imports/${encodeURIComponent(importSessionId)}/commit`, { method: "POST", body: JSON.stringify({ selections }) });
+        notify(`已导入 ${result.channels.length} 个 YouTube 频道`);
+        state.channelImport = null; closeModal(); await loadView("channels");
+        return;
+      }
       if (form.id === "channelForm") { data.daily_publish_count = Number(data.daily_publish_count); data.country_code = data.country_code.toUpperCase(); for (const key of ["operational_name", "default_genre"]) if (!data[key]) data[key] = null; await api("/channels", { method: "POST", body: JSON.stringify(data) }); notify("频道已保存"); closeModal(); await loadView("channels"); }
       if (form.id === "channelHubForm") {
         const channelId = data.channel_id; delete data.channel_id;
@@ -2084,8 +2134,12 @@
   window.addEventListener("pagehide", closeRealtime);
   window.addEventListener("message", async event => {
     if (!auth.current()) return;
-    if (event.origin !== window.location.origin || !event.data?.type?.startsWith("youtube-auth-")) return;
-    if (event.data.type === "youtube-auth-complete") {
+    const oauthEvent = event.data?.type;
+    if (event.origin !== window.location.origin || !["youtube-auth-complete", "youtube-auth-failed", "youtube-channel-import-ready"].includes(oauthEvent)) return;
+    if (oauthEvent === "youtube-channel-import-ready") {
+      notify(event.data.message || "已读取 YouTube 频道");
+      await openYouTubeChannelImport(event.data.import_session_id);
+    } else if (oauthEvent === "youtube-auth-complete") {
       notify(event.data.message || "YouTube频道授权完成");
       await loadView(state.view, { preservePosition: true });
     } else {

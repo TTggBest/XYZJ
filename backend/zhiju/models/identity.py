@@ -60,12 +60,13 @@ class GoogleAccount(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
             "authorization_status IN ('pending','authorized','expired','revoked','error')",
             name="valid_authorization_status",
         ),
+        UniqueConstraint("tenant_id", "google_email", name="uq_google_accounts_tenant_email"),
         Index("ix_google_accounts_status_auth", "status", "authorization_status"),
         {"comment": "YouTube授权所使用的Google主账号"},
     )
 
     nickname: Mapped[str] = mapped_column(String(120), nullable=False, comment="账号运营昵称")
-    google_email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, comment="Google账号邮箱")
+    google_email: Mapped[str] = mapped_column(String(320), nullable=False, comment="Google账号邮箱")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active", comment="账号状态")
     authorization_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending", comment="授权状态")
     authorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="首次授权成功时间")

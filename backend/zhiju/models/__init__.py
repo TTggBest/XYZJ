@@ -43,6 +43,7 @@ from zhiju.models.identity import (
 )
 from zhiju.models.integration import (
     Integration, IntegrationAccount, IntegrationCredential, OAuthAuthorizationState,
+    YouTubeChannelImportCandidate, YouTubeChannelImportSession,
 )
 from zhiju.models.settings import (
     AppIconSetting,
@@ -201,4 +202,6 @@ __all__ = [
     "YoutubeVideoDailyMetric",
     "YoutubeVideoPlaylistMembership",
     "YoutubeVideoStatusHistory",
+    "YouTubeChannelImportCandidate",
+    "YouTubeChannelImportSession",
 ]

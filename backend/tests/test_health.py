@@ -42,7 +42,8 @@ def test_root_serves_management_ui() -> None:
     assert "筱宇智矩" in response.text
     assert "operations-page-data.js?v=3.18.4" in response.text
     assert "package-presentation.js?v=3.19.1" in response.text
-    assert "app.js?v=3.19.1" in response.text
+    assert "app.js?v=3.19.2" in response.text
+    assert "styles.css?v=3.19.1" in response.text
     app_js = client.get("/assets/app.js")
     assert app_js.status_code == 200
     assert app_js.headers["cache-control"] == "no-cache"

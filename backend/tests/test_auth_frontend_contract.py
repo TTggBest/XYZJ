@@ -527,6 +527,48 @@ assert.equal(paths.length,count);assert.match(page.nodes.get('tenantBanner').tex
 """)
 
 
+def test_add_channel_starts_oauth_discovery_instead_of_opening_manual_form():
+    run_node(APP_FIXTURE + """
+const opened=[];
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/channels/overview')return new Response('[]');
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response(JSON.stringify({
+  configured:true,can_manage:true,client_type:'installed',
+  project_id:'fixture',redirect_uri:'http://127.0.0.1:8080',credential_ref:'keychain://fixture',
+  scopes:[],legacy_file_available:false
+ }));
+ if(path==='/api/v3/youtube/channel-imports/start'){
+  assert.equal(options.method,'POST');
+  return new Response(JSON.stringify({authorization_url:'https://accounts.google.com/o/oauth2/v2/auth?fixture=1',expires_in_seconds:600}));
+ }
+ if(path==='/api/v3/youtube/channel-imports/import-a')return new Response(JSON.stringify({
+  id:'import-a',status:'ready',expires_at:'2030-01-01T00:00:00Z',
+  candidates:[{id:'candidate-a',youtube_channel_id:'UC-a',title:'Google 频道 A',description:null,avatar_url:null,custom_url:'@a',youtube_country_code:'BR',youtube_default_language:'pt-BR',uploads_playlist_id:'UU-a'}],
+  countries:[{code:'BR',name_zh:'巴西',recommended_language:'pt-BR',recommended_timezone:'America/Sao_Paulo'}]
+ }));
+ return defaultResponse(path);
+},{window:{open:(url,name,features)=>{opened.push({url,name,features});return {focus(){}};}}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/data-action="start-youtube-channel-import"/);assert.match(html,/新增频道/);
+assert.doesNotMatch(html,/data-action="add-channel"/);
+await clickAction(page,'start-youtube-channel-import');await settle(page);
+assert.deepEqual(paths.filter(path=>path==='/api/v3/youtube/channel-imports/start'),['/api/v3/youtube/channel-imports/start']);
+assert.equal(opened.length,1);assert.match(opened[0].url,/accounts[.]google[.]com/);
+assert.equal(page.nodes.get('modalBackdrop').hidden,true);
+await page.window.emit('message',{origin:'http://fixture',data:{type:'youtube-channel-import-ready',import_session_id:'import-a'}});
+await settle(page);
+assert(paths.includes('/api/v3/youtube/channel-imports/import-a'));
+assert.match(page.nodes.get('modalTitle').textContent,/选择要导入的 YouTube 频道/);
+assert.match(page.nodes.get('modalBody').innerHTML,/Google 频道 A/);
+assert.match(page.nodes.get('modalBody').innerHTML,/pt-BR/);
+""")
+
+
 @pytest.mark.parametrize("first_status", [200, 409])
 def test_real_app_bulk_dispatch_completes_under_one_identity(first_status):
     run_node(APP_FIXTURE + f"const firstStatus={first_status};" + """

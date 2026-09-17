@@ -17,6 +17,7 @@ function target(id = "") {
 }
 
 function start(root, auth, fetcher, browserGlobals = {}) {
+  const { window: windowOverrides = {}, ...sandboxGlobals } = browserGlobals;
   const nodes = new Map();
   for (const match of fs.readFileSync(root + "/index.html", "utf8").matchAll(/<[^>]+\bid="([^"]+)"[^>]*>/g)) {
     const item = target(match[1]); item.hidden = /\bhidden\b/.test(match[0]); nodes.set(item.id, item);
@@ -28,12 +29,12 @@ function start(root, auth, fetcher, browserGlobals = {}) {
     ZhijuPackagePresentation: require(root + "/assets/package-presentation.js"),
     ZhijuRuntimeViewState: require(root + "/assets/runtime-view-state.js"), innerWidth: 1280, innerHeight: 800, scrollY: 0,
     location: { origin: "http://fixture" }, scrollTo() {}, scrollBy() {},
-  });
+  }, windowOverrides);
   if (nodes.has("loginForm")) nodes.get("loginForm").elements = { login_name: nodes.get("loginName"), password: nodes.get("loginPassword") };
   const sandbox = { document, window, console, FormData, URLSearchParams, DOMException, AbortController, structuredClone, CSS: { escape: text => text },
     fetch: fetcher, localStorage: { getItem: () => null, setItem() {} }, navigator: {},
     requestAnimationFrame: fn => fn(), setTimeout: () => 1, clearTimeout() {},
-    ...browserGlobals,
+    ...sandboxGlobals,
   };
   vm.runInNewContext(fs.readFileSync(root + "/assets/app.js", "utf8"), sandbox);
   return { nodes, document, window, tick: () => new Promise(resolve => setImmediate(resolve)) };
