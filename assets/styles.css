@@ -538,6 +538,9 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .avatar { width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 32px; color: #0a6746; background: var(--green-soft); border: 1px solid #cae8da; border-radius: 5px; font-weight: 800; }
 .avatar-image { width: 100%; height: 100%; display: block; object-fit: cover; border-radius: 4px; }
 .identity-cell { display: flex; align-items: center; gap: 9px; }
+.channel-name-copy { padding: 0; color: inherit; background: transparent; border: 0; text-align: left; cursor: pointer; }
+.channel-name-copy:hover { color: var(--green-dark); text-decoration: underline; }
+.channel-name-copy:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 2px; }
 .code-preview { max-height: 420px; overflow: auto; margin: 0; padding: 13px; color: #dfe8e4; background: #17201d; border-radius: 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 
 .settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 14px; align-items: start; }
