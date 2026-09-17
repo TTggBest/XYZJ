@@ -18,6 +18,7 @@ from zhiju.services.youtube_oauth import (
     import_oauth_client_file,
     oauth_client_status,
     parse_oauth_client_document,
+    parse_youtube_channel_candidates,
     refresh_oauth_access_token,
     save_oauth_token,
     youtube_channel_identity,
@@ -132,6 +133,19 @@ def test_youtube_channel_identity_uses_title_and_highest_avatar() -> None:
 
     assert title == "Actual Channel"
     assert avatar_url == "https://img.example/high.jpg"
+
+
+def test_channel_candidate_reads_google_country_and_default_language() -> None:
+    candidates = parse_youtube_channel_candidates({
+        "items": [{
+            "id": "UC-target",
+            "snippet": {"title": "Actual Channel", "country": "BR"},
+            "brandingSettings": {"channel": {"defaultLanguage": "pt-BR"}},
+        }],
+    })
+
+    assert candidates[0]["youtube_country_code"] == "BR"
+    assert candidates[0]["youtube_default_language"] == "pt-BR"
 
 
 def test_oauth_token_is_saved_in_keychain_and_returns_reference() -> None:

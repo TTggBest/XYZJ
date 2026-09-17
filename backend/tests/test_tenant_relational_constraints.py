@@ -140,14 +140,15 @@ def test_mysql_constraint_and_index_names_fit_the_actual_identifier_limit():
                 assert len(str(item.name)) <= 64, (table_name, item.name)
 
 
-def test_two_relational_revisions_form_the_only_head_chain():
+def test_relational_revisions_form_the_only_head_chain():
     config = Config(ROOT / "alembic.ini")
     config.set_main_option("script_location", str(ROOT / "backend" / "alembic"))
     scripts = ScriptDirectory.from_config(config)
     revisions = {revision.revision: revision for revision in scripts.walk_revisions()}
     assert revisions["c8e1f4a9b387"].down_revision == "b7d0e3f8a276"
     assert revisions["d9f2a5b0c498"].down_revision == "c8e1f4a9b387"
-    assert scripts.get_heads() == ["d9f2a5b0c498"]
+    assert revisions["0d7a4c9e12f6"].down_revision == "d9f2a5b0c498"
+    assert scripts.get_heads() == ["0d7a4c9e12f6"]
 
 
 def _revision_module(revision_id: str):
