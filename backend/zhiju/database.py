@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from threading import RLock
+from threading import Lock, RLock
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -70,6 +70,7 @@ PRODUCTION_CONFIG_CANDIDATES = (
     Path("/Volumes/XYData/XYZJ/config/zhiju-runtime.env"),
     Path.home() / "Library" / "Application Support" / "筱宇智矩" / "runtime.env",
 )
+_production_migration_lock = Lock()
 
 
 def _read_runtime_value(path: Path, key: str) -> str:
@@ -98,6 +99,15 @@ def load_production_database_url() -> str:
 
 
 def upgrade_production_database() -> None:
+    if not _production_migration_lock.acquire(blocking=False):
+        raise RuntimeError("生产数据库迁移正在执行，请稍后再试")
+    try:
+        _upgrade_production_database()
+    finally:
+        _production_migration_lock.release()
+
+
+def _upgrade_production_database() -> None:
     database_url = load_production_database_url()
     migration_url = _load_production_runtime_value("ZHJ_MIGRATION_DATABASE_URL")
     if make_url(database_url).database != "zhiju_prod" or make_url(migration_url).database != "zhiju_prod":
@@ -119,7 +129,17 @@ def upgrade_production_database() -> None:
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()
-        raise RuntimeError(f"生产数据库迁移失败：{detail[-1] if detail else 'Alembic 执行失败'}")
+        useful_detail = next(
+            (
+                line.strip()
+                for line in reversed(detail)
+                if line.strip()
+                and not line.lstrip().startswith("[SQL:")
+                and "Background on this error" not in line
+            ),
+            "Alembic 执行失败",
+        )
+        raise RuntimeError(f"生产数据库迁移失败：{useful_detail}")
 
 
 def load_development_database_url() -> str:

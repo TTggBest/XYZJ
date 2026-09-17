@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from zhiju.auth_context import Principal, get_current_principal
+from zhiju.auth_context import get_optional_principal
 from zhiju.config import get_settings
 from zhiju.database import database_router
 from zhiju.realtime import broker, encode_sse, realtime_stream_url
@@ -30,9 +30,11 @@ def get_realtime_config() -> dict[str, object]:
 @router.get("/events/stream")
 async def get_event_stream(
     request: Request,
-    _principal: Principal = Depends(get_current_principal),
 ) -> StreamingResponse:
-    principal = request.state.principal
+    with database_router.open_session() as session:
+        principal = get_optional_principal(request, session)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="请先登录")
     tenant_id = principal.tenant_id
     if tenant_id is None:
         raise HTTPException(status_code=403, detail="请先选择主账号")

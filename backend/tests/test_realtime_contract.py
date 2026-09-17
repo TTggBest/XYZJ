@@ -1,10 +1,14 @@
 import asyncio
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from zhiju.app import app
+from zhiju.api import realtime as realtime_api
+from zhiju.auth_context import Principal
 from zhiju.realtime import RealtimeBroker
 
 
@@ -63,3 +67,40 @@ def test_background_tabs_release_their_sse_connection() -> None:
     assert 'document.addEventListener("visibilitychange"' in app_source
     assert 'window.addEventListener("pagehide"' in app_source
     assert "closeRealtime" in app_source
+
+
+def test_realtime_stream_closes_authentication_session_before_streaming(monkeypatch) -> None:
+    events: list[str] = []
+    session = object()
+    principal = Principal(
+        user_id="user-a",
+        tenant_id="tenant-a",
+        membership_role="owner",
+        platform_role=None,
+        device_id=None,
+        device_trust_level="normal",
+        permissions=frozenset(),
+    )
+
+    @contextmanager
+    def open_session():
+        events.append("session-open")
+        try:
+            yield session
+        finally:
+            events.append("session-closed")
+
+    def resolve_principal(request, current_session):
+        assert current_session is session
+        events.append("principal-resolved")
+        return principal
+
+    monkeypatch.setattr(realtime_api.database_router, "open_session", open_session)
+    monkeypatch.setattr(realtime_api, "get_optional_principal", resolve_principal, raising=False)
+    request = Request({"type": "http", "method": "GET", "path": "/api/v3/events/stream", "headers": []})
+    request.state.principal = principal
+
+    response = asyncio.run(realtime_api.get_event_stream(request))
+
+    assert response.status_code == 200
+    assert events == ["session-open", "principal-resolved", "session-closed"]
