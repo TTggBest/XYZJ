@@ -269,6 +269,7 @@ def list_channel_overview(
                 "country_name_zh": channel.country_name_zh,
                 "default_language": channel.default_language,
                 "default_genre": channel.default_genre,
+                "channel_type": channel.channel_type,
                 "timezone": channel.timezone,
                 "daily_publish_count": channel.daily_publish_count,
                 "status": channel.status,

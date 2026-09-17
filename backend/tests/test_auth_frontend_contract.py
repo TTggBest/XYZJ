@@ -90,6 +90,7 @@ def test_sticky_panels_follow_the_rendered_topbar_height_when_super_admin_banner
     assert "top: var(--topbar-height, 78px)" in styles
     assert ".package-list-page > .section > .section-head { position: sticky; top: 78px;" not in styles
     assert ".media-assets-fixed-panel { position: sticky; top: 78px;" not in styles
+    assert ".channel-list-page > .section > .section-head { position: sticky; top: var(--topbar-height, 78px);" in styles
 
 
 def test_switch_tenant_clears_old_context_preserves_actor_and_uses_server_options():
@@ -566,6 +567,38 @@ assert(paths.includes('/api/v3/youtube/channel-imports/import-a'));
 assert.match(page.nodes.get('modalTitle').textContent,/选择要导入的 YouTube 频道/);
 assert.match(page.nodes.get('modalBody').innerHTML,/Google 频道 A/);
 assert.match(page.nodes.get('modalBody').innerHTML,/pt-BR/);
+""")
+
+
+def test_channel_list_sorts_by_created_time_and_filters_by_audience_and_language():
+    run_node(APP_FIXTURE + """
+const channels=[
+ {channel_id:'old-female',youtube_channel_id:'UC-old',original_name:'旧女频',operational_name:'旧女频-英语-女频',display_name:'旧女频',youtube_avatar_url:null,default_language:'en',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-01T00:00:00Z'},
+ {channel_id:'new-male',youtube_channel_id:'UC-new',original_name:'新男频',operational_name:'新男频-印尼语-男频',display_name:'新男频',youtube_avatar_url:null,default_language:'id',default_genre:'男频',channel_type:'男频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-03T00:00:00Z'},
+ {channel_id:'mid-female',youtube_channel_id:'UC-mid',original_name:'中女频',operational_name:'中女频-西语-女频',display_name:'中女频',youtube_avatar_url:null,default_language:'es',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-02T00:00:00Z'}
+];
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+let html=page.nodes.get('viewRoot').innerHTML;
+assert(html.indexOf('新男频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('旧女频'));
+assert.match(html,/最新录入优先/);assert.match(html,/全部频类/);assert.match(html,/全部语言/);assert.match(html,/录入时间/);
+await page.document.emit('change',{target:{id:'channelAudienceFilter',value:'female',matches:()=>false,closest:()=>null}});
+html=page.nodes.get('viewRoot').innerHTML;
+assert.doesNotMatch(html,/新男频/);assert.match(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 2 个/);
+await page.document.emit('change',{target:{id:'channelLanguageFilter',value:'es',matches:()=>false,closest:()=>null}});
+html=page.nodes.get('viewRoot').innerHTML;
+assert.doesNotMatch(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 1 个/);
+await clickAction(page,'reset-channel-list-filters');
+await page.document.emit('change',{target:{id:'channelSortOrder',value:'asc',matches:()=>false,closest:()=>null}});
+html=page.nodes.get('viewRoot').innerHTML;
+assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
 """)
 
 
