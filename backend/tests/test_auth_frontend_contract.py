@@ -602,6 +602,28 @@ assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexO
 """)
 
 
+def test_clicking_channel_name_copies_exact_original_name():
+    run_node(APP_FIXTURE + """
+const copied=[];
+const channels=[
+ {channel_id:'channel-a',youtube_channel_id:'UC-a',original_name:'Cinta Kedua Setelah Berpisah',operational_name:'Cinta Kedua Setelah Berpisah-印尼-女频',display_name:'Cinta Kedua Setelah Berpisah',youtube_avatar_url:null,default_language:'id',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-03T00:00:00Z'}
+];
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
+ return defaultResponse(path);
+},{navigator:{clipboard:{writeText:async value=>copied.push(value)}}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/data-action="copy-channel-name"/);assert.match(html,/title="点击复制频道名"/);
+await clickAction(page,'copy-channel-name',{value:'Cinta Kedua Setelah Berpisah'});
+assert.deepEqual(copied,['Cinta Kedua Setelah Berpisah']);
+""")
+
+
 @pytest.mark.parametrize("first_status", [200, 409])
 def test_real_app_bulk_dispatch_completes_under_one_identity(first_status):
     run_node(APP_FIXTURE + f"const firstStatus={first_status};" + """

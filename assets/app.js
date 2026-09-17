@@ -269,7 +269,7 @@
     const nickname = item.operational_name && item.operational_name !== item.original_name
       ? `<span class="cell-sub">${esc(item.operational_name)}</span>`
       : "";
-    return `<div class="identity-cell">${avatar}<div><span class="cell-main">${esc(item.original_name)}</span>${nickname}</div></div>`;
+    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}</div></div>`;
   }
 
   function channelAudience(item) {
@@ -1681,6 +1681,12 @@
         });
       }
       else if (action === "focus-missing-prompt") focusMissingPackagePrompt(button.dataset.role);
+      else if (action === "copy-channel-name") {
+        const value = button.dataset.value;
+        if (!value) return;
+        await copyText(value);
+        notify(`已复制频道名：${value}`);
+      }
       else if (action === "copy-package-field") {
         const expectedRevision = auth.capture();
         const value = state.copyValues.get(button.dataset.copyKey);
