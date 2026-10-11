@@ -661,6 +661,38 @@ class FeishuClient:
         sheets = list((result.get("data") or {}).get("sheets") or [])
         return token, spreadsheet_token, sheets
 
+    def _matrix_from_sheet(
+        self,
+        token: str,
+        spreadsheet_token: str,
+        sheet_id: str,
+        last_column: str,
+    ) -> list[list]:
+        matrix = []
+        start_row, page_rows = 1, 500
+        while start_row <= 5000:
+            end_row = min(start_row + page_rows - 1, 5000)
+            cell_range = quote(f"{sheet_id}!A{start_row}:{last_column}{end_row}", safe="!")
+            try:
+                result = self._request(
+                    "GET",
+                    f"/sheets/v2/spreadsheets/{spreadsheet_token}/values/{cell_range}?valueRenderOption=FormattedValue",
+                    token=token,
+                )
+            except FeishuSyncError as exc:
+                if "data exceeded" not in str(exc) or end_row == start_row:
+                    raise
+                page_rows = max(1, (end_row - start_row + 1) // 2)
+                continue
+            values = (((result.get("data") or {}).get("valueRange") or {}).get("values") or [])
+            matrix.extend(values)
+            # 飞书省略段尾空行，补齐以保持后续数据的真实行号。
+            matrix.extend([[] for _ in range(end_row - start_row + 1 - len(values))])
+            start_row = end_row + 1
+        while matrix and not matrix[-1]:
+            matrix.pop()
+        return matrix
+
     def _rows_from_sheet(
         self,
         token: str,
@@ -668,13 +700,7 @@ class FeishuClient:
         sheet_id: str,
         last_column: str,
     ) -> list[dict[str, str]]:
-        cell_range = quote(f"{sheet_id}!A1:{last_column}5000", safe="!")
-        values = self._request(
-            "GET",
-            f"/sheets/v2/spreadsheets/{spreadsheet_token}/values/{cell_range}?valueRenderOption=FormattedValue",
-            token=token,
-        )
-        matrix = (((values.get("data") or {}).get("valueRange") or {}).get("values") or [])
+        matrix = self._matrix_from_sheet(token, spreadsheet_token, sheet_id, last_column)
         if not matrix:
             return []
         headers = [cell_text(value).strip() for value in matrix[0]]
@@ -741,13 +767,7 @@ class FeishuClient:
         if len(matches) != 1 or not matches[0]:
             raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
         sheet_id = str(matches[0])
-        cell_range = quote(f"{sheet_id}!A1:{last_column}5000", safe="!")
-        values = self._request(
-            "GET",
-            f"/sheets/v2/spreadsheets/{spreadsheet_token}/values/{cell_range}?valueRenderOption=FormattedValue",
-            token=token,
-        )
-        matrix = (((values.get("data") or {}).get("valueRange") or {}).get("values") or [])
+        matrix = self._matrix_from_sheet(token, spreadsheet_token, sheet_id, last_column)
         return sheet_id, [[cell_text(value) for value in row] for row in matrix]
 
 
