@@ -23,6 +23,7 @@ _COUNTRIES = (
         ("America/Sao_Paulo", "America/Manaus"),
     ),
     CountryOption("ES", "西班牙", "es", "Europe/Madrid", ("Europe/Madrid",)),
+    CountryOption("FR", "法国", "fr", "Europe/Paris", ("Europe/Paris",)),
     CountryOption("ID", "印度尼西亚", "id", "Asia/Jakarta", ("Asia/Jakarta", "Asia/Makassar")),
     CountryOption("IN", "印度", "hi", "Asia/Kolkata", ("Asia/Kolkata",)),
     CountryOption("MX", "墨西哥", "es", "America/Mexico_City", ("America/Mexico_City",)),

@@ -260,7 +260,7 @@
   function kpi(iconName, title, value, foot) { return `<article class="kpi"><div class="kpi-head"><span>${esc(title)}</span>${icon(iconName)}</div><div class="kpi-value">${Number(value || 0)}</div><div class="kpi-foot">${esc(foot)}</div></article>`; }
 
   const languageNames = {
-    ar: "阿拉伯语", bn: "孟加拉语", en: "英语", es: "西班牙语", fil: "菲律宾语",
+    ar: "阿拉伯语", bn: "孟加拉语", en: "英语", es: "西班牙语", fil: "菲律宾语", fr: "法语",
     hi: "印地语", id: "印度尼西亚语", "pt-BR": "巴西葡萄牙语", ru: "俄语", tr: "土耳其语"
   };
   function languageLabel(code) {
