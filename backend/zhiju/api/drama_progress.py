@@ -40,8 +40,18 @@ def get_progress_page(
     batch_name: str | None = None,
     overall_status: str | None = None,
     current_node: str | None = None,
+    node: Literal[
+        "cloud_download", "parameter_normalization", "youtube_upload",
+        "copyright_verification", "subtitle_extraction", "guishou_upload",
+        "role_extraction", "tts", "production_completion",
+    ] | None = None,
+    node_status: Literal[
+        "not_started", "in_progress", "completed", "failed", "completed_or_in_progress",
+    ] | None = None,
     session: Session = Depends(get_tenant_db),
 ) -> DramaProgressPage:
+    if node_status and not node:
+        raise HTTPException(status_code=422, detail="请先选择制作节点")
     return list_drama_progress(
         session,
         page=page,
@@ -51,6 +61,8 @@ def get_progress_page(
         batch_name=batch_name,
         overall_status=overall_status,
         current_node=current_node,
+        node=node,
+        node_status=node_status,
     )
 
 

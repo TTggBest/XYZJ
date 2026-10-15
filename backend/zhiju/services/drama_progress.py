@@ -215,6 +215,8 @@ def list_drama_progress(
     batch_name: str | None = None,
     overall_status: str | None = None,
     current_node: str | None = None,
+    node: str | None = None,
+    node_status: str | None = None,
 ) -> dict[str, object]:
     statement = (
         select(Drama, DramaProductionState)
@@ -238,10 +240,21 @@ def list_drama_progress(
             "chinese_title": drama.chinese_title,
             "batch_name": drama.batch_name,
         }
-        if overall_status and item["overall_status"] != overall_status:
+        overall_matches = (
+            item["overall_status"] in ("completed", "in_progress")
+            if overall_status == "completed_or_in_progress"
+            else item["overall_status"] == overall_status
+        )
+        if overall_status and not overall_matches:
             continue
         if current_node and item["current_node"] != current_node:
             continue
+        if node and node_status:
+            status = item[f"{node}_status"]
+            matches = (status in ("completed", "in_progress")
+                       if node_status == "completed_or_in_progress" else status == node_status)
+            if not matches:
+                continue
         rows.append(item)
     total = len(rows)
     start = (page - 1) * page_size
