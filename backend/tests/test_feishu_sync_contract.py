@@ -121,7 +121,9 @@ def test_feishu_rows_keep_their_original_sheet_row_number(monkeypatch) -> None:
             ["第二部", "2026082606"],
         ]}}},
     ])
-    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: next(
+        responses, {"data": {"valueRange": {"values": []}}},
+    ))
 
     rows = client.rows("wiki", "sheet", "S")
 
