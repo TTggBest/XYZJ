@@ -160,9 +160,9 @@ def _failure_summary(nodes: dict[str, dict[str, object]]) -> str | None:
     return "\n".join(failures) or None
 
 
-def _complete_cloud_download_for_finished_drama(state: DramaProductionState) -> bool:
+def _complete_cloud_download_from_following_nodes(state: DramaProductionState) -> bool:
     if (
-        state.production_completion_status == "completed"
+        any(getattr(state, field) == "completed" for field in ZHIHE_NODE_FIELDS.values())
         and state.cloud_download_status != "completed"
     ):
         state.cloud_download_status = "completed"
@@ -201,7 +201,7 @@ def sync_zhihe_progress(
         )
         source_updated_at = _utc_naive(str(item["updated_at"]))
         repaired_cloud_download = (
-            _complete_cloud_download_for_finished_drama(state)
+            _complete_cloud_download_from_following_nodes(state)
             if state is not None
             else False
         )
@@ -224,7 +224,7 @@ def sync_zhihe_progress(
         nodes = item["nodes"]
         for node_name, field_name in ZHIHE_NODE_FIELDS.items():
             setattr(state, field_name, str(nodes[node_name]["status"]))
-        _complete_cloud_download_for_finished_drama(state)
+        _complete_cloud_download_from_following_nodes(state)
         state.episode_count = item.get("episode_count")
         state.total_duration_seconds = item.get("total_duration_seconds")
         state.last_error = _failure_summary(nodes)
