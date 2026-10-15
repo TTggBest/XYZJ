@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from decimal import Decimal
 from datetime import date, datetime, time, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, quote, urlparse
@@ -667,14 +668,23 @@ class FeishuClient:
         spreadsheet_token: str,
         sheet_id: str,
         last_column: str,
+        *,
+        row_count: int = 5000,
+        batch_size: int = 5000,
     ) -> list[dict[str, str]]:
-        cell_range = quote(f"{sheet_id}!A1:{last_column}5000", safe="!")
-        values = self._request(
-            "GET",
-            f"/sheets/v2/spreadsheets/{spreadsheet_token}/values/{cell_range}?valueRenderOption=FormattedValue",
-            token=token,
-        )
-        matrix = (((values.get("data") or {}).get("valueRange") or {}).get("values") or [])
+        matrix = []
+        for start in range(1, row_count + 1, batch_size):
+            end = min(start + batch_size - 1, row_count)
+            cell_range = quote(f"{sheet_id}!A{start}:{last_column}{end}", safe="!")
+            values = self._request(
+                "GET",
+                f"/sheets/v2/spreadsheets/{spreadsheet_token}/values/{cell_range}?valueRenderOption=FormattedValue",
+                token=token,
+            )
+            page = (((values.get("data") or {}).get("valueRange") or {}).get("values") or [])
+            matrix.extend(page)
+            if end < row_count:
+                matrix.extend([[] for _ in range(end - start + 1 - len(page))])
         if not matrix:
             return []
         headers = [cell_text(value).strip() for value in matrix[0]]
@@ -704,6 +714,8 @@ class FeishuClient:
         wiki_token: str,
         title: str,
         last_column: str,
+        *,
+        batch_size: int = 5000,
     ) -> tuple[str, list[dict[str, str]]]:
         token, spreadsheet_token = self._spreadsheet_access(wiki_token)
         result = self._request(
@@ -719,7 +731,12 @@ class FeishuClient:
         if len(matches) != 1 or not matches[0]:
             raise FeishuSyncError(f"未找到唯一的飞书工作表：{title}")
         sheet_id = str(matches[0])
-        return sheet_id, self._rows_from_sheet(token, spreadsheet_token, sheet_id, last_column)
+        sheet = next(sheet for sheet in result["data"]["sheets"] if sheet.get("sheet_id") == sheet_id)
+        row_count = int((sheet.get("grid_properties") or {}).get("row_count") or 5000)
+        return sheet_id, self._rows_from_sheet(
+            token, spreadsheet_token, sheet_id, last_column,
+            row_count=row_count if batch_size < 5000 else 5000, batch_size=batch_size,
+        )
 
     def matrix_by_title(
         self,
@@ -1461,16 +1478,55 @@ def new_drama_rows_in_insert_order(
     return list(reversed(rows))
 
 
+def read_drama_library_rows() -> tuple[str, list[dict[str, str]]]:
+    """Only 筱宇译制 defines membership; the other sheets supply metadata."""
+    client = _client()
+    wiki = get_settings().feishu_drama_library_wiki_token
+    sheet_id, selected = client.rows_by_title(wiki, "筱宇译制", "K", batch_size=100)
+    references = []
+    for title, end in (("总库表", "N"), ("简表", "D")):
+        _, rows = client.rows_by_title(wiki, title, end, batch_size=100)
+        index = {}
+        for row in rows:
+            name = normalize_drama_title(row.get("作品名称", ""))
+            if not name:
+                continue
+            if name in index:
+                raise FeishuSyncError(f"飞书{title}作品名称重复：{row['作品名称']}")
+            index[name] = row
+        references.append(index)
+    merged_rows = []
+    for selected_row in selected:
+        name = selected_row.get("剧名", "").strip()
+        normalized = normalize_drama_title(name)
+        merged = {}
+        # Short table is fallback only: prefer nonempty full-master values.
+        for index in reversed(references):
+            merged.update({k: cell_text(v).strip() for k, v in index.get(normalized, {}).items() if cell_text(v).strip()})
+        merged.update({k: cell_text(v).strip() for k, v in selected_row.items() if cell_text(v).strip()})
+        merged.update({
+            "作品名称": name,
+            "__source_row_number": str(selected_row["__source_row_number"]),
+            "百度网盘链接": selected_row.get("百度网盘", "").strip() or merged.get("网盘", ""),
+            "综合评分": merged.get("评分", ""),
+            "到期时间": merged.get("到期日期", ""),
+        })
+        merged_rows.append(merged)
+    return sheet_id, merged_rows
+
+
 def parse_operation_duration(value: str, *, row_number: int) -> int | None:
     normalized = value.strip()
-    if not normalized:
+    if normalized in ("", "-"):
         return None
     parts = normalized.split(":")
+    if len(parts) == 2:
+        parts.insert(0, "0")
     if len(parts) != 3 or not all(part.isdigit() for part in parts):
-        raise FeishuSyncError(f"飞书操作表第 {row_number} 行时长格式不正确：{value}")
+        raise FeishuSyncError(f"飞书筱宇译制第 {row_number} 行时长格式不正确：{value}")
     hours, minutes, seconds = (int(part) for part in parts)
     if minutes >= 60 or seconds >= 60:
-        raise FeishuSyncError(f"飞书操作表第 {row_number} 行时长格式不正确：{value}")
+        raise FeishuSyncError(f"飞书筱宇译制第 {row_number} 行时长格式不正确：{value}")
     return hours * 3600 + minutes * 60 + seconds
 
 
@@ -1478,28 +1534,17 @@ def sync_drama_operation_metadata(
     session: Session,
     *,
     now: datetime,
+    rows: list[dict[str, str]] | None = None,
 ) -> dict[str, int]:
-    settings = get_settings()
-    _, matrix = _client().matrix_by_title(
-        settings.feishu_drama_wiki_token,
-        "操作表",
-        "S",
-    )
-    if not matrix:
-        raise FeishuSyncError("飞书操作表为空")
-    header = [cell_text(value).strip() for value in matrix[0]]
-    try:
-        title_index = header.index("剧名")
-        duration_index = header.index("时长")
-        episode_index = header.index("集数")
-    except ValueError as exc:
-        raise FeishuSyncError("飞书操作表缺少剧名、时长或集数列") from exc
+    if rows is None:
+        _, rows = read_drama_library_rows()
 
     prepared: list[tuple[str, int | None, int | None]] = []
     normalized_seen: dict[str, int] = {}
     rows_read = 0
-    for row_number, row in enumerate(matrix[1:], start=2):
-        title = cell_text(row[title_index] if title_index < len(row) else "").strip()
+    for row in rows:
+        row_number = int(row.get("__source_row_number") or 0)
+        title = row.get("作品名称", "").strip()
         if not title:
             continue
         rows_read += 1
@@ -1507,18 +1552,14 @@ def sync_drama_operation_metadata(
         previous_row = normalized_seen.get(normalized_title)
         if previous_row is not None:
             raise FeishuSyncError(
-                f"飞书操作表第 {previous_row}、{row_number} 行剧名重复：{title}"
+                f"飞书筱宇译制第 {previous_row}、{row_number} 行剧名重复：{title}"
             )
         normalized_seen[normalized_title] = row_number
-        duration_text = cell_text(
-            row[duration_index] if duration_index < len(row) else ""
-        )
-        episode_text = cell_text(
-            row[episode_index] if episode_index < len(row) else ""
-        ).strip()
+        duration_text = row.get("时长", "")
+        episode_text = row.get("集数", "").strip()
         if episode_text and not episode_text.isdigit():
             raise FeishuSyncError(
-                f"飞书操作表第 {row_number} 行集数格式不正确：{episode_text}"
+                f"飞书筱宇译制第 {row_number} 行集数格式不正确：{episode_text}"
             )
         prepared.append((
             normalized_title,
@@ -1578,11 +1619,7 @@ def sync_drama_operation_metadata(
 def sync_dramas(session: Session) -> dict[str, object]:
     _require_tenant_context(session)
     settings = get_settings()
-    sheet_id, rows = _client().rows_by_title(
-        settings.feishu_drama_wiki_token,
-        settings.feishu_drama_sheet_title,
-        "J",
-    )
+    sheet_id, rows = read_drama_library_rows()
     now = datetime.now(timezone.utc)
     run = FeishuSyncRun(
         sync_type="dramas",
@@ -1619,8 +1656,8 @@ def sync_dramas(session: Session) -> dict[str, object]:
                 "plot_pattern": row.get("剧情套路", "").strip() or None,
                 "core_personas": row.get("核心人设", "").strip() or None,
                 "expires_at": parse_drama_expiry(row.get("到期时间", "")),
-                "batch_name": row.get("批次", "").strip() or None,
-                "status": map_drama_status(row.get("状态", "")),
+                **({"batch_name": row["批次"].strip() or None} if "批次" in row else {}),
+                **({"status": map_drama_status(row["状态"])} if "状态" in row else {}),
                 "source_type": "feishu",
                 "source_sheet_id": sheet_id,
                 "source_row_number": row_number,
@@ -1643,6 +1680,8 @@ def sync_dramas(session: Session) -> dict[str, object]:
                 continue
             changed = False
             for field, value in values.items():
+                if field == "comprehensive_score" and value is not None:
+                    value = Decimal(str(value))
                 if getattr(drama, field) != value:
                     setattr(drama, field, value)
                     changed = True
@@ -1674,7 +1713,7 @@ def sync_dramas(session: Session) -> dict[str, object]:
         }
         for _, normalized_title, values in prepared:
             drama = existing[normalized_title]
-            excluded = values["status"] == "archived"
+            excluded = drama.status == "archived"
             state = production_states.get(drama.id)
             if state is None and not excluded:
                 continue
@@ -1690,7 +1729,7 @@ def sync_dramas(session: Session) -> dict[str, object]:
                 skipped -= 1
                 updated += 1
 
-        metadata = sync_drama_operation_metadata(session, now=now)
+        metadata = sync_drama_operation_metadata(session, now=now, rows=rows)
 
         run = session.get(FeishuSyncRun, run.id)
         run.status = "completed"

@@ -44,6 +44,12 @@ uv sync --dev
 
 运行账号 `zhiju_app` 只有业务增删改查权限；迁移账号 `zhiju_migrator` 才有 DDL 权限。OAuth Token、密码和第三方密钥禁止写入业务表，数据库只保存 `credential_ref`。
 
+## 飞书剧库来源
+
+剧库同步使用 `ZHJ_FEISHU_DRAMA_LIBRARY_WIKI_TOKEN`（默认 `KNxew7DIUiNr6ukbgYrciIqongh`）。仅“筱宇译制”的剧名决定入库范围；按规范化剧名关联“总库表”，缺失资料再由“简表”补充。网盘和时长优先取译制清单，评分、到期日期、概述、剧情档案、套路、人设取补充资料。三个 sheet 分批读取，不再依赖“操作表”。
+
+缺失的集数、批次和状态不会清空已有配置；“完成”“上传筱宇智核”等列不直接推断为数据库生产流程完成。清单外既有剧目不自动删除，工单、运营包和语言进度仍保留各自来源。
+
 ## 当前 V3 模块
 
 - MySQL 配置、连接池与 Alembic migrations

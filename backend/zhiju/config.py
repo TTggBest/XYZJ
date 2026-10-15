@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     feishu_channel_branding_sheet_id: str = "NYJWdE"
     feishu_drama_wiki_token: str = "TzkWwanAAikv7pkOJcTcddiVnoh"
     feishu_drama_sheet_title: str = "剧库表"
+    feishu_drama_library_wiki_token: str = "KNxew7DIUiNr6ukbgYrciIqongh"
     feishu_channel_schedule_wiki_token: str = "ErwWwX8TVionsikFwQMcEpCenih"
     feishu_channel_schedule_directory_sheet_id: str = "2FrKIE"
     zhihe_api_base_url: str = ""

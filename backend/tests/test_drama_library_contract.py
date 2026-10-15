@@ -81,18 +81,16 @@ def test_drama_feishu_sync_route_is_registered() -> None:
     assert "post" in paths["/api/v3/feishu-sync/dramas"]
 
 
-def test_operation_metadata_sync_parses_episode_count_and_duration(monkeypatch) -> None:
+def test_operation_metadata_sync_reads_selected_duration_without_inventing_episode_count(monkeypatch) -> None:
     sync_metadata = getattr(feishu_sync, "sync_drama_operation_metadata", None)
     suffix = uuid4().hex[:12]
     title = f"操作表元数据测试剧-{suffix}"
 
     class FakeClient:
-        def matrix_by_title(self, wiki_token: str, sheet_title: str, last_column: str):
-            assert sheet_title == "操作表"
-            return "operation-sheet", [
-                ["剧名", "批次", "到期时间", "时长", "集数"],
-                [title, "第1批", "2027/01/01", "02:35:25", "87"],
-            ]
+        def rows_by_title(self, wiki_token, sheet_title, last_column, *, batch_size):
+            if sheet_title == "筱宇译制":
+                return "selected", [{"剧名": title, "时长": "02:35:25", "__source_row_number": "2"}]
+            return sheet_title, [{"作品名称": title}]
 
     assert callable(sync_metadata)
     monkeypatch.setattr(feishu_sync, "_client", lambda: FakeClient())
@@ -117,7 +115,7 @@ def test_operation_metadata_sync_parses_episode_count_and_duration(monkeypatch) 
 
         assert result["rows_read"] == 1
         assert result["rows_inserted"] == 1
-        assert state.episode_count == 87
+        assert state.episode_count is None
         assert state.total_duration_seconds == 2 * 3600 + 35 * 60 + 25
     finally:
         session.close()
@@ -224,17 +222,14 @@ def test_drama_feishu_deleted_status_excludes_production(monkeypatch) -> None:
     title = f"飞书已删同步测试剧-{suffix}"
 
     class FakeClient:
-        def rows_by_title(self, wiki_token: str, sheet_title: str, last_column: str):
-            assert last_column == "J"
+        def rows_by_title(self, wiki_token, sheet_title, last_column, *, batch_size):
+            if sheet_title != "筱宇译制":
+                return sheet_title, [{"作品名称": title, "评分": "95"}]
             return "drama-sheet", [{
                 "__source_row_number": 737,
-                "作品名称": title,
-                "综合评分": "95",
+                "剧名": title,
                 "状态": "已删",
             }]
-
-        def matrix_by_title(self, wiki_token: str, sheet_title: str, last_column: str):
-            return "operation-sheet", [["剧名", "时长", "集数"]]
 
     monkeypatch.setattr(feishu_sync, "_client", lambda: FakeClient())
     connection = database_router.get_active_engine().connect()
