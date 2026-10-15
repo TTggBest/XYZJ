@@ -1,6 +1,32 @@
 from test_auth_frontend_contract import run_node
 
 
+def test_filtered_total_is_visible_for_zero_single_and_multiple_pages():
+    run_node(r"""
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+let result;
+const page=start(process.argv[1],auth,async(path)=>{
+  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
+  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+  if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+  if(path.startsWith('/api/v3/drama-production'))return new Response(JSON.stringify(result));
+  return new Response('[]');
+});
+for(let i=0;i<4;i++)await page.tick();
+const item={drama_id:'test',chinese_title:'测试剧',drama_code:'TEST',drama_number:1,
+  overall_status:'in_progress',tts_status:'in_progress',progress_percent:67};
+for(const total of [0,1,51]){
+  result={items:total?[item]:[],total,page:total>50?2:1,pages:total>50?2:total?1:0,page_size:50};
+  const button={dataset:{action:'go-drama-progress'},closest:()=>null};
+  await page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
+  const html=page.nodes.get('viewRoot').innerHTML;
+  assert.match(html,new RegExp('筛选结果：共 <strong>'+total+'</strong> 条'));
+  assert.match(html,new RegExp('本页 '+result.items.length+' 条'));
+}
+""")
+
+
 def test_node_filters_render_and_submit_independently_of_overall_status():
     run_node(r"""
 const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
