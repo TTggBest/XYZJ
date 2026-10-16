@@ -1,11 +1,14 @@
 from copy import deepcopy
+from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, PackageCommunityPost,
                           PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder)
-from zhiju.models.v14 import V14Run, V14Setting
+from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
+from zhiju.services.production import NODE_SEQUENCE
 from zhiju.services.identity import ConflictError
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
@@ -69,3 +72,128 @@ def create_run(session: Session, work_order_id: str) -> V14Run:
     session.add(run)
     session.commit()
     return run
+
+
+def attempts(session, run):
+    return list(session.scalars(select(V14Attempt).where(V14Attempt.run_id == run.id).order_by(V14Attempt.created_at, V14Attempt.sequence)))
+
+
+def run_read(session, run):
+    rows = attempts(session, run)
+    status = run.status
+    heartbeat = run.heartbeat_at
+    if heartbeat and heartbeat.tzinfo is None:
+        heartbeat = heartbeat.replace(tzinfo=timezone.utc)
+    if status == "running" and heartbeat and datetime.now(timezone.utc) - heartbeat > timedelta(seconds=90):
+        status = "interrupted"
+    return {"run_id": run.id, "work_order_id": run.work_order_id, "package_id": run.package_id,
+        "status": status, "model": run.model, "host_id": run.host_id, "error": run.error,
+        "attempts": [{"attempt_id": a.id, "node_type": a.node_type, "outcome": a.outcome,
+                      "sequence": a.sequence, "error": a.error} for a in rows]}
+
+
+def envelope(session, run):
+    rows = attempts(session, run)
+    # Serialize accepts across the tenant using the same settings row lock used by submit.
+    history = list(session.scalars(select(V14Run).where(V14Run.tenant_id == run.tenant_id, V14Run.id != run.id)))
+    history_rows = []
+    for old in history:
+        for a in attempts(session, old):
+            if a.outcome == "accepted":
+                history_rows.append({"run_id": old.id, "input_snapshot": old.input_snapshot,
+                                     "node_type": a.node_type, "payload": a.payload})
+    return {**run_read(session, run), "tenant_id": run.tenant_id, "claim_id": run.claim_id,
+        "account_profile": run.account_profile, "input_snapshot": run.input_snapshot,
+        "rules_snapshot": run.rules_snapshot, "creative_history": history_rows,
+        "accepted_results": {a.node_type: a.payload for a in rows if a.outcome == "accepted"},
+        "retry_state": [{"node_type": a.node_type, "outcome": a.outcome, "error": a.error} for a in rows]}
+
+
+def claim_run(session, host_id: str):
+    session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info["tenant_id"]).with_for_update())
+    run = session.scalar(select(V14Run).where(V14Run.tenant_id == session.info["tenant_id"],
+        V14Run.host_id == host_id, V14Run.status == "queued").order_by(V14Run.created_at).with_for_update().limit(1))
+    if run is None:
+        return None
+    run.status, run.claim_id = "running", str(uuid4())
+    run.heartbeat_at = datetime.now(timezone.utc)
+    session.commit()
+    return envelope(session, run)
+
+
+def check_claim(run, claim_id):
+    if run.status != "running" or run.claim_id != claim_id:
+        raise ConflictError("执行已停止或领取凭证已失效")
+
+
+def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
+    run = get_run(session, run_id)
+    check_claim(run, claim_id)
+    rows = attempts(session, run)
+    done = {a.node_type for a in rows if a.outcome == "accepted"}
+    expected = next((n for n in NODE_SEQUENCE if n not in done), None)
+    if node_type != expected or any(a.outcome == "running" for a in rows):
+        raise ConflictError("节点顺序不正确或已有运行中的尝试")
+    sequence = 1 + max((a.sequence for a in rows if a.node_type == node_type), default=0)
+    attempt = V14Attempt(run_id=run.id, claim_id=claim_id, node_type=node_type, sequence=sequence)
+    session.add(attempt)
+    session.commit()
+    return attempt
+
+
+def submit_attempt(session, run_id: str, attempt_id: str, payload):
+    # A tenant-wide row lock makes full-history validation and acceptance one operation.
+    session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info["tenant_id"]).with_for_update())
+    run = get_run(session, run_id)
+    attempt = require_tenant_entity(session, V14Attempt, attempt_id, lock=True)
+    if attempt.run_id != run.id or attempt.claim_id != payload.claim_id or run.claim_id != payload.claim_id:
+        raise ConflictError("尝试不属于当前执行")
+    if attempt.outcome != "running":
+        if attempt.outcome != payload.outcome or attempt.payload != payload.result or attempt.error != payload.error:
+            raise ConflictError("同一尝试不能回传不同结果")
+        return run_read(session, run)
+    check_claim(run, payload.claim_id)
+    if payload.outcome == "accepted":
+        if payload.result is None:
+            raise ConflictError("缺少阶段结果")
+        from zhiju.services.v14_outputs import apply_outputs
+        apply_outputs(session, run, attempt, payload.result)
+    attempt.outcome, attempt.payload, attempt.error = payload.outcome, payload.result, payload.error
+    run.error = payload.error
+    session.flush()
+    if payload.outcome == "system_error":
+        run.status = "interrupted"
+    elif payload.outcome == "content_error":
+        failures = session.scalar(select(func.count()).select_from(V14Attempt).where(
+            V14Attempt.run_id == run.id, V14Attempt.node_type == attempt.node_type,
+            V14Attempt.outcome == "content_error"))
+        if failures >= 3:
+            run.status = "needs_user_review"
+    elif attempt.node_type == "merge":
+        run.status = "text_ready"
+    run.heartbeat_at = datetime.now(timezone.utc)
+    session.commit()
+    return run_read(session, run)
+
+
+def cancel_run(session, run_id):
+    run = get_run(session, run_id)
+    if run.status == "text_ready":
+        raise ConflictError("文本已完成，不能取消")
+    run.status = "cancelled"
+    session.commit()
+    return run_read(session, run)
+
+
+def resume_run(session, run_id, stopped_confirmed):
+    run = get_run(session, run_id)
+    if not stopped_confirmed:
+        raise ConflictError("请先确认原执行器进程已停止")
+    if run_read(session, run)["status"] not in {"interrupted", "cancelled"}:
+        raise ConflictError("当前状态不能继续；内容重试耗尽需要人工审核")
+    for a in attempts(session, run):
+        if a.outcome == "running":
+            a.outcome, a.error = "interrupted", "原执行已停止"
+    run.claim_id, run.status, run.error = None, "queued", None
+    session.commit()
+    return run_read(session, run)
