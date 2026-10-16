@@ -15,6 +15,7 @@ from zhiju.models.auth import (
     TenantMembership,
 )
 from zhiju.models.base import Base
+from zhiju.models.v14 import V14Setting, V14Run, V14Attempt
 from zhiju.models.demo import DemoDataBatch, DemoDataEntity
 from zhiju.models.channel_intelligence import (
     ChannelAnalysisReport,
