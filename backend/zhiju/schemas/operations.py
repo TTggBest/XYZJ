@@ -373,6 +373,7 @@ class ScheduleOverview(BaseModel):
     channel_timezone: str
     drama_id: str
     drama_code: str
+    drama_production_status: Literal["completed", "in_progress", "not_started"]
     chinese_title: str
     drama_resource_url: str | None
     publish_slot_id: str
@@ -410,6 +411,7 @@ class ChannelScheduleRow(BaseModel):
     channel_timezone: str
     drama_id: str
     drama_code: str
+    drama_production_status: Literal["completed", "in_progress", "not_started"]
     chinese_title: str
     publish_date: date
     planned_local_time: datetime

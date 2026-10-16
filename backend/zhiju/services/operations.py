@@ -900,6 +900,13 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
     return schedule
 
 
+def _schedule_drama_production_status(state: DramaProductionState | None) -> str:
+    from zhiju.services.drama_progress import calculate_progress
+
+    _, overall, _ = calculate_progress(state)
+    return overall if overall in {"completed", "not_started"} else "in_progress"
+
+
 def list_schedule_overview(
     session: Session,
     *,
@@ -920,6 +927,7 @@ def list_schedule_overview(
             ChannelPlaylist,
             OperationTask,
             WorkOrder,
+            DramaProductionState,
         )
         .join(Channel, Channel.id == ChannelScheduleEntry.channel_id)
         .join(Drama, Drama.id == ChannelScheduleEntry.drama_id)
@@ -927,6 +935,7 @@ def list_schedule_overview(
         .outerjoin(ChannelPlaylist, ChannelPlaylist.id == ChannelScheduleEntry.playlist_id)
         .outerjoin(OperationTask, OperationTask.schedule_id == ChannelScheduleEntry.id)
         .outerjoin(WorkOrder, WorkOrder.task_id == OperationTask.id)
+        .outerjoin(DramaProductionState, DramaProductionState.drama_id == Drama.id)
     )
     if channel_id:
         statement = statement.where(ChannelScheduleEntry.channel_id == channel_id)
@@ -967,7 +976,7 @@ def list_schedule_overview(
         candidates_by_schedule.setdefault(candidate.schedule_id, []).append(candidate)
 
     result = []
-    for schedule, channel, drama, slot, playlist, task, work_order in rows:
+    for schedule, channel, drama, slot, playlist, task, work_order, production_state in rows:
         candidates = candidates_by_schedule.get(schedule.id, [])
         selected = next((candidate for candidate in candidates if candidate.status == "selected"), None)
         result.append(
@@ -983,6 +992,7 @@ def list_schedule_overview(
                 "drama_code": drama.drama_code,
                 "chinese_title": drama.chinese_title,
                 "drama_resource_url": drama.baidu_cloud_url,
+                "drama_production_status": _schedule_drama_production_status(production_state),
                 "publish_slot_id": slot.id,
                 "slot_type": slot.slot_type,
                 "slot_number": slot.slot_number,
@@ -1054,18 +1064,20 @@ def list_channel_schedule_page(
             Drama,
             ChannelPublishSlot,
             OperationTask,
+            DramaProductionState,
         )
         .join(Channel, Channel.id == ChannelScheduleEntry.channel_id)
         .join(Drama, Drama.id == ChannelScheduleEntry.drama_id)
         .join(ChannelPublishSlot, ChannelPublishSlot.id == ChannelScheduleEntry.publish_slot_id)
         .outerjoin(OperationTask, OperationTask.schedule_id == ChannelScheduleEntry.id)
+        .outerjoin(DramaProductionState, DramaProductionState.drama_id == Drama.id)
         .where(*filters)
         .order_by(*ordering)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
     items = []
-    for schedule, channel, drama, slot, task in session.execute(statement):
+    for schedule, channel, drama, slot, task, production_state in session.execute(statement):
         items.append({
             "schedule_id": schedule.id,
             "channel_id": channel.id,
@@ -1074,6 +1086,7 @@ def list_channel_schedule_page(
             "drama_id": drama.id,
             "drama_code": drama.drama_code,
             "chinese_title": drama.chinese_title,
+            "drama_production_status": _schedule_drama_production_status(production_state),
             "publish_date": schedule.publish_date,
             "planned_local_time": schedule.planned_local_time,
             "planned_beijing_time": schedule.planned_beijing_time,
