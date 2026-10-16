@@ -18,7 +18,7 @@ model=args[args.index('--model')+1]
 if model=='missing': sys.exit(17)
 if model=='slow': time.sleep(30)
 schema=json.loads(pathlib.Path(args[args.index('--output-schema')+1]).read_text())
-pathlib.Path(args[args.index('--output-last-message')+1]).write_text(json.dumps({'model':model,'schema':schema,'sandbox':args[args.index('--sandbox')+1]}))
+pathlib.Path(args[args.index('--output-last-message')+1]).write_text(json.dumps({'model':model,'schema':schema,'sandbox':args[args.index('--sandbox')+1], 'reasoning_config':next((a for a in args if a.startswith('model_reasoning_effort=')), None)}))
 ''')
     executable.chmod(0o700)
     return str(executable)
@@ -39,6 +39,16 @@ def test_unavailable_model_has_no_fallback(fake_cli):
     from zhiju.v14_runtime.contract import build_stage_input
     with pytest.raises(RuntimeError, match="17"):
         CodexClient(binary=fake_cli).generate(build_stage_input(envelope(), "title"), "missing")
+
+
+def test_cloud_medium_reasoning_is_explicitly_passed(fake_cli):
+    from zhiju.v14_executor.codex import CodexClient
+    from zhiju.v14_runtime.contract import build_stage_input
+    data = envelope()
+    data['rules_snapshot']['execution'] = {'reasoning_effort': 'medium'}
+    result = CodexClient(binary=fake_cli).generate(build_stage_input(data, 'title'), 'gpt-6.1-sol')
+    assert result['model'] == 'gpt-6.1-sol'
+    assert result['reasoning_config'] == 'model_reasoning_effort="medium"'
 
 
 def test_timeout_stops_child_before_resume(fake_cli):

@@ -25,7 +25,8 @@ class CodexClient:
             schema.write_text(json.dumps(stage.schema, ensure_ascii=False), encoding="utf-8")
             args = [self.binary, "--ask-for-approval", "never", "exec", "--ignore-user-config", "--ignore-rules",
                 "--sandbox", "read-only", "--cd", temp, "--ephemeral", "--skip-git-repo-check",
-                "--model", model, "--output-schema", str(schema), "--output-last-message", str(output)]
+                "--model", model, "-c", "model_reasoning_effort=" + json.dumps(stage.rules.get("execution", {}).get("reasoning_effort", "medium")),
+                "--output-schema", str(schema), "--output-last-message", str(output)]
             if stage.node_type == "search":
                 args += ["--enable", "standalone_web_search"]
             args += ["-"]
