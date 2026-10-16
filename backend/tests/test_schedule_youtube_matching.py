@@ -62,6 +62,20 @@ def test_publication_states_and_schedule_warnings(fixture, privacy, scheduled, e
     assert bool(schedule.source_video_id) is (privacy != "public")
 
 
+@pytest.mark.parametrize("privacy", ["private", "unlisted"])
+def test_unscheduled_upload_before_publish_date_is_normal_but_overdue_still_warns(fixture, privacy):
+    session, schedule, _ = fixture
+    schedule.planned_utc_time = NOW + timedelta(days=10)
+    session.commit()
+    add_video(session, schedule, privacy_status=privacy)
+    reconcile_channel_schedules(session, schedule.channel_id, now=NOW)
+    review = schedule_video_reviews(session, [schedule], now=NOW)[schedule.id]
+    assert review["selected"]["state"] == privacy
+    assert review["warnings"] == []
+    overdue = schedule_video_reviews(session, [schedule], now=NOW + timedelta(days=11))[schedule.id]
+    assert "publish_overdue" in [w["code"] for w in overdue["warnings"]]
+
+
 def test_explicit_choice_survives_resync_and_cannot_be_used_by_another_schedule(fixture):
     session, schedule, _ = fixture
     add_video(session, schedule, "first-video")

@@ -123,8 +123,6 @@ def schedule_video_reviews(session, schedules, *, now=None):
                     issues.append(_warning("schedule_mismatch", f"YouTube定时时间与本次排期不一致：{'晚' if minutes > 0 else '早'} {abs(minutes)} 分钟"))
                 if utc(video.scheduled_publish_at) <= now:
                     issues.append(_warning("schedule_overdue", "预约时间已过，仍未公开，请立即检查"))
-            elif bound and video.privacy_status != "public" and utc(schedule.planned_utc_time) > now:
-                issues.append(_warning("not_scheduled", "已上传，尚未设置公开时间"))
             if bound and video.privacy_status != "public" and utc(schedule.planned_utc_time) <= now:
                 issues.append(_warning("publish_overdue", "排期时间已过，本次视频仍未公开，请检查"))
             selectable = bool(current and not occupied and not identity_conflict and language_check not in {"mismatch", "conflict"}

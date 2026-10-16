@@ -1,6 +1,39 @@
 from test_auth_frontend_contract import run_node
 
 
+def test_normal_video_cell_is_compact_and_does_not_duplicate_empty_state():
+    run_node(r"""
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const selected={video_id:'3892TkDbQzc',state:'private',warnings:[]};
+const rows=[
+ {schedule_id:'s1',chinese_title:'已上传的剧',source_video_id:selected.video_id,source_video_url:'https://youtu.be/'+selected.video_id,
+  video_sync:{sync_complete:true,selected,warnings:[],videos:[selected]}},
+ {schedule_id:'s2',chinese_title:'未上传的剧',video_sync:{sync_complete:true,selected:null,warnings:[],videos:[],empty_label:'本次未上传'}}
+];
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"频道"}]');
+ if(path.startsWith('/api/v3/schedules/overview'))return new Response(JSON.stringify(rows));
+ return new Response('[]');
+});
+for(let i=0;i<4;i++)await page.tick();
+const button={dataset:{action:'go-schedules'},closest:()=>null};
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/schedule-video-main/);
+assert.match(html,/私享 · 未定时/);
+assert.doesNotMatch(html,/video-warning/);
+assert.doesNotMatch(html,/查看／选择视频/);
+assert.doesNotMatch(html,/待补充/);
+assert.equal((html.match(/本次未上传/g)||[]).length,1);
+assert.match(html,/aria-label="编辑视频信息"/);
+assert.match(html,/查看视频/);
+""")
+
+
 def test_schedule_warning_opens_candidates_without_saving_and_explicit_choice_saves():
     run_node(r"""
 const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');

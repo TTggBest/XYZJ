@@ -546,15 +546,16 @@
 
   function sourceVideoCell(item, entityType) {
     const targetId = entityType === "task" ? item.task_id : item.schedule_id;
-    const link = item.source_video_url
-      ? `<a class="cell-link mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开链接")}</a>`
-      : `<span class="cell-sub mono">${esc(item.source_video_id || "待补充")}</span>`;
     const review = entityType === "schedule" ? item.video_sync : null;
+    const link = item.source_video_url
+      ? `<a class="schedule-video-id mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开链接")}</a>`
+      : `<span class="schedule-video-id is-empty ${item.source_video_id ? "mono" : ""}">${esc(item.source_video_id || review?.empty_label || "待补充")}</span>`;
     const warnings = review?.warnings || [];
     const languageError = warnings.some(w => ["language_error", "identity_conflict"].includes(w.code));
     const warning = warnings.length ? `<button class="video-warning" data-action="schedule-video-review" data-id="${targetId}" aria-label="查看视频同步警告" title="${esc([...new Set(warnings.map(w => w.message))].join('；'))}">${icon("circle-alert")}</button>` : "";
-    const details = review ? `<span class="cell-sub ${languageError ? "video-error" : ""}">${languageError ? "语言或剧目错误，请检查" : review.selected ? esc(videoStateLabel(review.selected.state)) : esc(review.empty_label || "待确认")}${review.selected?.scheduled_at ? ` · ${videoTime(review.selected.scheduled_at, "Asia/Shanghai")}` : ""}</span><button class="button button-quiet button-small" data-action="schedule-video-review" data-id="${targetId}">查看／选择视频</button>` : "";
-    return `<div class="schedule-video-cell"><div class="row-actions">${link}${warning}<button class="button button-secondary button-small" data-action="edit-${entityType}-video" data-id="${targetId}">${icon("pencil")} 编辑</button></div>${details}</div>`;
+    const status = languageError ? "语言或剧目错误，请检查" : review?.selected ? videoStateLabel(review.selected.state) : "";
+    const details = review ? `<div class="schedule-video-meta">${status ? `<span class="schedule-video-status ${languageError ? "video-error" : ""}">${esc(status)}${review.selected?.scheduled_at ? ` · ${videoTime(review.selected.scheduled_at, "Asia/Shanghai")}` : ""}</span>` : ""}<button class="video-review-link" data-action="schedule-video-review" data-id="${targetId}">查看视频</button></div>` : "";
+    return `<div class="schedule-video-cell"><div class="schedule-video-main">${link}${warning}<button class="video-cell-action" data-action="edit-${entityType}-video" data-id="${targetId}" aria-label="编辑视频信息" title="编辑视频信息">${icon("pencil")}<span>编辑</span></button></div>${details}</div>`;
   }
 
   function videoStateLabel(status) {

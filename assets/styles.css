@@ -432,10 +432,19 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .tag.is-amber { color: var(--amber); background: var(--amber-soft); border-color: #f1d8ad; }
 .tag.is-red { color: var(--red); background: var(--red-soft); border-color: #f4cbc7; }
 .tag.is-blue { color: var(--blue); background: var(--blue-soft); border-color: #cbdfea; }
-.video-warning { display: inline-flex; padding: 4px; border: 0; background: transparent; color: var(--red); cursor: pointer; }
-.video-warning svg { width: 22px; height: 22px; }
+.video-warning { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; padding: 3px; border: 0; border-radius: 4px; background: transparent; color: var(--red); cursor: pointer; }
+.video-warning svg { width: 14px; height: 14px; }
 .video-error { color: var(--red); font-weight: 600; white-space: normal; }
-.schedule-video-cell .cell-sub { max-width: none; white-space: normal; }
+.schedule-video-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 180px; max-width: 280px; }
+.schedule-video-main { display: flex; align-items: center; justify-content: flex-start; gap: 6px; }
+.schedule-video-id { color: var(--text); text-decoration: none; white-space: nowrap; }
+.schedule-video-id:hover { color: var(--green); text-decoration: underline; }
+.schedule-video-id.is-empty { color: var(--muted); }
+.schedule-video-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.video-cell-action, .video-review-link { display: inline-flex; align-items: center; gap: 3px; padding: 2px 0; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; line-height: 1.5; white-space: nowrap; cursor: pointer; }
+.video-cell-action svg { width: 13px; height: 13px; }
+.video-cell-action:hover, .video-review-link:hover { color: var(--green); }
+.video-review-link:hover { text-decoration: underline; }
 .video-review { max-height: 70vh; overflow-y: auto; }
 .video-review-issues { padding: 8px 12px; background: var(--red-soft); color: var(--red); border-radius: 6px; }
 .video-candidate { border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 10px 0; }
