@@ -363,7 +363,13 @@ class ScheduleRead(BaseModel):
     updated_at: datetime
 
 
+class ScheduleVideoSelect(BaseModel):
+    video_id: str = Field(min_length=3, max_length=32)
+    confirm_unknown_language: bool = False
+
+
 class ScheduleOverview(BaseModel):
+    video_sync: dict | None = None
     schedule_id: str
     publish_date: date
     channel_id: str
@@ -405,6 +411,7 @@ class ScheduleOverview(BaseModel):
 
 
 class ChannelScheduleRow(BaseModel):
+    video_sync: dict | None = None
     schedule_id: str
     channel_id: str
     channel_name: str

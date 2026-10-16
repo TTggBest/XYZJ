@@ -1023,6 +1023,10 @@ def list_schedule_overview(
                 "updated_at": schedule.updated_at,
             }
         )
+    from zhiju.services.schedule_youtube import schedule_video_reviews
+    reviews = schedule_video_reviews(session, [row[0] for row in rows])
+    for item in result:
+        item["video_sync"] = reviews[item["schedule_id"]]
     return result
 
 
@@ -1077,7 +1081,8 @@ def list_channel_schedule_page(
         .limit(page_size)
     )
     items = []
-    for schedule, channel, drama, slot, task, production_state in session.execute(statement):
+    rows = list(session.execute(statement))
+    for schedule, channel, drama, slot, task, production_state in rows:
         items.append({
             "schedule_id": schedule.id,
             "channel_id": channel.id,
@@ -1106,6 +1111,10 @@ def list_channel_schedule_page(
             "task_id": task.id if task else None,
             "task_status": task.status if task else None,
         })
+    from zhiju.services.schedule_youtube import schedule_video_reviews
+    reviews = schedule_video_reviews(session, [row[0] for row in rows])
+    for item in items:
+        item["video_sync"] = reviews[item["schedule_id"]]
     return {"page": page, "page_size": page_size, "total": total, "items": items}
 
 

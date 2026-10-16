@@ -549,7 +549,39 @@
     const link = item.source_video_url
       ? `<a class="cell-link mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开链接")}</a>`
       : `<span class="cell-sub mono">${esc(item.source_video_id || "待补充")}</span>`;
-    return `<div class="row-actions">${link}<button class="button button-secondary button-small" data-action="edit-${entityType}-video" data-id="${targetId}">${icon("pencil")} 编辑</button></div>`;
+    const review = entityType === "schedule" ? item.video_sync : null;
+    const warnings = review?.warnings || [];
+    const languageError = warnings.some(w => ["language_error", "identity_conflict"].includes(w.code));
+    const warning = warnings.length ? `<button class="video-warning" data-action="schedule-video-review" data-id="${targetId}" aria-label="查看视频同步警告" title="${esc([...new Set(warnings.map(w => w.message))].join('；'))}">${icon("circle-alert")}</button>` : "";
+    const details = review ? `<span class="cell-sub ${languageError ? "video-error" : ""}">${languageError ? "语言或剧目错误，请检查" : review.selected ? esc(videoStateLabel(review.selected.state)) : esc(review.empty_label || "待确认")}${review.selected?.scheduled_at ? ` · ${videoTime(review.selected.scheduled_at, "Asia/Shanghai")}` : ""}</span><button class="button button-quiet button-small" data-action="schedule-video-review" data-id="${targetId}">查看／选择视频</button>` : "";
+    return `<div class="schedule-video-cell"><div class="row-actions">${link}${warning}<button class="button button-secondary button-small" data-action="edit-${entityType}-video" data-id="${targetId}">${icon("pencil")} 编辑</button></div>${details}</div>`;
+  }
+
+  function videoStateLabel(status) {
+    return ({ public: "已公开", private: "私享 · 未定时", unlisted: "非公开 · 链接可访问", scheduled: "已定时 · 尚未公开", processing: "视频处理中", error: "视频处理异常", unavailable: "无法确认视频状态", unknown: "处理状态未知" })[status] || "未知状态";
+  }
+  function scheduleVideoStatusTag(item, field) {
+    const review = item.video_sync;
+    if (review && (!review.sync_complete || (item.source_video_id && (!review.selected || review.selected.state === "unavailable")))) return '<span class="tag">待核实</span>';
+    const yes = item[field];
+    const text = field === "is_uploaded" ? (yes ? "已上传" : "未上传") : (yes ? "已上线" : "未上线");
+    return `<span class="tag ${yes ? "is-green" : ""}">${text}</span>`;
+  }
+  function videoTime(value, timeZone) {
+    if (!value) return "未知";
+    const date = new Date(/[Zz]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
+    return esc(date.toLocaleString("zh-CN", { timeZone, hour12: false }));
+  }
+  async function showScheduleVideoReview(scheduleId) {
+    const review = await api(`/schedules/${scheduleId}/youtube-review`);
+    state.scheduleVideoReview = { scheduleId, ...review };
+    const issues = [...new Set((review.warnings || []).map(w => w.message))];
+    function cards(videos) {
+      return videos.map(v => `<article class="video-candidate ${v.language_check === "mismatch" || v.language_check === "conflict" ? "has-error" : ""}"><div class="video-candidate-heading">${v.thumbnail_url ? `<img src="${esc(v.thumbnail_url)}" alt="视频缩略图" loading="lazy">` : ""}<div><strong>${esc(v.title)}</strong><div class="video-file-name">原文件：${esc(v.file_name || "无法读取")}</div><div><a href="${esc(v.url || `https://www.youtube.com/watch?v=${v.video_id}`)}" target="_blank" rel="noreferrer">${esc(v.video_id)}</a> ${v.selected ? '<span class="tag is-green">当前绑定</span>' : ""}</div></div></div><div class="video-candidate-meta">${esc(videoStateLabel(v.state))} · 文件名语言：${esc(v.language || "未知")}（非音轨验证）<br>上传记录时间：${videoTime(v.uploaded_at, "Asia/Shanghai")}（北京）${v.scheduled_at ? `<br>YouTube 定时：${videoTime(v.scheduled_at, "Asia/Shanghai")}（北京）／${videoTime(v.scheduled_at, review.channel_timezone)}（频道当地）` : ""}${v.published_at ? `<br>公开时间：${videoTime(v.published_at, "Asia/Shanghai")}（北京）` : ""}</div>${(v.warnings || []).map(w => `<p class="video-error">${esc(w.message)}</p>`).join("")}${v.selectable ? `<button class="button button-primary button-small" data-action="select-schedule-youtube" data-id="${scheduleId}" data-video-id="${esc(v.video_id)}">${v.selected ? "确认保留此视频" : "确认使用此视频"}</button>` : '<span class="field-help">不可作为新的自动绑定候选</span>'}</article>`).join("") || '<p class="field-help">没有相关视频</p>';
+    }
+    const history = review.videos.filter(v => v.state === "public" || v.previously_public);
+    const pending = review.videos.filter(v => v.state !== "public" && !v.previously_public);
+    openModal("频道视频核对与选择", `<div class="video-review"><p>频道语言：${esc(review.channel_language)} · 最近成功同步：${videoTime(review.last_synced_at, "Asia/Shanghai")}（北京）</p><p>本次排期：${videoTime(review.planned_at, "Asia/Shanghai")}（北京）／${videoTime(review.planned_at, review.channel_timezone)}（频道当地）</p><div class="video-review-issues" role="alert">${issues.map(message => `<p>${esc(message)}</p>`).join("") || "未发现冲突"}</div><h3>未公开视频／异常候选</h3>${cards(pending)}<h3>已公开记录</h3>${cards(history)}<p class="field-help">仅更新系统中的视频绑定，不修改 YouTube 视频、公开状态或定时时间。</p></div>`);
   }
 
   function openSourceVideoForm(entityType, item) {
@@ -569,9 +601,9 @@
     const selectedChannel = channels.find(channel => channel.channel_id === state.scheduleChannelId);
     const channelOptions = channels.map(channel => `<option value="${channel.channel_id}" ${channel.channel_id === state.scheduleChannelId ? "selected" : ""}>${esc(channel.display_name)}</option>`).join("");
     const viewSwitch = `<div class="schedule-view-switch" role="group" aria-label="排期视图"><button class="button ${!fullMode && !allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="day">按日查看</button><button class="button ${fullMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="full">频道完整排期</button><button class="button ${allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="all-day">全部频道当日</button></div>`;
-    const commonActions = `<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button>${allDayMode ? "" : `<button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button>`}`;
+    const commonActions = `${allDayMode ? "" : `<button class="button button-secondary" data-action="sync-schedule-channel" ${state.scheduleChannelId ? "" : "disabled"}>${icon("refresh-cw")} 同步频道视频</button>`}<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button>${allDayMode ? "" : `<button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button>`}`;
     if (fullMode) {
-      const rows = full.items.map(item => `<tr><td>${fmt(item.planned_beijing_time)}</td><td><span class="cell-main">${item.slot_type === "main" ? "主档" : "辅档"}</span><span class="cell-sub">档位 ${item.slot_number}</span></td><td><span class="cell-main">${esc(item.chinese_title)}</span>${scheduleDramaCode(item)}</td><td>${sourceVideoCell(item, "schedule")}</td><td>${tag(item.is_uploaded ? "completed" : "pending")}</td><td>${tag(item.is_published ? "completed" : "pending")}</td><td>${tag(item.is_task_written ? "completed" : "pending")}</td><td>${item.source_type === "feishu" ? "飞书" : item.source_type === "system" ? "系统" : "人工"}</td><td>${fmtUtc(item.source_synced_at)}</td><td>${tag(item.schedule_status)}</td><td>${item.task_id ? tag(item.task_status) : "—"}</td></tr>`);
+      const rows = full.items.map(item => `<tr><td>${fmt(item.planned_beijing_time)}</td><td><span class="cell-main">${item.slot_type === "main" ? "主档" : "辅档"}</span><span class="cell-sub">档位 ${item.slot_number}</span></td><td><span class="cell-main">${esc(item.chinese_title)}</span>${scheduleDramaCode(item)}</td><td>${sourceVideoCell(item, "schedule")}</td><td>${scheduleVideoStatusTag(item, "is_uploaded")}</td><td>${scheduleVideoStatusTag(item, "is_published")}</td><td>${tag(item.is_task_written ? "completed" : "pending")}</td><td>${item.source_type === "feishu" ? "飞书" : item.source_type === "system" ? "系统" : "人工"}</td><td>${fmtUtc(item.source_synced_at)}</td><td>${tag(item.schedule_status)}</td><td>${item.task_id ? tag(item.task_status) : "—"}</td></tr>`);
       const pages = Math.max(1, Math.ceil(full.total / full.page_size));
       const pager = full.total > full.page_size ? `<div class="pagination"><button class="button button-secondary button-small" data-action="schedule-full-page" data-page="${full.page - 1}" ${full.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${full.page} / ${pages} 页 · ${full.total} 条</span><button class="button button-secondary button-small" data-action="schedule-full-page" data-page="${full.page + 1}" ${full.page >= pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
       const tools = `<div class="toolbar schedule-toolbar">${viewSwitch}<div class="field"><label>频道</label><select class="select" id="scheduleChannelFilter" ${channels.length ? "" : "disabled"}>${channelOptions || `<option>暂无频道</option>`}</select></div><div class="field search-field"><label>搜索</label><input class="input" id="scheduleFullSearch" value="${esc(state.scheduleFullSearch)}" placeholder="剧名、剧库 ID 或 Video ID"></div><div class="field"><label>排序</label><select class="select" id="scheduleFullSortOrder"><option value="asc" ${state.scheduleFullSortOrder === "asc" ? "selected" : ""}>正序</option><option value="desc" ${state.scheduleFullSortOrder === "desc" ? "selected" : ""}>倒序</option></select></div><div class="field"><label>每页</label><select class="select" id="scheduleFullPageSize"><option value="50" ${state.scheduleFullPageSize === 50 ? "selected" : ""}>50 条</option><option value="100" ${state.scheduleFullPageSize === 100 ? "selected" : ""}>100 条</option><option value="150" ${state.scheduleFullPageSize === 150 ? "selected" : ""}>150 条</option></select></div><button class="button button-primary" data-action="apply-schedule-full-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div>${commonActions}</div>`;
@@ -1869,6 +1901,27 @@
         const popup = window.open(authorization.authorization_url, "zhiju-youtube-oauth", "popup,width=680,height=780");
         if (!popup) throw new Error("浏览器阻止了授权窗口，请允许此站点打开弹窗");
         popup.focus();
+      }
+      else if (action === "schedule-video-review") await showScheduleVideoReview(id);
+      else if (action === "select-schedule-youtube") {
+        const video = state.scheduleVideoReview?.videos.find(v => v.video_id === button.dataset.videoId);
+        const confirmUnknown = video?.language_check === "unknown";
+        if (confirmUnknown && !window.confirm("无法根据原始文件名确认语言。请先核对视频实际语言，确认它与频道语言一致后继续。")) return;
+        button.disabled = true;
+        try {
+          await api(`/schedules/${id}/youtube-selection`, { method: "POST", body: JSON.stringify({ video_id: button.dataset.videoId, confirm_unknown_language: confirmUnknown }) });
+          closeModal();
+          await loadView("schedules", { preservePosition: true });
+          notify("已保存本次视频选择，后续同步不会自动替换");
+        } finally { button.disabled = false; }
+      }
+      else if (action === "sync-schedule-channel") {
+        button.disabled = true;
+        try {
+          const result = await api(`/channels/${state.scheduleChannelId}/youtube-videos/sync`, { method: "POST" });
+          await loadView("schedules", { preservePosition: true });
+          notify(`频道视频同步完成：读取 ${result.fetched} 条，请检查红色警告`);
+        } finally { button.disabled = false; }
       }
       else if (action === "sync-youtube-videos") {
         button.disabled = true;

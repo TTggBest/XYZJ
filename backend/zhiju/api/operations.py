@@ -36,6 +36,7 @@ from zhiju.schemas.operations import (
     ScheduleCandidateSelect,
     ScheduleRead,
     SourceVideoUpdate,
+    ScheduleVideoSelect,
     ScheduleStatusChange,
 )
 from zhiju.services.channel import NotFoundError
@@ -474,6 +475,27 @@ def patch_schedule_source_video(
     try:
         return update_schedule_source_video(session, schedule_id, payload)
     except NotFoundError as exc:
+        raise _raise(exc) from exc
+
+
+@router.get("/schedules/{schedule_id}/youtube-review")
+def get_schedule_youtube_review(schedule_id: str, session: Session = Depends(get_tenant_db)):
+    from zhiju.models import ChannelScheduleEntry
+    from zhiju.tenant_repository import require_tenant_entity
+    from zhiju.services.schedule_youtube import schedule_video_reviews
+    try:
+        schedule = require_tenant_entity(session, ChannelScheduleEntry, schedule_id)
+        return schedule_video_reviews(session, [schedule])[schedule.id]
+    except NotFoundError as exc:
+        raise _raise(exc) from exc
+
+
+@router.post("/schedules/{schedule_id}/youtube-selection")
+def post_schedule_youtube_selection(schedule_id: str, payload: ScheduleVideoSelect, session: Session = Depends(get_tenant_db)):
+    from zhiju.services.schedule_youtube import select_schedule_video
+    try:
+        return select_schedule_video(session, schedule_id, payload.video_id, confirm_unknown=payload.confirm_unknown_language)
+    except (NotFoundError, ConflictError) as exc:
         raise _raise(exc) from exc
 
 

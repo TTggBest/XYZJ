@@ -432,6 +432,18 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .tag.is-amber { color: var(--amber); background: var(--amber-soft); border-color: #f1d8ad; }
 .tag.is-red { color: var(--red); background: var(--red-soft); border-color: #f4cbc7; }
 .tag.is-blue { color: var(--blue); background: var(--blue-soft); border-color: #cbdfea; }
+.video-warning { display: inline-flex; padding: 4px; border: 0; background: transparent; color: var(--red); cursor: pointer; }
+.video-warning svg { width: 22px; height: 22px; }
+.video-error { color: var(--red); font-weight: 600; white-space: normal; }
+.schedule-video-cell .cell-sub { max-width: none; white-space: normal; }
+.video-review { max-height: 70vh; overflow-y: auto; }
+.video-review-issues { padding: 8px 12px; background: var(--red-soft); color: var(--red); border-radius: 6px; }
+.video-candidate { border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 10px 0; }
+.video-candidate.has-error { border-color: var(--red); }
+.video-candidate-heading { display: flex; gap: 10px; align-items: flex-start; }
+.video-candidate-heading img { width: 96px; height: 72px; object-fit: cover; }
+.video-file-name { overflow-wrap: anywhere; color: var(--muted); margin: 4px 0; }
+.video-candidate-meta { margin: 10px 0; line-height: 1.7; }
 
 .progress { min-width: 120px; }
 .progress-row { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--muted); font-size: 11px; }

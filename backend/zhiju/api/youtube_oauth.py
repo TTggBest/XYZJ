@@ -253,18 +253,21 @@ def post_sync_youtube_channel_videos(
     channel_id: str,
     session: Session = Depends(get_tenant_db),
 ) -> YouTubeVideoSyncResult:
-    _require_macos_capability()
     settings = get_settings()
-    if settings.device_role != "builder":
+    if settings.deployment != "cloud" and settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube视频同步")
     try:
-        return YouTubeVideoSyncResult.model_validate(
+        store = EncryptedDatabaseSecretStore(session, settings.oauth_encryption_key) if settings.deployment == "cloud" else MacOSKeychainSecretStore()
+        result = YouTubeVideoSyncResult.model_validate(
             sync_authorized_channel_videos(
                 session,
-                MacOSKeychainSecretStore(),
+                store,
                 channel_id=channel_id,
             )
         )
+        from zhiju.services.schedule_youtube import reconcile_channel_schedules
+        reconcile_channel_schedules(session, channel_id)
+        return result
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ConflictError, RuntimeError, ValueError) as exc:

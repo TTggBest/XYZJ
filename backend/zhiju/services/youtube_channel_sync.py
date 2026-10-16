@@ -27,6 +27,7 @@ from zhiju.services.youtube import complete_sync, start_sync, upsert_video
 from zhiju.services.youtube_oauth import (
     OAUTH_TOKEN_KEYCHAIN_SERVICE,
     load_oauth_client_config,
+    cloud_oauth_client_config,
     load_oauth_token,
     refresh_oauth_access_token,
     save_oauth_token,
@@ -62,7 +63,10 @@ def ensure_grant_access_token(
     refresher: Callable[[str], Mapping[str, object]] | None = None,
 ) -> str:
     current_time = now or datetime.now(timezone.utc)
-    token = load_oauth_token(store, grant.id)
+    from zhiju.services.oauth_secret_store import EncryptedDatabaseSecretStore
+    from zhiju.config import get_settings
+    cloud_store = isinstance(store, EncryptedDatabaseSecretStore)
+    token = store.get(grant.id) if cloud_store else load_oauth_token(store, grant.id)
     if token is None:
         raise ValueError("YouTube授权令牌不存在，请重新授权频道")
     access_token = str(token.get("access_token") or "").strip()
@@ -74,14 +78,17 @@ def ensure_grant_access_token(
     if not refresh_token:
         raise ValueError("YouTube授权缺少刷新令牌，请重新授权频道")
     if refresher is None:
-        config = load_oauth_client_config(store)
+        config = cloud_oauth_client_config(get_settings()) if cloud_store else load_oauth_client_config(store)
         refresher = lambda value: refresh_oauth_access_token(config, value)
     refreshed = dict(refresher(refresh_token))
     new_access_token = str(refreshed.get("access_token") or "").strip()
     if not new_access_token:
         raise ValueError("Google刷新授权后未返回访问令牌")
     refreshed["refresh_token"] = refresh_token
-    save_oauth_token(store, grant.id, refreshed)
+    if cloud_store:
+        store.put(grant.id, refreshed)
+    else:
+        save_oauth_token(store, grant.id, refreshed)
     expires_in = int(refreshed.get("expires_in") or 0)
     grant.token_expires_at = current_time + timedelta(seconds=expires_in) if expires_in else None
     grant.last_refreshed_at = current_time
@@ -236,10 +243,11 @@ def fetch_channel_upload_videos(
         raise ValueError("YouTube频道未返回上传视频播放列表")
 
     video_ids: list[str] = []
+    upload_times = {}
     page_token = ""
     while True:
         params: dict[str, object] = {
-            "part": "contentDetails",
+            "part": "snippet,contentDetails",
             "playlistId": uploads_id,
             "maxResults": 50,
         }
@@ -248,12 +256,13 @@ def fetch_channel_upload_videos(
         page = request_json(_api_url("playlistItems", **params), access_token)
         items = page.get("items")
         if not isinstance(items, list):
-            items = []
+            raise ValueError("YouTube上传列表读取不完整，请重试同步")
         for item in items:
             details = item.get("contentDetails") if isinstance(item, dict) else None
             video_id = str(details.get("videoId") or "").strip() if isinstance(details, dict) else ""
             if video_id and video_id not in video_ids:
                 video_ids.append(video_id)
+                upload_times[video_id] = (item.get("snippet") or {}).get("publishedAt")
         page_token = str(page.get("nextPageToken") or "").strip()
         if not page_token:
             break
@@ -264,7 +273,7 @@ def fetch_channel_upload_videos(
         payload = request_json(
             _api_url(
                 "videos",
-                part="snippet,contentDetails,status",
+                part="snippet,contentDetails,status,fileDetails",
                 id=",".join(batch),
                 maxResults=50,
             ),
@@ -272,13 +281,15 @@ def fetch_channel_upload_videos(
         )
         items = payload.get("items")
         if not isinstance(items, list):
-            items = []
+            raise ValueError("YouTube视频详情读取不完整，请重试同步")
         for item in items:
             if isinstance(item, dict):
                 video_id = str(item.get("id") or "").strip()
                 if video_id:
-                    resources[video_id] = item
-    return [resources[video_id] for video_id in video_ids if video_id in resources]
+                    resources[video_id] = {**item, "upload_recorded_at": upload_times.get(video_id)}
+    if set(video_ids) - resources.keys():
+        raise ValueError("部分上传记录无法读取视频详情，结果不完整；请检查频道授权或视频状态后重试，未自动分配视频")
+    return [resources[video_id] for video_id in video_ids]
 
 
 def _parse_timestamp(value: object) -> datetime | None:
@@ -333,17 +344,17 @@ def _video_payload(
     title = str(snippet.get("title") or "").strip()
     if not video_id or not title:
         raise ValueError("YouTube视频缺少ID或标题")
-    privacy = str(status.get("privacyStatus") or "private").strip()
+    privacy = str(status.get("privacyStatus") or "").strip()
     if privacy not in {"public", "private", "unlisted"}:
         raise ValueError("YouTube视频隐私状态无效")
     published_at = _parse_timestamp(snippet.get("publishedAt"))
     scheduled_at = _parse_timestamp(status.get("publishAt"))
-    upload_status = str(status.get("uploadStatus") or "processed").strip()
+    upload_status = str(status.get("uploadStatus") or "unknown").strip()
     if upload_status in {"failed", "rejected"}:
         publish_status = "error"
-    elif scheduled_at is not None and scheduled_at > now:
+    elif privacy == "private" and scheduled_at is not None:
         publish_status = "scheduled"
-    elif privacy in {"public", "unlisted"} and published_at is not None:
+    elif privacy == "public" and published_at is not None:
         publish_status = "published"
     else:
         publish_status = "draft"
@@ -355,6 +366,9 @@ def _video_payload(
         drama_id=linkage.get("drama_id"),
         schedule_id=linkage.get("schedule_id"),
         title=title,
+        original_file_name=(resource.get("fileDetails") or {}).get("fileName"),
+        uploaded_at=_parse_timestamp(resource.get("upload_recorded_at")),
+        upload_status=upload_status,
         description=str(snippet.get("description") or "") or None,
         url=f"https://www.youtube.com/watch?v={video_id}",
         privacy_status=privacy,
@@ -395,7 +409,6 @@ def sync_authorized_channel_videos(
     grant = session.get(OAuthGrant, authorization.oauth_grant_id)
     if grant is None or grant.status != "active":
         raise ConflictError("频道授权使用的OAuth Grant不可用")
-    access_token = ensure_grant_access_token(session, store, grant, now=current_time)
     worker_key = f"channel-video-sync:{channel_id}"
     start_sync(
         session,
@@ -404,6 +417,7 @@ def sync_authorized_channel_videos(
         SyncStart(authorization_id=authorization.id, worker_key=worker_key),
     )
     try:
+        access_token = ensure_grant_access_token(session, store, grant, now=current_time)
         resources = fetcher(access_token, channel.youtube_channel_id)
         inserted = 0
         updated = 0

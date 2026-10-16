@@ -1,8 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class VideoUpsert(BaseModel):
@@ -12,6 +12,9 @@ class VideoUpsert(BaseModel):
     drama_id: str | None = None
     schedule_id: str | None = None
     title: str = Field(min_length=1, max_length=500)
+    original_file_name: str | None = Field(default=None, max_length=1000)
+    uploaded_at: datetime | None = None
+    upload_status: str | None = Field(default=None, max_length=20)
     description: str | None = None
     url: str = Field(min_length=1, max_length=1000)
     privacy_status: Literal["public", "private", "unlisted"]
@@ -23,6 +26,13 @@ class VideoUpsert(BaseModel):
     source: Literal["manual", "youtube_sync"] = "youtube_sync"
     etag: str | None = Field(default=None, max_length=255)
     last_synced_at: datetime | None = None
+
+    @field_validator("uploaded_at", "scheduled_publish_at", "published_at", "last_synced_at")
+    @classmethod
+    def normalize_video_times(cls, value):
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
     @model_validator(mode="after")
     def validate_publish_timestamps(self):
