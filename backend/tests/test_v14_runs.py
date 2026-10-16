@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from zhiju.database import TenantSession
-from zhiju.models import Base, Channel, Drama, OperationPackage, PackageTitle, WorkOrder
+from zhiju.models import Base, Channel, Drama, OperationPackage, PackageTitle, WorkOrder, OperationTask, ProductionBatch, ProductionNodeRun
 
 
 @pytest.fixture
@@ -17,11 +17,15 @@ def store():
     with Session(engine) as s:
         for number, key in enumerate(("a", "b"), 1):
             s.add_all([
+                ProductionBatch(id=f"batch-{key}", tenant_id=f"tenant-{key}", batch_number=f"batch-{key}", production_date=date(2026, 10, 17), source="native"),
+                OperationTask(id=f"task-{key}", tenant_id=f"tenant-{key}", batch_id=f"batch-{key}", channel_id=f"channel-{key}", drama_id=f"drama-{key}", source="manual", task_date=date(2026, 10, 17), target_publish_date=date(2026, 10, 20), idempotency_key=f"task-{key}", status="dispatched", community_count=1),
                 Channel(id=f"channel-{key}", tenant_id=f"tenant-{key}", youtube_channel_id=f"UC-{key}", original_name="频道", status="active"),
                 Drama(id=f"drama-{key}", tenant_id=f"tenant-{key}", drama_number=number, drama_code=f"DR-{key}", chinese_title="剧目", normalized_title="剧目", content_summary="真剧情", plot_archive="档案", plot_pattern="套路", core_personas="人设"),
                 WorkOrder(id=f"work-{key}", tenant_id=f"tenant-{key}", task_id=f"task-{key}", batch_id=f"batch-{key}", channel_id=f"channel-{key}", drama_id=f"drama-{key}", production_date=date(2026, 10, 17), target_publish_date=date(2026, 10, 20), community_count=1),
                 OperationPackage(id=f"package-{key}", tenant_id=f"tenant-{key}", work_order_id=f"work-{key}", channel_id=f"channel-{key}", drama_id=f"drama-{key}", status="building"),
             ])
+            for i, node in enumerate(("search", "title", "cover", "description", "community", "merge"), 1):
+                s.add(ProductionNodeRun(tenant_id=f"tenant-{key}", work_order_id=f"work-{key}", package_id=f"package-{key}", node_type=node, sequence_number=i, attempt_number=1, idempotency_key=f"{node}-{key}", status="queued" if i == 1 else "pending"))
         s.commit()
     yield engine
     engine.dispose()

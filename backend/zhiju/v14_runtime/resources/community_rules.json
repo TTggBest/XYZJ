@@ -1,0 +1,84 @@
+{
+  "version": 3,
+  "fixed_emojis": ["🔥", "👉", "🤔", "👇", "🔔", "🙏"],
+  "channel_cta_defaults_by_language": {
+    "俄语": {
+      "full_video_cta": "Смотрите полную историю здесь",
+      "subscribe_cta": "Подпишитесь на полные истории",
+      "share_cta": "Поделитесь с друзьями"
+    },
+    "印地": {
+      "full_video_cta": "पूरी कहानी यहाँ देखें",
+      "subscribe_cta": "पूरी कहानियों के लिए सब्सक्राइब करें",
+      "share_cta": "दोस्तों के साथ शेयर करें"
+    },
+    "印尼": {
+      "full_video_cta": "Tonton kisah lengkapnya di sini",
+      "subscribe_cta": "Berlangganan untuk kisah lengkap",
+      "share_cta": "Bagikan kepada teman"
+    },
+    "土耳其": {
+      "full_video_cta": "Hikâyenin tamamını burada izle",
+      "subscribe_cta": "Yeni tam hikâyeler için abone ol",
+      "share_cta": "Arkadaşlarınla paylaş"
+    },
+    "孟加拉": {
+      "full_video_cta": "সম্পূর্ণ গল্প দেখতে এখানে ক্লিক করুন",
+      "subscribe_cta": "সম্পূর্ণ গল্প দেখতে সাবস্ক্রাইব করুন",
+      "share_cta": "বন্ধুদের সঙ্গে শেয়ার করুন"
+    },
+    "巴葡": {
+      "full_video_cta": "Assista à história completa aqui",
+      "subscribe_cta": "Inscreva-se para histórias completas",
+      "share_cta": "Compartilhe com seus amigos"
+    },
+    "英语": {
+      "full_video_cta": "Watch the full story here",
+      "subscribe_cta": "Subscribe for more complete stories",
+      "share_cta": "Share this story with a friend"
+    },
+    "菲律宾": {
+      "full_video_cta": "Panoorin ang buong kuwento rito",
+      "subscribe_cta": "Mag-subscribe para sa buong kuwento",
+      "share_cta": "Ibahagi sa mga kaibigan"
+    },
+    "西班牙": {
+      "full_video_cta": "Mira la historia completa aquí",
+      "subscribe_cta": "Suscríbete para ver historias completas",
+      "share_cta": "Comparte con tus amigos"
+    },
+    "阿拉伯语": {
+      "full_video_cta": "شاهدوا القصة كاملة هنا",
+      "subscribe_cta": "اشتركوا لمشاهدة القصص الكاملة",
+      "share_cta": "شاركوا القصة مع أصدقائكم"
+    }
+  },
+  "default_cta_layout_style": "dual_pill_black_yellow",
+  "min_non_empty_lines": 8,
+  "require_single_short_url": true,
+  "forbid_markdown_links": true,
+  "normalize_markdown_links_before_validation": true,
+  "image_style": {
+    "forbidden_overprocessed_terms": [
+      "ultra sharp focus",
+      "crisp facial detail",
+      "crisp facial details",
+      "crisp faces",
+      "strong micro-contrast",
+      "high micro-contrast",
+      "clean edges",
+      "sharp facial highlights",
+      "mobile readability"
+    ],
+    "required_natural_signals": [
+      "live-action",
+      "natural skin texture",
+      "clothing wrinkles",
+      "realistic lens rendering",
+      "believable lighting",
+      "softer environmental detail"
+    ],
+    "minimum_required_natural_signals": 4,
+    "preserve_embedded_hook_and_cta": true
+  }
+}

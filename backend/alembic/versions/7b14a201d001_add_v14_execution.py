@@ -29,7 +29,7 @@ def upgrade():
     op.create_table("v14_attempts", *common(),
         sa.Column("run_id", sa.String(36), nullable=False), sa.Column("claim_id", sa.String(36), nullable=False),
         sa.Column("node_type", sa.String(20), nullable=False), sa.Column("sequence", sa.Integer(), nullable=False),
-        sa.Column("outcome", sa.String(20), nullable=False), sa.Column("payload", sa.JSON()), sa.Column("error", sa.Text()),
+        sa.Column("outcome", sa.String(20), nullable=False), sa.Column("payload", sa.JSON()), sa.Column("raw_payload", sa.JSON()), sa.Column("error", sa.Text()),
         sa.UniqueConstraint("run_id", "node_type", "sequence"),
         sa.ForeignKeyConstraint(["tenant_id", "run_id"], ["v14_runs.tenant_id", "v14_runs.id"]),
         sa.CheckConstraint("outcome IN ('running','accepted','content_error','system_error','interrupted')", name="valid_outcome"))

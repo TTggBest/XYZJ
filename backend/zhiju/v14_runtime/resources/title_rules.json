@@ -1,0 +1,220 @@
+{
+  "version": 14,
+  "title_contract": {
+    "required_direction_count": 3,
+    "generation_target_visible_characters": 95,
+    "max_visible_characters": 100,
+    "counting_mode": "unicode_visible_characters",
+    "forbid_empty_title_lines": true,
+    "require_minimum_plot_anchor": false,
+    "minimum_grounded_evidence_count": 0,
+    "require_three_unique_specificity_anchors": true,
+    "minimum_unique_a_types": 2,
+    "minimum_unique_b_types": 2,
+    "forbid_b_answer_reveal": false,
+    "allow_b_direct_reveal_reversal_or_payoff": true,
+    "forbid_questions_in_a_and_b": true,
+    "allow_aggressive_marketing_amplification": true,
+    "plot_fidelity_for_marketing_payoff": "minimum relationship or conflict connection only; B need not be a literal plot event or ending",
+    "require_public_payoff_anchor": true,
+    "public_payoff_anchor_contract": "one concrete Chinese internal position-change note that directly answers A; evaluated independently of the optional Chinese review translation",
+    "review_translation_contract": "Chinese review aid only; its presence, punctuation, format, wording, semantic keyword choice, and similarity never determine production acceptance, retry, child safety, theme alignment, or creative collision",
+    "abstract_payoff_only_forbidden": true,
+    "cold_viewer_contract": "replace bare story-internal proper nouns with a universally understandable description of the current relationship, event, or position change",
+    "generation_strategy": {
+      "core_definition": "A concrete perceptible event creates immediate emotional debt; B directly repays that debt through a clear position change",
+      "thinking_order": [
+        "strongest immediate emotion",
+        "concrete perceptible event",
+        "whether the event directly changes the position between people regardless of event type",
+        "relationship inside that event",
+        "protagonist response choice or gain",
+        "clear position change",
+        "optional amplifier",
+        "single A-to-B causal chain"
+      ],
+      "event_priority": "prioritize events that directly change the position between people; event type itself does not determine priority",
+      "position_change_signals": "selection, exclusion, recognition, replacement, protection, or a change in status between people",
+      "procedural_fact_priority": "high only when the procedural fact carries such a position change",
+      "position_change_dimensions": [
+        "relationship",
+        "identity",
+        "power",
+        "interests",
+        "resources",
+        "social position",
+        "relationship commitment",
+        "fate outcome"
+      ],
+      "amplifier_grounding": "must be supported by current task evidence, channel-permitted marketing extrapolation, or the frozen contract; never invent identity, amount, assets, power, or relationships merely for intensity",
+      "model_only_self_check": [
+        "A creates immediate emotion for a cold viewer",
+        "A contains a concrete perceptible event",
+        "B directly repays the emotional debt created by A",
+        "A-to-B remains understandable without full plot context",
+        "the title contains one main emotional causal line"
+      ],
+      "self_check_usage": "candidate generation ranking and internal rewrite only",
+      "validator_gate": false,
+      "controller_semantic_detection": false,
+      "prebuilt_story_examples_forbidden": true,
+      "dynamic_task_context_is_valid_input": true
+    },
+    "target_language_realization": {
+      "stage_order": [
+        "finalize marketing semantics and the A-to-B causal line",
+        "realize them naturally in the target language"
+      ],
+      "purpose": "reduce first-read comprehension cost while making the unchanged marketing meaning clear, natural, concise, and locally idiomatic for the current channel language and market; do not pursue literary completeness",
+      "clarity_priority": [
+        "relationship clarity",
+        "action clarity",
+        "result clarity",
+        "natural word order",
+        "conciseness"
+      ],
+      "allowed_expression_adjustments": [
+        "grammar and subject order",
+        "clause order and length",
+        "pronoun use or omission of an obvious subject",
+        "conjunction and transition placement",
+        "time information placement",
+        "punctuation",
+        "locally natural forms of address",
+        "locally natural number amount and identity expression",
+        "accepted loanword use according to current channel context"
+      ],
+      "must_preserve": [
+        "who acts on whom",
+        "the relationship",
+        "the A-to-B causal line",
+        "conflict intensity",
+        "reversal and payoff",
+        "the position change"
+      ],
+      "must_not": [
+        "change facts",
+        "invent identities amounts assets power or relationships",
+        "weaken click strength",
+        "turn the title into a synopsis",
+        "expand the title with background or narrative detail",
+        "translate Chinese word order literally"
+      ],
+      "model_only_native_language_self_check": [
+        "a local cold viewer immediately understands who did what to whom",
+        "the expression does not preserve unnatural Chinese source order",
+        "the wording is not merely grammatical but locally natural",
+        "the title is as short and smooth as possible without weakening its marketing force",
+        "the relationship, action, and result remain immediately clear"
+      ],
+      "validator_gate": false,
+      "schema_change": false,
+      "controller_semantic_detection": false,
+      "prebuilt_sentence_templates_forbidden": true
+    },
+    "minor_title_hard_gate": "forbid humiliation, bullying, abuse, sexualization, and age-inappropriate conduct only when the affected person is actually a minor; explicitly adult offspring are adults",
+    "child_visual_reframing": "keep the public A+B title explosive; in visual_thesis, child_role, and safe_cover_scene move visible wrongdoing and confrontation onto adults and keep required minors calm, protected, supervised relationship or identity anchors",
+    "generation_language_blacklist": {
+      "hard_forbidden_semantic_concepts": [
+        "rape",
+        "sexual assault",
+        "molestation",
+        "drugged",
+        "date rape or drugging",
+        "sold a person",
+        "human trafficking",
+        "kill",
+        "murder",
+        "shooting or killing",
+        "suicide",
+        "self-harm",
+        "corpse or dead body",
+        "bloody or gory",
+        "torture",
+        "poisoning to death",
+        "brutal killing"
+      ],
+      "prefer_avoid_semantic_concepts": [
+        "domestic violence",
+        "abuse",
+        "kidnapping",
+        "death threat"
+      ],
+      "applies_to": [
+        "localized title",
+        "Chinese review translation",
+        "direction",
+        "hook facts",
+        "public payoff anchor",
+        "visual thesis",
+        "child role",
+        "safe cover scene"
+      ],
+      "enforcement": "generation_instruction_only"
+    },
+    "negative_term_frequency_guidance": {
+      "window_hours": 168,
+      "count_basis": "accepted_generated_title_candidates",
+      "terms": {
+        "复仇": {"aliases": ["复仇"], "max_uses_7d": 2},
+        "背叛": {"aliases": ["背叛"], "max_uses_7d": 2},
+        "报复": {"aliases": ["报复"], "max_uses_7d": 1},
+        "羞辱": {"aliases": ["羞辱"], "max_uses_7d": 1},
+        "抛弃": {"aliases": ["抛弃"], "max_uses_7d": 1},
+        "赶出家门": {"aliases": ["赶出家门"], "max_uses_7d": 1},
+        "被赶走": {"aliases": ["被赶走"], "max_uses_7d": 1},
+        "毁掉": {"aliases": ["毁掉"], "max_uses_7d": 1},
+        "摧毁": {"aliases": ["摧毁"], "max_uses_7d": 1},
+        "骗局": {"aliases": ["骗局"], "max_uses_7d": 1},
+        "欺骗": {"aliases": ["欺骗"], "max_uses_7d": 2},
+        "出轨": {"aliases": ["出轨"], "max_uses_7d": 1},
+        "情人/小三": {"aliases": ["情人", "小三"], "max_uses_7d": 1},
+        "偷走": {"aliases": ["偷走"], "max_uses_7d": 1},
+        "夺走": {"aliases": ["夺走"], "max_uses_7d": 1},
+        "陷害": {"aliases": ["陷害"], "max_uses_7d": 1},
+        "诬陷": {"aliases": ["诬陷"], "max_uses_7d": 1},
+        "赶出公司": {"aliases": ["赶出公司"], "max_uses_7d": 1},
+        "开除": {"aliases": ["开除"], "max_uses_7d": 1},
+        "破产": {"aliases": ["破产"], "max_uses_7d": 1},
+        "绝望": {"aliases": ["绝望"], "guidance": "minimize"},
+        "憎恨": {"aliases": ["憎恨"], "guidance": "minimize"},
+        "恨我": {"aliases": ["恨我"], "guidance": "minimize"},
+        "毁了我的人生": {"aliases": ["毁了我的人生"], "guidance": "not_recommended"},
+        "让他付出代价": {"aliases": ["让他付出代价"], "guidance": "rate_limit"},
+        "我要让他们后悔": {"aliases": ["我要让他们后悔"], "guidance": "rate_limit"}
+      },
+      "enforcement": "soft_generation_guidance_only",
+      "validator_gate": false,
+      "missing_history_blocks_generation": false
+    },
+    "require_unique_recommendation_scores": true,
+    "controller_sorts_highest_recommendation_first": true,
+    "require_child_safe_cover_plan_before_cover_stage": true
+  },
+  "distinctness_audit": {
+    "scene_anchor_families": {
+      "medical": "\\b(doctor|clinic|hospital|medical|rescue)\\b|医生|诊所|医院|抢救|救妈妈|医疗",
+      "wedding": "\\b(wedding|marriage|bride|groom|registration)\\b|婚礼|结婚|登记|新娘|新郎",
+      "dna": "\\b(dna|paternity)\\b|亲子|鉴定|认亲",
+      "office_contract": "\\b(office|contract|boardroom|appointment letter|shareholder file)\\b|办公室|合同|董事会|任命书|股权文件",
+      "gallery_art": "\\b(gallery|painting|portrait|artist|studio|auction)\\b|画廊|画像|画家|工作室|拍卖",
+      "gambling_stone": "\\b(gambling|casino|poker|card table|stone betting|jade|rough stone)\\b|赌石|玉石|原石|牌局|赌场|老千"
+    },
+    "hook_families": {
+      "child_reveal": "\\b(child|children|kid|kids|baby|twins|daughter|son)\\b|萌宝|孩子|双宝|双胞胎|三宝|四宝|五宝|六宝",
+      "trap_interrupt": "\\b(trap|setup|scheme|arrang|plan|adopt|adoption|stop|halt|interrupt)\\b|圈套|安排|计划|领养|拦下|打断|阻止",
+      "self_choice": "\\b(chose|choose|decide|my choice|on my own|control)\\b|自己选|自己决定|做主|掌控",
+      "supernatural_omen": "\\b(dead|ghost|haunt|curs|eyes opened|looked back|portrait came alive)\\b|鬼|诅咒|回望|睁眼|活过来|阴阳",
+      "investigation_unravel": "\\b(reporter|camera|surveillance|monitor|robbery|trace|investigat)\\b|记者|监控|摄像|劫案|追查|查出",
+      "apology_refusal": "\\b(apolog|forgive|refuse|reject|not now|leave)\\b|道歉|拒绝|不原谅|不行|离开",
+      "identity_reveal": "\\b(identity|truth|real|fake|hidden|reveal|recognized)\\b|身份|真相|真千金|假|隐藏|认出",
+      "public_humiliation": "\\b(humiliat|insult|looked down|threw out|forced out)\\b|羞辱|看不起|赶走|轰出",
+      "reunion_return": "\\b(return|came back|reunion|home again|doorstep)\\b|回来了|回来|重逢|回家|门口",
+      "marriage_trap": "\\b(wedding|marriage|bride|groom|engagement|wrong bride)\\b|婚配|婚礼|新娘|订婚|错嫁",
+      "bloodline_truth": "\\b(bloodline|blood|true father|real child|keepsake)\\b|血脉|亲生|真儿子|信物",
+      "poverty_comeback": "\\b(poor|poverty|wealth|fortune|servet|fakir|rebuilt|built it myself)\\b|穷|贫|财富|翻身|重来"
+    },
+    "max_same_scene_anchor_hits": 1,
+    "min_unique_hook_families": 2
+  }
+}

@@ -6,7 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, PackageCommunityPost,
-                          PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder)
+                          PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask)
 from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
 from zhiju.services.production import NODE_SEQUENCE
 from zhiju.services.identity import ConflictError
@@ -53,6 +53,7 @@ def create_run(session: Session, work_order_id: str) -> V14Run:
     if setting is None:
         raise ConflictError("请先配置 V14 执行主机、模型和规则")
     config = setting.payload
+    task = require_tenant_entity(session, OperationTask, work.task_id)
     channel = require_tenant_entity(session, Channel, work.channel_id)
     drama = require_tenant_entity(session, Drama, work.drama_id)
     if channel.status != "active":
@@ -68,6 +69,7 @@ def create_run(session: Session, work_order_id: str) -> V14Run:
             "drama": {key: getattr(drama, key) for key in ("content_summary", "plot_archive", "plot_pattern", "core_personas")},
             "channel": deepcopy(channel_input), "community_count": work.community_count,
             "target_publish_date": str(work.target_publish_date),
+            "video_id": task.source_video_id, "video_url": task.source_video_url,
         })
     session.add(run)
     session.commit()
@@ -149,16 +151,18 @@ def submit_attempt(session, run_id: str, attempt_id: str, payload):
     if attempt.run_id != run.id or attempt.claim_id != payload.claim_id or run.claim_id != payload.claim_id:
         raise ConflictError("尝试不属于当前执行")
     if attempt.outcome != "running":
-        if attempt.outcome != payload.outcome or attempt.payload != payload.result or attempt.error != payload.error:
+        if attempt.outcome != payload.outcome or attempt.raw_payload != payload.result or attempt.error != payload.error:
             raise ConflictError("同一尝试不能回传不同结果")
         return run_read(session, run)
     check_claim(run, payload.claim_id)
+    result = deepcopy(payload.result)
     if payload.outcome == "accepted":
         if payload.result is None:
             raise ConflictError("缺少阶段结果")
         from zhiju.services.v14_outputs import apply_outputs
-        apply_outputs(session, run, attempt, payload.result)
-    attempt.outcome, attempt.payload, attempt.error = payload.outcome, payload.result, payload.error
+        apply_outputs(session, run, attempt, result)
+    attempt.raw_payload = deepcopy(payload.result)
+    attempt.outcome, attempt.payload, attempt.error = payload.outcome, result, payload.error
     run.error = payload.error
     session.flush()
     if payload.outcome == "system_error":

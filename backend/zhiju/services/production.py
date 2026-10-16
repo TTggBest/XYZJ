@@ -561,7 +561,7 @@ def _latest_node(session: Session, work_order_id: str, node_type: str, *, lock: 
     return node
 
 
-def start_node(session: Session, work_order_id: str, node_type: str, worker_key: str) -> ProductionNodeRun:
+def start_node(session: Session, work_order_id: str, node_type: str, worker_key: str, *, commit: bool = True) -> ProductionNodeRun:
     if node_type not in NODE_SEQUENCE:
         raise NotFoundError("生产节点不存在")
     node = _latest_node(session, work_order_id, node_type, lock=True)
@@ -586,7 +586,10 @@ def start_node(session: Session, work_order_id: str, node_type: str, worker_key:
     _system_event(session, "production_node_run", node.id, "queued", "running", "工作器领取节点")
     if old_work_order_status != work_order.status:
         _system_event(session, "work_order", work_order.id, old_work_order_status, work_order.status, "开始生产")
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(node)
     return node
 
@@ -600,6 +603,7 @@ def finish_node(
     error_code: str | None = None,
     error_message: str | None = None,
     allow_merge: bool = False,
+    commit: bool = True,
 ) -> dict[str, object]:
     node = _latest_node(session, work_order_id, node_type, lock=True)
     if node.status != "running":
@@ -661,7 +665,10 @@ def finish_node(
             if next_node is not None:
                 next_node.status = "queued"
                 _system_event(session, "production_node_run", next_node.id, "pending", "queued", "前置节点完成")
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(node)
     return _detail(session, work_order)
 

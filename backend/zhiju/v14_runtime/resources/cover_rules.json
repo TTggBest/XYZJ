@@ -1,0 +1,368 @@
+{
+  "version": 17,
+    "prompt_audit": {
+    "generation_language_blacklist": {
+      "hard_forbidden_semantic_concepts": [
+        "rape",
+        "sexual assault",
+        "molestation",
+        "drugged",
+        "date rape or drugging",
+        "sold a person",
+        "human trafficking",
+        "kill",
+        "murder",
+        "shooting or killing",
+        "suicide",
+        "self-harm",
+        "corpse or dead body",
+        "bloody or gory",
+        "torture",
+        "poisoning to death",
+        "brutal killing"
+      ],
+      "prefer_avoid_semantic_concepts": [
+        "domestic violence",
+        "abuse",
+        "kidnapping",
+        "death threat"
+      ],
+      "applies_to": [
+        "visual payoff",
+        "story hook",
+        "scene",
+        "main action",
+        "core words",
+        "scene prompt 4:5",
+        "outpaint environment"
+      ],
+      "enforcement": "generation_instruction_only"
+    },
+    "cross_video_visual_grammar_generation": {
+      "enforcement": "generation_instruction_only",
+      "allow_partial_channel_visual_grammar_reuse": [
+        "character_count",
+        "shot_size",
+        "camera_angle",
+        "placement_logic",
+        "typography_layout_logic",
+        "scene_type"
+      ],
+      "single_similar_visual_dimension_is_narrative_duplication": false,
+      "forbid_complete_visual_template_copy": true,
+      "complete_narrative_concept_fields": [
+        "character_relationship",
+        "primary_action_or_reversal",
+        "key_event_or_evidence_prop",
+        "core_cover_words"
+      ],
+      "actively_separate_only_when_multiple_key_visual_dimensions_and_complete_narrative_concept_are_highly_similar": true,
+      "numeric_similarity_ratio_for_generation": null,
+      "fingerprint_count_quota_for_generation": null,
+      "validator_gate_added": false,
+      "principle": "allow_same_channel_style_forbid_same_template_or_complete_visual_story"
+    },
+    "require_visual_fingerprint": true,
+    "visual_fingerprint_fields": ["scene_family", "main_action", "key_prop", "composition", "palette", "lighting"],
+    "max_historical_matching_dimensions": 3,
+    "forbid_historical_scene_action_pair": true,
+    "actual_image_similarity_threshold": 0.70,
+    "preferred_story_evidence_props": 1,
+    "maximum_story_evidence_props": 2,
+    "minimum_real_drama_score_audit": 10,
+    "prompt_word_count_mode": "audit_only",
+    "quality_observation_only": ["prompt_word_count", "real_drama_score", "prop_density", "excessive_lighting_description", "overly_designed_staging"],
+    "hard_forbidden_ai_poster_terms": ["holographic display", "holographic interface", "hologram", "futuristic interface", "futuristic scanner", "transparent evidence canister", "forensic timeline rail", "uv projection", "glowing dna", "illuminated dna", "memory carousel", "magnetic false back", "glowing tracker", "glowing route", "account frozen rejection tray", "lightning-bolt composition", "threshold-hourglass composition", "bridge-and-crescent composition", "sweeping-anchor composition", "unfolding-fan composition", "rail-switch composition", "crossed-chute composition", "descending-hand chain composition", "shield-and-split composition"],
+    "forbid_named_geometric_compositions": true,
+    "forbid_invented_visual_technology": true,
+    "require_real_location_light_logic": true,
+    "title_led_marketing_moment": true,
+    "generation_plan": {
+      "required": true,
+      "decision_order": [
+        "visual_payoff",
+        "single_continuous_moment",
+        "single_physical_location",
+        "temporal_montage",
+        "required_characters",
+        "visible_adult_count",
+        "visible_child_count",
+        "removed_optional_characters",
+        "scene",
+        "main_action",
+        "prop_role",
+        "camera_angle",
+        "core_words_category",
+        "core_words_selection_reason",
+        "scene_prompt_4_5"
+      ],
+      "creative_fields_are_free_text": [
+        "scene_family",
+        "scene",
+        "main_action",
+        "composition",
+        "key_prop"
+      ],
+      "fixed_scene_library": false,
+      "fixed_action_library": false,
+      "fixed_composition_library": false,
+      "fixed_prop_library": false,
+      "fixed_reaction_library": false,
+      "fixed_multilingual_core_word_library": false,
+      "visual_payoff_rule": "Visualize the strongest emotional power shift, relationship reversal, or visible consequence instead of turning title nouns into props.",
+      "non_child_visible_adult_target": [2, 4],
+      "non_child_visible_adult_hard_max": 4,
+      "allow_unplanned_background_people": false,
+      "child_character_priority": [
+        "required child anchor",
+        "protagonist",
+        "primary antagonist or lover",
+        "remove optional adults"
+      ],
+      "minor_provider_safe_staging": {
+        "required_child_remains_visible": true,
+        "child_role": "calm protected supervised relationship identity reunion or family anchor",
+        "adult_conflict_expression": "adult status posture relationship or consequence",
+        "do_not_stack_with_visible_minor": [
+          "abandonment or humiliation directed at the child",
+          "hidden surveillance",
+          "coercive parenting",
+          "bedroom or bedside intimacy",
+          "police restraint escort or control",
+          "paternity-evidence confrontation",
+          "adult physical or coercive conflict"
+        ],
+        "do_not_delete_required_child": true,
+        "do_not_replace_title_event_with_unrelated_peace": true,
+        "enforcement": "generation_instruction_only"
+      },
+      "scene_simplicity_rule": "If a detail does not improve story comprehension, emotional intensity, or visual realism, omit it.",
+      "prop_role_values": ["none", "supporting"],
+      "camera_angle_values": [
+        "eye-level",
+        "slightly low-angle",
+        "slightly high-angle",
+        "over-the-shoulder",
+        "three-quarter view"
+      ],
+      "core_words_category_priority": [
+        "specific_relationship",
+        "shocking_identity",
+        "concrete_number",
+        "concrete_consequence",
+        "abnormal_action",
+        "abstract_theme"
+      ],
+      "abstract_theme_only_when_no_concise_package_specific_phrase": true
+    },
+    "single_moment_scene": {
+      "required": true,
+      "single_continuous_moment": true,
+      "single_physical_location": true,
+      "temporal_montage": false,
+      "single_coherent_lighting_environment": true,
+      "title_a_b_policy": "choose_only_one_strongest_visible_instant_do_not_illustrate_both_beats",
+      "upstream_multi_moment_visual_thesis_policy": "distill_to_one_visual_payoff_instead_of_reproducing_both",
+      "forbidden_structures": [
+        "split_screen",
+        "stacked_scenes",
+        "collage",
+        "diptych",
+        "multi_panel",
+        "temporal_montage",
+        "adjacent_second_moment",
+        "before_after",
+        "present_later",
+        "cause_result_pair"
+      ],
+      "forbidden_explicit_patterns": [
+        "adjacent later moment",
+        "another later moment",
+        "two-moment",
+        "dual-moment",
+        "split screen",
+        "split-screen",
+        "stacked scene",
+        "stacked scenes",
+        "upper scene",
+        "lower scene",
+        "above and below",
+        "before and after",
+        "present and later",
+        "temporal montage",
+        "diptych",
+        "multi-panel",
+        "hearing above and hospital below"
+      ],
+      "enforcement": "generation_plan_schema_validation_and_retry"
+    },
+    "scene_selection_preferences": {
+      "avoid_as_primary_scene_devices": [
+        "door",
+        "doorway",
+        "door handle",
+        "vehicle door",
+        "car door"
+      ],
+      "avoid_primary_actions": [
+        "opening a door",
+        "closing a door",
+        "blocking a doorway",
+        "leaning through a doorway",
+        "leaning through a vehicle door",
+        "staging the main interaction around a door or vehicle door"
+      ],
+      "allow_only_when_verified_plot_moment_requires_it": false,
+      "incidental_background_exception": "A distant closed door is allowed only as background architecture when nobody touches, approaches, blocks, enters through, exits through, or interacts across it.",
+      "hard_forbidden_primary_staging_patterns": [
+        "\\b(?:open(?:s|ed|ing)?|close|closes|closing|block(?:s|ed|ing)?|grip(?:s|ped|ping)?|hold(?:s|ing)?|lean(?:s|ed|ing)?|stand(?:s|ing)?|wait(?:s|ing)?)\\b[^.;]{0,70}\\b(?:door|doorway|doorstep|door handle|car door|vehicle door)\\b",
+        "\\b(?:he|she|man|woman|husband|wife|mother|father|heroine|ceo)\\b[^.;]{0,45}\\bclosed\\b[^.;]{0,25}\\b(?:door|car door|vehicle door)\\b",
+        "\\b(?:doorway|doorstep|at the door|at the entrance|in the doorway|car door|vehicle door)\\b[^.;]{0,70}\\b(?:confrontation|standoff|faceoff|interaction|reveal|arrival|departure|blocking|argument)\\b",
+        "\\b(?:enter(?:s|ed|ing)?|exit(?:s|ed|ing)?|step(?:s|ped|ping)?\\s+out|get(?:s|ting)?\\s+(?:in|into|out)|climb(?:s|ed|ing)?\\s+(?:in|into|out))\\b[^.;]{0,70}\\b(?:car|vehicle|car door|vehicle door)\\b",
+        "\\b(?:apartment|hotel|office|hospital|mansion|house|home|room|elevator)?\\s*(?:doorway|doorstep|entrance)\\s+(?:confrontation|standoff|faceoff|reveal|arrival|departure|scene)\\b"
+      ],
+      "enforcement": "hard_generation_and_validation"
+    },
+    "official_uniform_policy": {
+      "enforcement": "hard_generation_and_validation",
+      "forbidden_visual_patterns": [
+        "\\b(?:chinese|prc|public security|traffic|special)?\\s*police\\s+(?:officer|uniform|cap|badge|emblem|epaulettes?|shoulder boards?|service number)\\b",
+        "\\b(?:policeman|policewoman|public security officer)\\b",
+        "\\buniformed\\s+(?:chinese\\s+|prc\\s+)?police\\b",
+        "\\bpolice[- ]style\\s+uniform\\b",
+        "\\blaw[- ]enforcement\\s+officer\\s+in\\s+uniform\\b",
+        "(?:公安|民警|交警|特警|警察)(?:制服|帽|帽徽|警徽|肩章|警号)?"
+      ],
+      "allowed_replacement": "commercial security guard in a plain neutral security uniform with no government or police insignia",
+      "forbidden_official_details": [
+        "police cap",
+        "police badge",
+        "police emblem",
+        "police epaulettes",
+        "police shoulder boards",
+        "police service number"
+      ]
+    },
+    "prompt_assembly": {
+      "scene_owner": "xy-cover-model",
+      "style_owner": "controller",
+      "typography_owner": "controller",
+      "outpaint_execution_owner": "controller",
+      "safe_cover_scene_semantics": "reference_only",
+      "visual_thesis_required": true,
+      "semantic_judge_mode": "disabled_phase_1"
+    },
+    "minimum_plot_anchor_only": true,
+    "female_frequency_special_effects_forbidden": true,
+    "child_angle_requires_visible_safe_child": true,
+    "physical_beating_forbidden_for_all_covers": true,
+    "core_words_unique_across_three_groups": true,
+    "localized_core_words": {
+      "require_idiomatic_native_phrase": true,
+      "allowed_word_counts": [1, 2],
+      "selection_priority": ["single_word", "natural_modifier_plus_head"],
+      "forbid_mechanical_noun_noun_compounds": true,
+      "forbid_omitted_linkers_or_case_markers": true,
+      "language_rules": {
+        "印地": {
+          "relational_heads": ["प्यार", "प्रेम", "मोहब्बत"],
+          "role_noun_modifiers": ["वारिस", "चेयरमैन", "अध्यक्ष", "मालिक", "सीईओ"],
+          "measure_modifiers": ["करोड़", "करोड़ों", "लाख", "लाखों", "हजार", "हजारों"],
+          "evidence_heads": ["रसीद", "रिपोर्ट", "करार", "सबूत"],
+          "literal_impairment_modifiers": ["अंधा", "बहरा", "गूंगा"],
+          "abstract_truth_heads": ["सच", "सच्चाई", "राज़"]
+        }
+      }
+    },
+    "core_words_require_non_diegetic_cover_typography": true,
+    "core_words_forbidden_physical_surfaces": ["wall", "door", "paper", "document", "folder", "book", "screen", "clothing", "sign", "physical prop"],
+    "incidental_environmental_text_must_not_carry_core_words": true,
+    "wide_generation_execution": {
+      "mode": "image_to_image_outpaint",
+      "require_approved_4_5_source_image": true,
+      "forbid_standalone_text_to_image": true,
+      "forbidden_in_4_5_prompt_terms": ["16:9", "16x9", "outpaint", "locked center", "side band", "3840x2160", "1056px", "pixel-for-pixel"],
+      "mask_policy": "side_bands_only",
+      "center_restore_required": true,
+      "side_bands_environment_only": true,
+      "side_bands_forbid_people_body_fragments_core_words_props_and_story_information": true
+    },
+    "typography_salience_rule": {
+      "required": true,
+      "fixed_geometry_requirements": false,
+      "forbid_fixed_width_height_font_size_or_canvas_ratio": true,
+      "containment_area_4_5": "centered_1728x2160",
+      "must_remain_inside_locked_center_after_16_9_outpaint": true,
+      "adaptive_inputs": ["language", "core_word_length", "available_negative_space", "local_background_brightness_and_color", "actor_placement"],
+      "require_bold_display_weight": true,
+      "require_obvious_background_contrast": true,
+      "require_edge_separation": true,
+      "allowed_edge_separation": ["thick contrasting outline", "compact hard shadow", "compact high-contrast backing shape"],
+      "forbid_low_salience_styles": ["small text", "thin lettering", "low-contrast text", "gray-on-gray text", "background-matched text", "faint translucent text"],
+      "human_faces_and_dramatic_event_remain_primary_visual_storytelling_elements": true,
+      "prominent_does_not_mean_largest_possible": true,
+      "must_not_cover": ["primary faces", "critical hands", "essential story objects", "channel logos"]
+    },
+    "maximum_accent_colors": 1,
+    "image_style": {
+      "forbidden_overprocessed_terms": [
+        "ultra sharp focus",
+        "crisp facial detail",
+        "crisp facial details",
+        "crisp faces",
+        "strong micro-contrast",
+        "high micro-contrast",
+        "clean edges",
+        "sharp facial highlights",
+        "mobile readability"
+      ],
+      "required_natural_signals": [
+        "live-action",
+        "natural skin texture",
+        "clothing wrinkles",
+        "realistic lens rendering",
+        "believable lighting",
+        "softer environmental detail"
+      ],
+      "minimum_required_natural_signals": 4
+    },
+    "child_context_pattern": "\\b(child|children|kid|kids|baby|babies|daughter|son|boy|girl|little|cute)\\b|萌宝|孩子|小孩|宝宝|女儿|儿子|双宝|三宝|四宝|五宝|六宝",
+    "child_risk_pattern": "\\b(rescue|save|saving|urgent|pleading|weak|pale|illness|sick|medical emergency|doctor rushing|clinic|hospital|blood|violence|bully|humiliate|abuse|threat|revenge|panic|frightened|accuse|expose adults|forced out)\\b|抢救|救妈妈|救你|救她|虚弱|苍白|生病|医院|诊所|暴力|霸凌|羞辱|报复|威胁|恐慌|指认",
+    "child_pointing_pattern": "\\b(pointing|pointing toward|points at|points toward|point at|point toward|index finger|raises one hand|stop-hand|holds up .*?(phone|document|file|report|contract|card))\\b|指着|手指|举起.*?(手机|文件|报告|合同|证件)",
+    "repeated_scene_families": {
+      "medical": "\\b(doctor|clinic|hospital|medical file|medicine|patient)\\b|医生|诊所|医院|病历|医疗",
+      "office_evidence": "\\b(office|CEO desk|boardroom|company lobby|contract|identity card|ID cards|shareholder file|appointment letter)\\b|办公室|董事会|公司大厅|合同|证件|股权文件|任命书",
+      "wedding": "\\b(wedding|marriage registration|bride|groom|marriage certificate)\\b|婚礼|登记|结婚证|新娘|新郎",
+      "dna": "\\b(DNA|paternity)\\b|亲子鉴定|亲子报告",
+      "gambling": "\\b(gambling|casino|card table|poker|marked deck)\\b|赌桌|赌场|牌局|老千"
+    },
+    "main_action_families": {
+      "doorway_return": "\\b(doorway|doorstep|at the door|gate opening|returned home)\\b|门口|门外|开门|回家",
+      "table_document": "\\b(agreement|contract|signature line|marriage agreement|file box|paperwork)\\b|协议|合同|签字|婚书|文件盒|文书",
+      "car_side_block": "\\b(car side|beside a parked car|driveway|street confrontation|arrival)\\b|车边|车旁|停车|门口拦截",
+      "child_refusal": "\\b(refusal gesture|refuse|stop hand|holds up .* hand|turns away)\\b|拒绝|不认|转身|举手阻止",
+      "family_faceoff": "\\b(face[s]? .* father|face[s]? .* mother|father.*opposite|mother.*opposite|child.*between)\\b|亲子对峙|父子对峙|母子对峙|孩子站中间|面对父亲|面对母亲",
+      "adult_softening": "\\b(kneeling|half-lowered|reaches out|soften|apology)\\b|下跪|半蹲|伸手|道歉"
+    },
+    "blocking_skeleton_families": {
+      "mother_child_unit_vs_father": "\\b(mother stands .* behind .* child.* father|mother holds .* child.* father opposite|mother .* child .* toward .* father)\\b|妈妈.*孩子.*爸爸|母子.*父亲对峙",
+      "father_center_family_cluster": "\\b(father .* center.* children .* around|family .* around .* father|children cluster near mother.* father)\\b|父亲居中.*孩子围绕|家庭围着父亲|孩子围着妈妈.*爸爸",
+      "doorway_split_adults_children_below": "\\b(doorway confrontation.* mother.* child.* father|outside a quiet apartment doorway.* child.* father|doorway split)\\b|门口对峙|公寓门口.*孩子.*爸爸",
+      "table_reveal_triangle": "\\b(sits upright at a small table.* father stands opposite|agreement back across the table|signature line)\\b|小桌前.*父亲站对面|签字线|协议推回桌上"
+    },
+    "wide_shot_risk_pattern": "\\b(full-body|full body|wide shot|establishing shot|full-room|full room|full doorway|full lobby|visible full legs|head-to-toe|line everyone up)\\b|全身|远景|全景|全屋|全门口|全大厅|完整腿部",
+    "child_count_required_pattern": "双宝|双胞胎|二宝|两宝|三宝|四宝|五宝|六宝|twins|three children|four children|five children|six children|three kids|four kids|five kids|six kids",
+    "child_count_substitution_pattern": "\\b(implied by|only as a partial|partial matching backpack|schoolbag|backpack|small hand|handprints|silhouettes|photo only|drawing only)\\b|暗示|只以.*背包|书包|背包|小手|手印|剪影|照片|画",
+    "half_body_positive_pattern": "\\b(medium close-up|medium close up|half-body|half body|waist-up|waist up|chest-up|chest up|tight family cluster)\\b|半身|胸像|腰部以上|近景",
+    "explicit_child_count_patterns": {
+      "2": "\\b(exactly two visible children|two visible children|both twins visible|exactly two twin children)\\b|\\bone\\s+[^.;]{0,80}\\bboy\\b[^.;]{0,80}\\band\\s+(?:one\\s+)?[^.;]{0,40}\\bgirl\\b|两个孩子同时可见|双胞胎同时可见",
+      "3": "\\b(exactly three visible children|three visible children)\\b|三个孩子同时可见",
+      "4": "\\b(exactly four visible children|four visible children)\\b|四个孩子同时可见",
+      "5": "\\b(exactly five visible children|five visible children)\\b|五个孩子同时可见",
+      "6": "\\b(exactly six visible children|six visible children)\\b|六个孩子同时可见"
+    },
+    "max_same_scene_family_hits": 1,
+    "max_same_action_family_hits": 1,
+    "max_same_blocking_skeleton_hits": 1
+  }
+}

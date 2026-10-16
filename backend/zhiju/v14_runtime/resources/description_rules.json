@@ -1,0 +1,269 @@
+{
+  "version": 7,
+  "fixed_assets_defaults": {
+    "default": {
+      "welcome_line": "💖 Welcome to \"{channel_name}\".",
+      "welcome_body": "Here you can watch complete dubbed Chinese short dramas with emotional conflict, identity twists, family drama, and strong relationship reversals.",
+      "subscribe_line": "🔔 Subscribe for new complete stories. 🙏 Share this one with a friend.",
+      "comment_line": "💬 In your view, when did the biggest truth in this story finally come out?",
+      "disclaimer_lines": [
+        "⚠️ This content is prepared with professional translation or dubbing for authorized publishing. Copying, reuploading, or reuse without permission is prohibited.",
+        "This story is fictional and for entertainment only."
+      ]
+    },
+    "俄语": {
+      "welcome_line": "💖 Добро пожаловать на канал \"{channel_name}\".",
+      "welcome_body": "Здесь вы найдете полные китайские короткие дорамы с русской озвучкой, эмоциональными конфликтами, раскрытием личности, семейными тайнами и сильными поворотами в отношениях.",
+      "subscribe_line": "🔔 Подпишитесь, чтобы смотреть новые полные истории. 🙏 Поделитесь этой историей с друзьями.",
+      "comment_line": "💬 Как вы думаете, в какой момент раскрылась главная правда этой истории?",
+      "disclaimer_lines": [
+        "⚠️ Этот контент подготовлен с профессиональным переводом или озвучкой для разрешенной публикации. Копирование, повторная загрузка и использование без разрешения запрещены.",
+        "Эта история вымышленная и предназначена только для развлечения."
+      ]
+    },
+    "孟加拉": {
+      "welcome_line": "💖 \"{channel_name}\"-এ স্বাগতম।",
+      "welcome_body": "এখানে আপনি সম্পূর্ণ বাংলা ডাব চীনা শর্ট ড্রামা দেখবেন, যেখানে আবেগ, পরিচয়ের মোড়, পারিবারিক দ্বন্দ্ব এবং সম্পর্কের বড় উলটফেরাতেই গল্প এগোয়।",
+      "subscribe_line": "🔔 নতুন সম্পূর্ণ বাংলা ডাব গল্প দেখতে সাবস্ক্রাইব করুন। 🙏 গল্পটি বন্ধুদের সঙ্গে শেয়ার করুন।",
+      "comment_line": "💬 আপনার মতে এই গল্পের সবচেয়ে বড় সত্যটা কোন মুহূর্তে সামনে এল?",
+      "disclaimer_lines": [
+        "⚠️ এই কনটেন্ট পেশাদারভাবে অনুবাদ/ডাব করা এবং অনুমোদিত প্রকাশনার জন্য প্রস্তুত করা হয়েছে। অনুমতি ছাড়া কপি, পুনরায় আপলোড বা ব্যবহার করা নিষিদ্ধ।",
+        "গল্পটি কাল্পনিক এবং শুধুমাত্র বিনোদনের জন্য।"
+      ]
+    },
+    "菲律宾": {
+      "welcome_line": "💖 Maligayang pagdating sa \"{channel_name}\".",
+      "welcome_body": "Dito ka makakapanood ng kumpletong Chinese short drama sa lokal na dubbing, na may matitinding emosyon, identity twists, family conflict, at romantic reversals.",
+      "subscribe_line": "🔔 Mag-subscribe para sa mga bagong kumpletong kuwento. 🙏 Ibahagi ang kuwentong ito sa kaibigan.",
+      "comment_line": "💬 Sa tingin mo, saang sandali talaga nabunyag ang pinakamahalagang katotohanan sa kuwentong ito?",
+      "disclaimer_lines": [
+        "⚠️ Ang content na ito ay propesyonal na isinalin o dinub at inihanda para sa awtorisadong paglalathala. Bawal kopyahin, i-reupload, o gamitin nang walang pahintulot.",
+        "Ang kuwentong ito ay kathang-isip at para lamang sa entertainment."
+      ]
+    },
+    "印度": {
+      "welcome_line": "💖 \"{channel_name}\" में आपका स्वागत है।",
+      "welcome_body": "यहाँ आप पूरी डब की गई चीनी शॉर्ट ड्रामा कहानियाँ देखेंगे, जिनमें भावनात्मक टकराव, पहचान का खुलासा, पारिवारिक उलटफेर और रिश्तों के बड़े मोड़ होते हैं।",
+      "subscribe_line": "🔔 नई पूरी डब कहानियों के लिए सब्सक्राइब करें। 🙏 यह कहानी दोस्तों के साथ शेयर करें।",
+      "comment_line": "💬 आपके हिसाब से इस कहानी का सबसे बड़ा सच किस पल सामने आया?",
+      "disclaimer_lines": [
+        "⚠️ यह कंटेंट पेशेवर अनुवाद और डबिंग के साथ अधिकृत प्रकाशन के लिए तैयार किया गया है। बिना अनुमति कॉपी, री-अपलोड या उपयोग करना निषिद्ध है।",
+        "यह कहानी काल्पनिक है और केवल मनोरंजन के लिए है।"
+      ]
+    },
+    "印尼": {
+      "welcome_line": "💖 Selamat datang di \"{channel_name}\".",
+      "welcome_body": "Di sini kamu bisa menonton drama pendek China dubbing Indonesia lengkap dengan konflik emosional, rahasia identitas, pertarungan keluarga, dan romansa yang penuh pembalikan.",
+      "subscribe_line": "🔔 Subscribe untuk cerita lengkap terbaru. 🙏 Bagikan cerita ini kepada temanmu.",
+      "comment_line": "💬 Menurutmu, di momen mana kebenaran terbesar dalam cerita ini benar-benar terbuka?",
+      "disclaimer_lines": [
+        "⚠️ Konten ini diterjemahkan dan didubbing secara profesional untuk publikasi berizin. Dilarang menyalin, upload ulang, reupload, atau menggunakan ulang tanpa izin.",
+        "Cerita ini fiksi dan hanya untuk hiburan."
+      ]
+    },
+    "土耳其": {
+      "welcome_line": "💖 \"{channel_name}\" kanalina hoş geldin.",
+      "welcome_body": "Burada duygusal çatışma, kimlik dönüşü, aile gerilimi ve güçlü ilişki ters köşeleri içeren tam dublajli Çin kısa dramalarını izleyebilirsin.",
+      "subscribe_line": "🔔 Yeni tam hikayeler için abone ol. 🙏 Bu hikâyeyi arkadaşlarınla paylaş.",
+      "comment_line": "💬 Sence bu hikayede en büyük gerçek tam olarak hangi anda ortaya çıktı?",
+      "disclaimer_lines": [
+        "⚠️ Bu içerik profesyonel çeviri ve dublajla yetkili yayın için hazırlanmıştır. İzinsiz kopyalama, yeniden yükleme veya kullanım yasaktır.",
+        "Bu hikaye kurgudur ve yalnızca eğlence içindir."
+      ]
+    },
+    "波兰": {
+      "welcome_line": "💖 Witaj w \"{channel_name}\".",
+      "welcome_body": "Tutaj obejrzysz kompletne chińskie short drama w dubbingu, pełne emocji, zwrotów tożsamości, rodzinnych konfliktów i mocnych odwróceń relacji.",
+      "subscribe_line": "🔔 Subskrybuj nowe pełne historie. 🙏 Udostępnij tę opowieść znajomym.",
+      "comment_line": "💬 Twoim zdaniem w którym momencie wyszła na jaw najważniejsza prawda tej historii?",
+      "disclaimer_lines": [
+        "⚠️ Ten materiał został przygotowany z profesjonalnym tłumaczeniem i dubbingiem do autoryzowanej publikacji. Kopiowanie, ponowne przesyłanie lub użycie bez zgody jest zabronione.",
+        "Ta historia jest fikcyjna i służy wyłącznie rozrywce."
+      ]
+    },
+    "巴葡": {
+      "welcome_line": "💖 Bem-vindo ao canal \"{channel_name}\".",
+      "welcome_body": "Aqui você encontra minidramas chineses completos e dublados, com conflitos emocionais, revelações de identidade, segredos de família e grandes reviravoltas nos relacionamentos.",
+      "subscribe_line": "🔔 Inscreva-se para assistir a novas histórias completas. 🙏 Compartilhe esta história com seus amigos.",
+      "comment_line": "💬 Na sua opinião, em que momento a maior verdade desta história foi revelada?",
+      "disclaimer_lines": [
+        "⚠️ Este conteúdo foi preparado com tradução ou dublagem profissional para publicação autorizada. É proibido copiar, reenviar ou reutilizar sem permissão.",
+        "Esta história é fictícia e destina-se apenas ao entretenimento."
+      ]
+    },
+    "西班牙": {
+      "welcome_line": "💖 Bienvenido al canal \"{channel_name}\".",
+      "welcome_body": "Aquí encontrarás dramas cortos chinos completos y doblados, con conflictos emocionales, revelaciones de identidad, secretos familiares y grandes giros en las relaciones.",
+      "subscribe_line": "🔔 Suscríbete para ver nuevas historias completas. 🙏 Comparte esta historia con tus amigos.",
+      "comment_line": "💬 En tu opinión, ¿en qué momento se reveló la mayor verdad de esta historia?",
+      "disclaimer_lines": [
+        "⚠️ Este contenido ha sido preparado con traducción o doblaje profesional para su publicación autorizada. Se prohíbe copiarlo, volver a subirlo o reutilizarlo sin permiso.",
+        "Esta historia es ficticia y está destinada únicamente al entretenimiento."
+      ]
+    },
+    "阿拉伯语": {
+      "welcome_line": "💖 مرحبًا بكم في قناة \"{channel_name}\".",
+      "welcome_body": "ستجدون هنا مسلسلات صينية قصيرة كاملة ومدبلجة، مليئة بالصراعات العاطفية وكشف الهويات وأسرار العائلات والتحولات القوية في العلاقات.",
+      "subscribe_line": "🔔 اشتركوا لمشاهدة قصص كاملة جديدة. 🙏 شاركوا هذه القصة مع أصدقائكم.",
+      "comment_line": "💬 برأيكم، في أي لحظة انكشفت أكبر حقيقة في هذه القصة؟",
+      "disclaimer_lines": [
+        "⚠️ أُعد هذا المحتوى بترجمة أو دبلجة احترافية للنشر المصرح به. يُحظر نسخه أو إعادة رفعه أو استخدامه دون إذن.",
+        "هذه القصة خيالية ومخصصة للترفيه فقط."
+      ]
+    },
+    "英语": {
+      "welcome_line": "💖 Welcome to \"{channel_name}\".",
+      "welcome_body": "Here you can watch complete dubbed Chinese short dramas with emotional conflict, identity twists, family drama, and strong relationship reversals.",
+      "subscribe_line": "🔔 Subscribe for new complete stories. 🙏 Share this one with a friend.",
+      "comment_line": "💬 In your view, when did the biggest truth in this story finally come out?",
+      "disclaimer_lines": [
+        "⚠️ This content is prepared with professional translation or dubbing for authorized publishing. Copying, reuploading, or reuse without permission is prohibited.",
+        "This story is fictional and for entertainment only."
+      ]
+    },
+    "泰语": {
+      "welcome_line": "💖 ยินดีต้อนรับสู่ช่อง \"{channel_name}\"",
+      "welcome_body": "ที่นี่คุณสามารถรับชมละครสั้นจีนพากย์ไทยแบบเต็มเรื่อง ซึ่งเต็มไปด้วยความขัดแย้งทางอารมณ์ การเปิดเผยตัวตน ดราม่าครอบครัว และจุดพลิกผันของความสัมพันธ์",
+      "subscribe_line": "🔔 กดติดตามเพื่อรับชมเรื่องราวเต็มเรื่องใหม่ ๆ 🙏 แชร์เรื่องนี้ให้เพื่อนของคุณ",
+      "comment_line": "💬 ในมุมมองของคุณ ความจริงที่ยิ่งใหญ่ที่สุดของเรื่องนี้ถูกเปิดเผยในตอนไหน?",
+      "disclaimer_lines": [
+        "⚠️ เนื้อหานี้จัดทำด้วยการแปลหรือพากย์อย่างมืออาชีพเพื่อการเผยแพร่ที่ได้รับอนุญาต ห้ามคัดลอก อัปโหลดซ้ำ หรือนำไปใช้โดยไม่ได้รับอนุญาต",
+        "เรื่องนี้เป็นเรื่องสมมติและจัดทำขึ้นเพื่อความบันเทิงเท่านั้น"
+      ]
+    },
+    "越南语": {
+      "welcome_line": "💖 Chào mừng bạn đến với \"{channel_name}\".",
+      "welcome_body": "Tại đây, bạn có thể xem trọn bộ các phim ngắn Trung Quốc được lồng tiếng, với những xung đột cảm xúc, cú twist thân phận, kịch tính gia đình và những bước ngoặt mạnh mẽ trong các mối quan hệ.",
+      "subscribe_line": "🔔 Hãy đăng ký để xem những câu chuyện trọn bộ mới. 🙏 Chia sẻ câu chuyện này với bạn bè.",
+      "comment_line": "💬 Theo bạn, sự thật lớn nhất trong câu chuyện này được hé lộ vào khoảnh khắc nào?",
+      "disclaimer_lines": [
+        "⚠️ Nội dung này được biên dịch hoặc lồng tiếng chuyên nghiệp để phát hành theo ủy quyền. Nghiêm cấm sao chép, đăng tải lại hoặc sử dụng khi chưa được phép.",
+        "Câu chuyện này là hư cấu và chỉ nhằm mục đích giải trí."
+      ]
+    },
+    "法语": {
+      "welcome_line": "💖 Bienvenue sur \"{channel_name}\".",
+      "welcome_body": "Vous pouvez regarder ici des mini-séries chinoises complètes et doublées, avec des conflits émotionnels, des révélations d'identité, des drames familiaux et de puissants retournements de situation dans les relations.",
+      "subscribe_line": "🔔 Abonnez-vous pour découvrir de nouvelles histoires complètes. 🙏 Partagez cette histoire avec vos amis.",
+      "comment_line": "💬 Selon vous, à quel moment la plus grande vérité de cette histoire a-t-elle été révélée ?",
+      "disclaimer_lines": [
+        "⚠️ Ce contenu a été préparé avec une traduction ou un doublage professionnel pour une publication autorisée. Toute copie, remise en ligne ou réutilisation sans autorisation est interdite.",
+        "Cette histoire est fictive et destinée uniquement au divertissement."
+      ]
+    },
+    "乌尔都语": {
+      "welcome_line": "💖 \"{channel_name}\" میں خوش آمدید۔",
+      "welcome_body": "یہاں آپ مکمل اردو ڈب شدہ چینی مختصر ڈرامے دیکھ سکتے ہیں جن میں جذباتی کشمکش، شناخت کے انکشافات، خاندانی ڈراما اور رشتوں کے زبردست موڑ شامل ہیں۔",
+      "subscribe_line": "🔔 نئی مکمل کہانیاں دیکھنے کے لیے سبسکرائب کریں۔ 🙏 یہ کہانی دوستوں کے ساتھ شیئر کریں۔",
+      "comment_line": "💬 آپ کے خیال میں اس کہانی کی سب سے بڑی حقیقت کس لمحے سامنے آئی؟",
+      "disclaimer_lines": [
+        "⚠️ یہ مواد مجاز اشاعت کے لیے پیشہ ورانہ ترجمے یا ڈبنگ کے ساتھ تیار کیا گیا ہے۔ اجازت کے بغیر نقل کرنا، دوبارہ اپ لوڈ کرنا یا استعمال کرنا ممنوع ہے۔",
+        "یہ کہانی فرضی ہے اور صرف تفریح کے لیے پیش کی گئی ہے۔"
+      ]
+    },
+    "马来语": {
+      "welcome_line": "💖 Selamat datang ke \"{channel_name}\".",
+      "welcome_body": "Di sini anda boleh menonton drama pendek China lengkap yang dialih suara, dengan konflik emosi, pendedahan identiti, drama keluarga dan perubahan besar dalam hubungan.",
+      "subscribe_line": "🔔 Langgan untuk menonton cerita lengkap yang baharu. 🙏 Kongsi cerita ini dengan rakan anda.",
+      "comment_line": "💬 Pada pendapat anda, bilakah kebenaran terbesar dalam cerita ini akhirnya terbongkar?",
+      "disclaimer_lines": [
+        "⚠️ Kandungan ini disediakan dengan terjemahan atau alih suara profesional untuk penerbitan yang dibenarkan. Penyalinan, muat naik semula atau penggunaan tanpa kebenaran adalah dilarang.",
+        "Cerita ini adalah rekaan dan untuk tujuan hiburan sahaja."
+      ]
+    },
+    "德语": {
+      "welcome_line": "💖 Willkommen bei \"{channel_name}\".",
+      "welcome_body": "Hier kannst du vollständige, synchronisierte chinesische Kurzdramen mit emotionalen Konflikten, Enthüllungen verborgener Identitäten, Familiendramen und starken Wendungen in Beziehungen ansehen.",
+      "subscribe_line": "🔔 Abonniere den Kanal für neue vollständige Geschichten. 🙏 Teile diese Geschichte mit deinen Freunden.",
+      "comment_line": "💬 Wann kam deiner Meinung nach die größte Wahrheit dieser Geschichte ans Licht?",
+      "disclaimer_lines": [
+        "⚠️ Dieser Inhalt wurde mit professioneller Übersetzung oder Synchronisation für eine autorisierte Veröffentlichung erstellt. Das Kopieren, erneute Hochladen oder Verwenden ohne Genehmigung ist untersagt.",
+        "Diese Geschichte ist frei erfunden und dient ausschließlich der Unterhaltung."
+      ]
+    },
+    "意大利语": {
+      "welcome_line": "💖 Benvenuti su \"{channel_name}\".",
+      "welcome_body": "Qui potete guardare miniserie cinesi complete e doppiate, ricche di conflitti emotivi, rivelazioni d'identità, drammi familiari e forti colpi di scena nelle relazioni.",
+      "subscribe_line": "🔔 Iscrivetevi per scoprire nuove storie complete. 🙏 Condividete questa storia con i vostri amici.",
+      "comment_line": "💬 Secondo voi, in quale momento è emersa la verità più importante di questa storia?",
+      "disclaimer_lines": [
+        "⚠️ Questo contenuto è stato preparato con traduzione o doppiaggio professionale per una pubblicazione autorizzata. È vietato copiarlo, ricaricarlo o riutilizzarlo senza autorizzazione.",
+        "Questa storia è di fantasia ed è destinata esclusivamente all'intrattenimento."
+      ]
+    },
+    "韩语": {
+      "welcome_line": "💖 \"{channel_name}\"에 오신 것을 환영합니다.",
+      "welcome_body": "이곳에서는 감정적 갈등, 정체 폭로, 가족 드라마, 관계의 강렬한 반전이 담긴 중국 숏드라마 완결판을 더빙으로 시청하실 수 있습니다.",
+      "subscribe_line": "🔔 새로운 완결 이야기를 보려면 구독해 주세요. 🙏 이 이야기를 친구들과 공유해 주세요.",
+      "comment_line": "💬 여러분은 이 이야기의 가장 큰 진실이 어느 순간 밝혀졌다고 생각하시나요?",
+      "disclaimer_lines": [
+        "⚠️ 이 콘텐츠는 정식 게시를 위해 전문 번역 또는 더빙으로 제작되었습니다. 허가 없는 복사, 재업로드 또는 재사용을 금지합니다.",
+        "이 이야기는 허구이며 오락 목적으로만 제공됩니다."
+      ]
+    },
+    "日语": {
+      "welcome_line": "💖 \"{channel_name}\"へようこそ。",
+      "welcome_body": "ここでは、感情の衝突、正体の逆転、家族ドラマ、関係性の大きな展開を描いた中国ショートドラマの吹き替え全話版をご覧いただけます。",
+      "subscribe_line": "🔔 新しい全話ストーリーを見るためにチャンネル登録をお願いします。🙏 この物語を友だちにもシェアしてください。",
+      "comment_line": "💬 この物語で最大の真実が明らかになったのは、どの瞬間だと思いますか？",
+      "disclaimer_lines": [
+        "⚠️ このコンテンツは、許諾を受けた公開のために専門的な翻訳または吹き替えを施して制作されています。無断での複製、再アップロード、再利用は禁止されています。",
+        "この物語はフィクションであり、娯楽のみを目的としています。"
+      ]
+    },
+    "希腊语": {
+      "welcome_line": "💖 Καλώς ήρθατε στο \"{channel_name}\".",
+      "welcome_body": "Εδώ μπορείτε να παρακολουθήσετε ολοκληρωμένες μεταγλωττισμένες κινεζικές μίνι σειρές με συναισθηματικές συγκρούσεις, αποκαλύψεις ταυτότητας, οικογενειακό δράμα και δυνατές ανατροπές στις σχέσεις.",
+      "subscribe_line": "🔔 Εγγραφείτε για νέες ολοκληρωμένες ιστορίες. 🙏 Μοιραστείτε αυτή την ιστορία με τους φίλους σας.",
+      "comment_line": "💬 Κατά τη γνώμη σας, σε ποια στιγμή αποκαλύφθηκε η μεγαλύτερη αλήθεια αυτής της ιστορίας;",
+      "disclaimer_lines": [
+        "⚠️ Αυτό το περιεχόμενο έχει προετοιμαστεί με επαγγελματική μετάφραση ή μεταγλώττιση για εξουσιοδοτημένη δημοσίευση. Απαγορεύεται η αντιγραφή, η επαναφόρτωση ή η χρήση χωρίς άδεια.",
+        "Η ιστορία είναι φανταστική και προορίζεται αποκλειστικά για ψυχαγωγία."
+      ]
+    }
+  },
+  "description_contract": {
+    "fixed_structure_emojis": ["🔥", "👇", "🔔", "⚠️"],
+    "mandatory_hashtags": [
+      "#cdrama"
+    ],
+    "channel_hashtag_whitelist_required": true,
+    "hashtag_count": 12,
+    "additional_hashtag_count": 11,
+    "cdrama_position": 3,
+    "target_language_tag_required_within_positions": [
+      1,
+      2
+    ],
+    "target_language_tag_qualification": "pre_registered_channel_asset_only",
+    "table_external_hashtags_forbidden": true,
+    "hashtag_output_format": "final_youtube_plain_text_not_markdown_source",
+    "hashtag_markdown_escape_forbidden": true,
+    "hashtag_local_market_coverage": {
+      "eligibility_first": "select only tags relevant to the current drama before applying market or channel ranking",
+      "minimum_when_eligible": 1,
+      "preferred_when_highly_relevant": "two_or_more",
+      "local_market_definition": "target-language eligibility is declared only by the exact channel asset target_language_tags list; the model must not infer eligibility",
+      "fixed_quota": false,
+      "sacrifice_story_relevance_for_count": false,
+      "validator_gate": false,
+      "schema_change": false
+    },
+    "minor_sensitive_language_reframing": "when minors appear, keep adult wrongdoing and child-safe facts in separate sentences; preserve adult betrayal, reversal, punishment, and payoff while keeping the child a protected relationship, identity, reunion, or family anchor",
+    "all_registered_channel_playlists_required": true,
+    "primary_playlist_fields": ["playlist", "url"],
+    "forbid_markdown_links": true,
+    "forbid_internal_markers": true,
+    "forbid_chinese_characters_in_public_description": true,
+    "chinese_character_check_exempt_languages": ["日语"],
+    "forbid_studio_youtube_urls": true,
+    "public_playlist_url_template": "https://www.youtube.com/playlist?list={playlist_id}",
+    "english_template_labels_forbidden_outside_english": [
+      "Today's story includes:",
+      "Today’s story includes:",
+      "Story type:",
+      "For more stories like this, watch this playlist:",
+      "More great playlists:"
+    ]
+  }
+}

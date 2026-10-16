@@ -80,7 +80,7 @@ def _current_rows(rows, key):
     return list(latest.values())
 
 
-def write_titles(session: Session, package_id: str, payload: TitleBatchWrite) -> list[PackageTitle]:
+def write_titles(session: Session, package_id: str, payload: TitleBatchWrite, *, commit: bool = True) -> list[PackageTitle]:
     package = _package(session, package_id)
     node = _running_node(session, package, "title")
     variants = [item.variant_number for item in payload.titles]
@@ -124,11 +124,14 @@ def write_titles(session: Session, package_id: str, payload: TitleBatchWrite) ->
             setattr(creative, field, value)
     session.flush()
     _audit(session, "package.titles_written", "operation_package", package.id)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return rows
 
 
-def write_covers(session: Session, package_id: str, payload: CoverBatchWrite) -> list[PackageCoverVariant]:
+def write_covers(session: Session, package_id: str, payload: CoverBatchWrite, *, commit: bool = True) -> list[PackageCoverVariant]:
     package = _package(session, package_id)
     node = _running_node(session, package, "cover")
     title_ids = {item.title_id for item in payload.covers}
@@ -189,11 +192,14 @@ def write_covers(session: Session, package_id: str, payload: CoverBatchWrite) ->
     session.add_all(rows)
     session.flush()
     _audit(session, "package.covers_written", "operation_package", package.id)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return rows
 
 
-def write_description(session: Session, package_id: str, payload: DescriptionWrite) -> PackageDescription:
+def write_description(session: Session, package_id: str, payload: DescriptionWrite, *, commit: bool = True) -> PackageDescription:
     package = _package(session, package_id)
     node = _running_node(session, package, "description")
     playlist = require_tenant_entity(session, ChannelPlaylist, payload.playlist_id) if payload.playlist_id else None
@@ -248,7 +254,10 @@ def write_description(session: Session, package_id: str, payload: DescriptionWri
         assignment.status = "selected"
     session.flush()
     _audit(session, "package.description_written", "operation_package", package.id)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return row
 
 
@@ -283,7 +292,7 @@ def _community_payload(session: Session, rows: list[PackageCommunityPost]) -> li
     return result
 
 
-def write_community(session: Session, package_id: str, payload: CommunityBatchWrite) -> list[dict[str, object]]:
+def write_community(session: Session, package_id: str, payload: CommunityBatchWrite, *, commit: bool = True) -> list[dict[str, object]]:
     package = _package(session, package_id)
     node = _running_node(session, package, "community")
     work_order = require_tenant_entity(session, WorkOrder, package.work_order_id)
@@ -334,7 +343,10 @@ def write_community(session: Session, package_id: str, payload: CommunityBatchWr
             for position, asset_id in enumerate(item.asset_ids, start=1)
         )
     _audit(session, "package.community_written", "operation_package", package.id)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return _community_payload(session, rows)
 
 
@@ -955,7 +967,7 @@ def _render_markdown(snapshot: dict[str, object]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def merge_package(session: Session, package_id: str) -> dict[str, object]:
+def merge_package(session: Session, package_id: str, *, commit: bool = True) -> dict[str, object]:
     package = _package(session, package_id)
     node = _running_node(session, package, "merge")
     snapshot = _selected_snapshot(session, package)
@@ -991,5 +1003,5 @@ def merge_package(session: Session, package_id: str) -> dict[str, object]:
     _audit(session, "package.artifacts_merged", "operation_package", package.id)
     from zhiju.services.production import finish_node
 
-    detail = finish_node(session, package.work_order_id, "merge", success=True, allow_merge=True)
+    detail = finish_node(session, package.work_order_id, "merge", success=True, allow_merge=True, commit=commit)
     return {"detail": detail, "artifacts": artifacts}
