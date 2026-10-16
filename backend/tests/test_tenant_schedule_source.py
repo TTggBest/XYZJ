@@ -1,14 +1,24 @@
 import pytest
+from sqlalchemy import create_engine
 
-from test_drama_progress_filters import add_drama, progress_client
 from zhiju.config import Settings
-from zhiju.models import Channel
+from zhiju.database import TenantSession
+from zhiju.models import Base, Channel, Drama
 from zhiju.services import feishu_sync
 
 
+@pytest.fixture
+def schedule_session():
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    with TenantSession(engine, info={"tenant_id": "tenant-test"}) as session:
+        yield session
+    engine.dispose()
+
+
 @pytest.mark.parametrize("configured", (True, False))
-def test_schedule_sync_uses_current_tenant_source_and_only_directory_channels(progress_client, monkeypatch, configured):
-    _, session = progress_client
+def test_schedule_sync_uses_current_tenant_source_and_only_directory_channels(schedule_session, monkeypatch, configured):
+    session = schedule_session
     settings = Settings(database_url="sqlite://", feishu_channel_schedule_sources={
         "tenant-test" if configured else "other-tenant": {
             "wiki_token": "NDyCw5M9iiqTLlkcGGHcbWr1n2c", "directory_sheet_id": "43e1df",
@@ -20,7 +30,9 @@ def test_schedule_sync_uses_current_tenant_source_and_only_directory_channels(pr
     session.add(Channel(youtube_channel_id="UC-test", original_name="测试频道",
                         timezone="Asia/Shanghai", daily_publish_count=1, status="active"))
     session.commit()
-    add_drama(session, 1)
+    session.add(Drama(drama_number=1, drama_code="TEST-1", chinese_title="测试剧1",
+                      normalized_title="测试剧1", source_type="manual", status="active"))
+    session.commit()
     reads = []
 
     class Client:
