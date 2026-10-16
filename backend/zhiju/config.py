@@ -3,7 +3,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -27,6 +27,11 @@ def validate_cloud_database_url(value: str, *, label: str) -> None:
         raise ValueError(f"云端 {label} 只允许本机 TCP 连接") from exc
     if address not in {ip_address("127.0.0.1"), ip_address("::1")}:
         raise ValueError(f"云端 {label} 只允许本机 TCP 连接")
+
+
+class FeishuScheduleSource(BaseModel):
+    wiki_token: str = Field(min_length=1)
+    directory_sheet_id: str = Field(min_length=1)
 
 
 class Settings(BaseSettings):
@@ -64,6 +69,7 @@ class Settings(BaseSettings):
     feishu_drama_library_wiki_token: str = "KNxew7DIUiNr6ukbgYrciIqongh"
     feishu_channel_schedule_wiki_token: str = "ErwWwX8TVionsikFwQMcEpCenih"
     feishu_channel_schedule_directory_sheet_id: str = "2FrKIE"
+    feishu_channel_schedule_sources: dict[str, FeishuScheduleSource] = Field(default_factory=dict)
     zhihe_api_base_url: str = ""
     zhihe_api_token: str = ""
     youtube_oauth_client_id: str = ""
