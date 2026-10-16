@@ -11,7 +11,7 @@ def envelope(count=1):
             "drama": {"content_summary": "女主重生复仇", "plot_archive": "剧情档案", "plot_pattern": "复仇", "core_personas": "女主"},
             "channel": {"language": "阿拉伯语", "gender": "女频", "direction": "复仇",
                 "generation_spec": "## [GLOBAL]\n通用规则\n## [TITLE]\n标题规则\n## [COVER]\n封面专用秘密\n## [DESCRIPTION]\n描述\n## [HASHTAG]\n标签\n## [COMMUNITY]\n社群\n## [PLAYLIST]\n列表\n",
-                "description_fixed_assets": {"disclaimer": "声明"},
+                "description_fixed_assets": {"subscribe_line": "订阅本频道", "disclaimer_lines": ["版权声明"]},
                 "community_footer_cta": {"full_video_cta": "观看", "subscribe_cta": "订阅", "share_cta": "分享", "layout_style": "样式"},
                 "playlists": [{"name": "剧集", "url": "https://www.youtube.com/playlist?list=PL123"}],
                 "channel_hashtag_whitelist": {"selection_count": 12, "mandatory_hashtags": ["#cdrama"], "additional_candidates": [f"#tag{n}" for n in range(1, 12)], "target_language_tags": ["#tag1"]}}},

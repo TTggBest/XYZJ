@@ -62,6 +62,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ("POST", "/api/v3/work-orders/{work_order_id}/v14-runs"),
     ("GET", "/api/v3/work-orders/{work_order_id}/v14-runs/current"),
     ("POST", "/api/v3/v14/claims"),
+    ("POST", "/api/v3/v14/executor-session"),
     ("POST", "/api/v3/v14/runs/{run_id}/attempts"),
     ("PUT", "/api/v3/v14/runs/{run_id}/attempts/{attempt_id}"),
     ("POST", "/api/v3/v14/runs/{run_id}/heartbeat"),

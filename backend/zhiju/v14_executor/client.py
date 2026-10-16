@@ -46,6 +46,9 @@ class CloudClient:
         return self.request("POST", f"/v14/runs/{envelope['run_id']}/attempts",
             {"claim_id": envelope["claim_id"], "node_type": node})["attempt_id"]
 
+    def current(self, envelope):
+        return self.request("GET", f"/work-orders/{envelope['work_order_id']}/v14-runs/current")
+
     def submit(self, envelope, attempt, body):
         return self.request("PUT", f"/v14/runs/{envelope['run_id']}/attempts/{attempt}", body)
 

@@ -32,7 +32,20 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
     # A lost response cannot trigger regeneration, even after restarting this process.
     for cached in sorted(root.glob("*/pending.json")):
         entry = json.loads(cached.read_text())
-        send_cached(client, entry["envelope"], entry["attempt_id"], entry["body"], cached, retry_delay)
+        try:
+            send_cached(client, entry["envelope"], entry["attempt_id"], entry["body"], cached, retry_delay)
+        except CloudConflict:
+            current = client.current(entry["envelope"])
+            if not current or current["run_id"] != entry["envelope"]["run_id"]:
+                raise
+            stale = current.get("claim_id") != entry["envelope"]["claim_id"]
+            stopped = current["status"] in {"cancelled", "text_ready"}
+            if not stale and not stopped:
+                raise
+            # Retain generated evidence, but do not let a deliberately invalidated claim
+            # poison the outbound queue forever. Never swallow an unrelated 409.
+            cached.replace(cached.with_name(entry["attempt_id"] + ".abandoned.json"))
+            continue
         # The original cloud run must be resumed explicitly, never guessed from disk.
         return True
     envelope = client.claim()

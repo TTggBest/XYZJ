@@ -6,9 +6,9 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, PackageCommunityPost,
-                          PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask)
+                          PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language)
 from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
-from zhiju.services.production import NODE_SEQUENCE
+from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel
 from zhiju.services.identity import ConflictError
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
@@ -54,13 +54,22 @@ def create_run(session: Session, work_order_id: str) -> V14Run:
         raise ConflictError("请先配置 V14 执行主机、模型和规则")
     config = setting.payload
     task = require_tenant_entity(session, OperationTask, work.task_id)
-    channel = require_tenant_entity(session, Channel, work.channel_id)
+    channel = _require_productive_channel(session, work.channel_id)
     drama = require_tenant_entity(session, Drama, work.drama_id)
-    if channel.status != "active":
-        raise ConflictError("频道未启用，不能运行")
     channel_input = config["channel_inputs"].get(channel.id)
     if not channel_input or not config["rules"]:
         raise ConflictError("缺少当前频道 V14 材料或固定规则")
+    if channel.default_language:
+        from zhiju.services.schedule_youtube import LANGUAGES
+        aliases = {key.casefold(): value.casefold() for key, value in LANGUAGES.items()}
+        for language in session.scalars(select(Language)):
+            for name in (language.code, language.name_zh, language.native_name, language.name_zh.removesuffix("语")):
+                if name:
+                    aliases[name.casefold()] = language.code.casefold()
+        configured = str(channel_input.get("language") or "").strip().casefold()
+        expected = channel.default_language.strip().casefold()
+        if aliases.get(configured, configured) != aliases.get(expected, expected):
+            raise ConflictError("V14 材料语言与当前频道语言不一致，请修正后再启动")
     run = V14Run(tenant_id=session.info["tenant_id"], work_order_id=work.id, package_id=package.id,
         host_id=config["host_id"], account_profile=config["account_profile"], model=config["default_model"],
         rules_snapshot=deepcopy(config["rules"]), input_snapshot={
@@ -95,7 +104,7 @@ def run_read(session, run):
     if status == "running" and heartbeat and datetime.now(timezone.utc) - heartbeat > timedelta(seconds=90):
         status = "interrupted"
     return {"run_id": run.id, "work_order_id": run.work_order_id, "package_id": run.package_id,
-        "status": status, "model": run.model, "host_id": run.host_id, "error": run.error,
+        "status": status, "claim_id": run.claim_id, "model": run.model, "host_id": run.host_id, "error": run.error,
         "attempts": [{"attempt_id": a.id, "node_type": a.node_type, "outcome": a.outcome,
                       "sequence": a.sequence, "error": a.error} for a in rows]}
 

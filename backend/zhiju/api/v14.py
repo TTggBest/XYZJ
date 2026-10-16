@@ -10,9 +10,20 @@ from zhiju.models.v14 import V14Run
 from zhiju.schemas.v14 import (V14SettingsWrite, ClaimRequest, AttemptStart, AttemptSubmission, ClaimIdentity, ResumeRequest)
 from zhiju.services import v14_runs as service
 from zhiju.services.identity import ConflictError
+from zhiju.services.channel import NotFoundError
 from zhiju.tenant_repository import require_tenant_entity
+from zhiju.api.auth import require_same_origin
+from zhiju.services.v14_sessions import authorize_executor
 
 router = APIRouter(prefix="/v3", tags=["v14"])
+
+
+@router.post("/v14/executor-session", dependencies=[Depends(require_same_origin)])
+def executor_session(response: Response, s: Session = Depends(get_tenant_db), p=Depends(get_current_principal)):
+    operator(p)
+    result = call(authorize_executor, s, p)
+    response.headers["Cache-Control"] = "no-store"
+    return result
 
 
 def operator(principal: Principal = Depends(get_current_principal)):
@@ -32,6 +43,8 @@ def call(fn, *args, **kwargs):
         return fn(*args, **kwargs)
     except ConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/v14/settings")

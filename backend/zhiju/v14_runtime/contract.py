@@ -14,6 +14,39 @@ STAGES = {"search": "xy-find", "title": "xy-title", "cover": "xy-cover", "descri
 PLOT_FIELDS = {"内容概述": "content_summary", "剧情档案": "plot_archive", "剧情套路": "plot_pattern", "核心人设": "core_personas"}
 
 
+def validate_static_inputs(data: dict, rules: dict) -> None:
+    """Reject configuration faults before freezing a run or spending any model calls."""
+    channel = data["channel"]
+    for key in ("language", "gender", "direction", "generation_spec"):
+        if not isinstance(channel.get(key), str) or not channel[key].strip():
+            raise ValueError(f"缺少频道材料: {key}")
+    title_channel_context(channel["generation_spec"])
+    assets = channel.get("description_fixed_assets")
+    if not isinstance(assets, dict) or not str(assets.get("subscribe_line") or "").strip():
+        raise ValueError("description_fixed_assets 缺少 subscribe_line")
+    disclaimers = assets.get("disclaimer_lines", [])
+    if not isinstance(disclaimers, list) or any(not isinstance(s, str) or not s.strip() for s in disclaimers):
+        raise ValueError("description_fixed_assets.disclaimer_lines 不完整")
+    playlists = channel.get("playlists")
+    if not isinstance(playlists, list) or not playlists or any(not isinstance(row, dict) or not row.get("name") or not row.get("url") for row in playlists):
+        raise ValueError("缺少完整频道 playlists（name/url）")
+    if rules["machine_contracts"]["description"].get("description_contract", {}).get("channel_hashtag_whitelist_required"):
+        whitelist = channel.get("channel_hashtag_whitelist")
+        if not isinstance(whitelist, dict):
+            raise ValueError("缺少 channel_hashtag_whitelist")
+        candidates = whitelist.get("additional_candidates")
+        mandatory = whitelist.get("mandatory_hashtags")
+        target = whitelist.get("target_language_tags")
+        count = int(whitelist.get("selection_count") or 12)
+        if not isinstance(candidates, list) or not isinstance(mandatory, list) or not isinstance(target, list) or not target or not set(target).issubset(candidates) or len(candidates) < count - len(mandatory):
+            raise ValueError("channel_hashtag_whitelist 候选或目标语言标签不完整")
+    if data["community_count"]:
+        footer = channel.get("community_footer_cta")
+        for key in ("full_video_cta", "subscribe_cta", "share_cta", "layout_style"):
+            if not isinstance(footer, dict) or not str(footer.get(key) or "").strip():
+                raise ValueError(f"community_footer_cta 缺少 {key}")
+
+
 def bundled_rules():
     root = Path(__file__).parent / "resources"
     names = {"search": "find", "title": "title", "cover": "cover", "description": "place", "community": "post"}
@@ -41,9 +74,7 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     data = deepcopy(envelope["input_snapshot"])
     rules = deepcopy(envelope["rules_snapshot"])
     channel = data["channel"]
-    for field in ("language", "gender", "direction", "generation_spec", "description_fixed_assets", "community_footer_cta"):
-        if not channel.get(field):
-            raise ValueError(f"缺少频道材料: {field}")
+    validate_static_inputs(data, rules)
     for field in PLOT_FIELDS.values():
         if not data["drama"].get(field):
             raise ValueError(f"缺少剧情字段: {field}")
@@ -63,7 +94,7 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
         "channel_snapshot": channel["generation_spec"], "channel_theme_contract": channel_theme_contract(item, plot),
         "playlists": channel.get("playlists", []), "creative_slot": {"creative_slot_id": envelope["run_id"]},
         "description_fixed_assets": channel["description_fixed_assets"], "description_assets_frozen": True,
-        "community_footer_cta": channel["community_footer_cta"],
+        "community_footer_cta": channel.get("community_footer_cta", {}),
         "title_rule_contract": rules["machine_contracts"]["title"].get("title_contract", {}), "cover_rule_contract": rules["machine_contracts"]["cover"],
         "description_rule_contract": rules["machine_contracts"]["description"].get("description_contract", {}),
         "community_rule_contract": rules["machine_contracts"]["community"],
@@ -92,7 +123,7 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     if node_type == "search":
         prompt = build_market_packaging_prompt(item, plot, rules["prompts"]["search"], search.get("external_evidence"))
     else:
-        issues = stage_preflight_issues(STAGES[node_type], context, rules["machine_contracts"][node_type])
+        issues = [] if node_type == "community" and not item["community_count"] else stage_preflight_issues(STAGES[node_type], context, rules["machine_contracts"][node_type])
         if issues:
             raise ValueError("; ".join(issues))
         with using_rules(rules):

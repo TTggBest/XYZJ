@@ -1274,7 +1274,7 @@
     return `<div class="setting-value"><span>${esc(name)}</span><strong class="${mono ? "mono" : ""}">${esc(value ?? "—")}</strong></div>`;
   }
   function v14SettingsForm(config = {}) {
-    return `<header class="settings-content-head"><div><h2>V14 本机执行设置</h2><p>配置保存在当前公司云端；Codex 凭据只留在本机。现有飞书同步全部保留。</p></div></header><form id="v14SettingsForm" class="form-grid"><div class="field"><label>执行主机设备 ID</label><input class="input mono" name="host_id" value="${esc(config.host_id || auth.current()?.device?.id || "")}" required maxlength="36"></div><div class="field"><label>本机账号配置名</label><input class="input" name="account_profile" value="${esc(config.account_profile || "current")}" required></div><div class="field field-wide"><label>模型（账号必须有使用权限，不自动回退）</label><input class="input mono" name="default_model" value="${esc(config.default_model || "")}" required list="v14ModelOptions"><datalist id="v14ModelOptions">${(config.available_models || []).map(model => `<option value="${esc(model)}"></option>`).join("")}</datalist></div><div class="field"><label>固定 V14 规则 JSON${config.rules ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="rules_file" accept="application/json,.json" ${config.rules ? "" : "required"}></div><div class="field"><label>频道材料 JSON${config.channel_inputs ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="channels_file" accept="application/json,.json" ${config.channel_inputs ? "" : "required"}></div><p class="field-wide settings-muted">材料按频道内部 ID 对应。新设置仅影响新运行，已运行工单保留原快照。此处不填写登录密码或令牌。</p><div class="form-actions"><button class="button button-primary" type="submit">保存 V14 配置</button></div></form>`;
+    return `<header class="settings-content-head"><div><h2>V14 本机执行设置</h2><p>配置保存在当前公司云端；Codex 凭据只留在本机。现有飞书同步全部保留。</p></div></header><form id="v14SettingsForm" class="form-grid"><div class="field"><label>执行主机设备 ID</label><input class="input mono" name="host_id" value="${esc(config.host_id || auth.current()?.device?.id || "")}" required maxlength="36"></div><div class="field"><label>本机账号配置名</label><input class="input" name="account_profile" value="${esc(config.account_profile || "current")}" required></div><div class="field field-wide"><label>模型（账号必须有使用权限，不自动回退）</label><input class="input mono" name="default_model" value="${esc(config.default_model || "")}" required list="v14ModelOptions"><datalist id="v14ModelOptions">${(config.available_models || []).map(model => `<option value="${esc(model)}"></option>`).join("")}</datalist></div><div class="field"><label>固定 V14 规则 JSON${config.rules ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="rules_file" accept="application/json,.json" ${config.rules ? "" : "required"}></div><div class="field"><label>频道材料 JSON${config.channel_inputs ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="channels_file" accept="application/json,.json" ${config.channel_inputs ? "" : "required"}></div><p class="field-wide settings-muted">材料按频道内部 ID 对应。新设置仅影响新运行，已运行工单保留原快照。此处不填写登录密码或令牌。</p><div class="form-actions"><button class="button button-primary" type="submit">保存 V14 配置</button><button class="button button-secondary" type="button" data-action="v14-authorize">授权本机执行并下载配置</button></div></form>`;
   }
   async function showV14Settings() {
     state.v14Config = await api("/v14/settings");
@@ -1710,6 +1710,15 @@
         notify("V14 已排队，等待绑定的本机执行器领取"); await workDetail(id);
       }
       else if (action === "v14-settings") await showV14Settings();
+      else if (action === "v14-authorize") {
+        button.disabled = true;
+        const config = await api("/v14/executor-session", {method: "POST"});
+        const blob = new Blob([JSON.stringify({...config, base_url: window.location.origin}, null, 2)], {type: "application/json"});
+        const url = URL.createObjectURL(blob), link = document.createElement("a");
+        link.href = url; link.download = "zhiju-v14-executor.json"; link.click();
+        URL.revokeObjectURL(url); link.remove();
+        notify("本机执行配置已下载，请仅保存在本机私有目录；会话到期后重新授权");
+      }
       else if (action === "v14-cancel") {
         await api(`/v14/runs/${id}/cancel`, { method: "POST" });
         notify("已取消，既有结果保留"); await workDetail(button.dataset.workId);

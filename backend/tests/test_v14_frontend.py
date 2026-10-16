@@ -3,6 +3,7 @@ from test_auth_frontend_contract import run_node
 BOOT = r"""
 const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
 const requests=[];
+const downloads=[];
 const detail={work_order:{id:'work-a',status:'queued',production_date:'2026-10-17',target_publish_date:'2026-10-20'},package:{id:'package-a',status:'building'},nodes:[]};
 let run=null;
 let createError=false;
@@ -14,13 +15,14 @@ const page=start(process.argv[1],auth,async(path,opts={})=>{
  if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
  if(path==='/api/v3/work-orders/work-a')return new Response(JSON.stringify(detail));
  if(path.endsWith('/v14-runs/current'))return new Response(JSON.stringify(run));
+ if(path==='/api/v3/v14/executor-session')return new Response(JSON.stringify({session_token:'test-only',host_id:'device-a',tenant_id:'t1',account_profile:'current'}));
  if(path.endsWith('/v14-runs')&&opts.method==='POST'){
   if(createError)return new Response('{"detail":"请先配置 V14 执行主机、模型和规则"}',{status:409});
   run={run_id:'run-a',status:'queued',host_id:'device-a',model:'selected-model',attempts:[]};
   return new Response(JSON.stringify(run));
  }
  return new Response('[]');
-});
+},{Blob,URL:{createObjectURL:blob=>{downloads.push(blob);return 'blob:fixture';},revokeObjectURL(){}}});
 for(let i=0;i<4;i++)await page.tick();
 const toasts=[]; page.nodes.get('toastStack').appendChild=item=>toasts.push(item.textContent);
 async function click(action,id,extra={}){
@@ -64,4 +66,17 @@ def test_feishu_workorder_sync_entry_remains():
 await click('go-workorders');
 assert.match(page.nodes.get('viewRoot').innerHTML,/sync-feishu-workorders/);
 assert.match(page.nodes.get('viewRoot').innerHTML,/一键同步飞书/);
+""")
+
+
+def test_explicit_executor_authorization_downloads_config_without_switching_actor():
+    run_node(BOOT + r"""
+let filename='';
+page.document.createElement=()=>({click(){filename=this.download;},remove(){}});
+await click('v14-authorize');
+assert.equal(filename,'zhiju-v14-executor.json');
+const config=JSON.parse(await downloads[0].text());
+assert.equal(config.host_id,'device-a');
+assert.equal(config.session_token,'test-only');
+assert.equal(auth.current().user_id,'u1');
 """)

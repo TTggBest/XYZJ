@@ -1,0 +1,93 @@
+# V14 接入开发验收记录（2026-10-17）
+
+## 交付与边界
+
+V14 云端配置、不可变运行快照、阶段尝试与结果记录、本机 Codex 执行器和智矩操作入口已实现。沿用已有六生产节点及运营包视图；文本结束标记为 text_ready，运营包仍为 review_pending，不代表图片完成或业务交付。
+
+原飞书同步、回写、映射和操作入口全部保留。本次相对 0c19840 的飞书文件差异为空。新执行器不读写飞书，不延续旧本地批次。
+
+仅完成本地代码及自动化验证；未推送、合并、部署，未应用生产数据库迁移，未安装或启动常驻执行服务，未调用真实模型，未操作线上飞书或 YouTube。
+
+## 验证证据
+
+- V14 六组测试及数据库模型契约：64 passed，其中新增 V14 测试 47 项。
+- 原生产契约和租户隔离定向回归：177 passed。
+- 改动前基线 0c19840：45 failed, 1293 passed, 1 skipped。
+- 最终全量回归：45 failed, 1340 passed, 1 skipped，耗时 50.57 秒。
+- 对两个全量日志的 FAILED 名称排序后执行 diff，差异为空；未新增失败项。
+- 测试使用 ZHJ_DATABASE_URL=mysql+pymysql://test:test@127.0.0.1:1/zhiju_test，V14 测试使用隔离 SQLite 夹具，不连接生产数据库。
+- 既有失败包括需要真实 MySQL 的测试及既有源文件/迁移链断言；不能把所有失败归为数据库连接，也不能据此宣称全量通过。
+- 前端测试运行真实 app.js 的 DOM/按钮交互；浏览器连接未能创建页面，未完成真实浏览器视觉验收。
+- 未验证真实 Codex 模型权限、真实外部资料检索、MySQL 并发锁和端到端生产运行。
+
+## 一次独立审阅及修复
+
+独立审阅发现两项重要问题，已在一次修复轮中补充失败测试并修正：
+
+1. 取消或继续后的旧 pending.json 可能永久阻塞新领取：现在回读云端确认旧领取失效后保留为 abandoned.json，其他冲突仍报错，不丢弃结果或重新生成。
+2. 固定材料非空但缺关键字段，可能消耗模型调用后才失败：现在在运行快照建立前检查订阅文案、播放列表、标签及需要的社群 CTA。
+
+另补齐新模型字段中文注释、频道材料语言一致性和既有 configured 频道可生产规则，并复用原认证会话/设备绑定增加明确的本机执行授权入口。未另建账号体系，未为生产自动创建凭据或设备绑定。修复后未再次安排独立审阅。
+
+## 执行中的裁定
+
+- 全部旧飞书功能保持不动，只有新增 V14 通道不产生飞书副作用；依据用户明确要求。若判断错误，影响仅为新通道行为差异，不删除旧流程。
+- 测试强制使用不可达本地数据库地址，由夹具提供隔离数据库。若测试意外请求外部数据库，会失败而不是触碰生产。
+- 不提交事务的既有输出适配随首次真实接入输出的第三步骤实现，而非第二步骤提前广泛重写。若判断错误，只影响步骤之间的暂时可用性，不改变最终事务边界。
+- 云端浏览器会话无设备身份时，复用现有有效用户/公司/设备绑定签发短期普通会话，不弱化主机匹配。若部署环境没有设备绑定，入口明确拒绝，需先完成原账号中心绑定。
+- 基线已有 45 项失败不纳入本轮修复；若掩盖新回归会误导交付，因此逐项比较失败名称并保留以下清单，不据此进入合并或部署。
+
+## 后续真实验收
+
+参见 [执行器说明](v14-executor.md)。配置公司主机、明确模型与频道材料，部署并应用迁移后，选择一个未生产的测试工单，授权一次单条执行；确认云端阶段结果、恢复行为和现有运营包展示，再决定是否启用常驻执行。
+
+## 与基线一致的失败项
+
+```text
+FAILED backend/tests/test_channel_dna_propagation.py::test_schedule_freezes_active_dna_and_propagates_it_to_work_order_and_package
+FAILED backend/tests/test_channel_hub_contract.py::test_channel_hub_update_persists_editable_fields
+FAILED backend/tests/test_channel_initialization_draft.py::test_channel_initialization_draft_can_be_saved_without_rules_or_ai
+FAILED backend/tests/test_channel_initialization_draft.py::test_channel_initialization_draft_applies_existing_modules_once
+FAILED backend/tests/test_channel_initialization_draft.py::test_channel_initialization_draft_versions_analysis_and_operating_reference_once
+FAILED backend/tests/test_channel_initialization_draft.py::test_channel_initialization_draft_change_creates_new_formal_versions
+FAILED backend/tests/test_channel_initialization_readiness.py::test_channel_initialization_readiness_reports_missing_channel_inputs
+FAILED backend/tests/test_channel_manual_maintenance.py::test_keyword_can_be_deactivated_and_playlist_can_be_updated
+FAILED backend/tests/test_channel_schedule_eligibility.py::test_schedulable_dramas_only_returns_completed_nonexcluded_active_dramas
+FAILED backend/tests/test_channel_schedule_eligibility.py::test_create_schedule_rejects_drama_before_production_completion
+FAILED backend/tests/test_channel_schedule_full_view.py::test_channel_schedule_page_supports_search_sort_and_total
+FAILED backend/tests/test_channel_schedule_full_view.py::test_channel_schedule_page_route_restricts_page_sizes
+FAILED backend/tests/test_drama_library_contract.py::test_operation_metadata_sync_reads_selected_duration_without_inventing_episode_count
+FAILED backend/tests/test_drama_library_contract.py::test_drama_library_rows_include_episode_count_and_duration
+FAILED backend/tests/test_drama_library_contract.py::test_drama_library_detail_includes_episode_count_and_duration
+FAILED backend/tests/test_drama_library_contract.py::test_drama_feishu_deleted_status_excludes_production
+FAILED backend/tests/test_drama_library_contract.py::test_drama_library_can_sort_by_comprehensive_score
+FAILED backend/tests/test_drama_list_sort_pagination.py::test_drama_lists_default_to_fifty_items_in_recorded_order[/api/v3/dramas/library]
+FAILED backend/tests/test_drama_list_sort_pagination.py::test_drama_lists_default_to_fifty_items_in_recorded_order[/api/v3/drama-production]
+FAILED backend/tests/test_drama_list_sort_pagination.py::test_drama_lists_support_descending_order_and_selectable_page_sizes[/api/v3/dramas/library-100]
+FAILED backend/tests/test_drama_list_sort_pagination.py::test_drama_lists_support_descending_order_and_selectable_page_sizes[/api/v3/dramas/library-150]
+FAILED backend/tests/test_drama_list_sort_pagination.py::test_drama_lists_support_descending_order_and_selectable_page_sizes[/api/v3/drama-production-100]
+FAILED backend/tests/test_drama_list_sort_pagination.py::test_drama_lists_support_descending_order_and_selectable_page_sizes[/api/v3/drama-production-150]
+FAILED backend/tests/test_drama_production_progress_contract.py::test_manual_cloud_download_completion_starts_parameter_normalization
+FAILED backend/tests/test_drama_production_progress_contract.py::test_excluding_production_preserves_node_progress_and_can_be_restored
+FAILED backend/tests/test_drama_production_progress_contract.py::test_feishu_language_coverage_cannot_be_deleted_manually
+FAILED backend/tests/test_feishu_channel_schedule_contract.py::test_prepare_channel_schedule_rows_resolves_directory_channel_alias_drama_and_slot
+FAILED backend/tests/test_feishu_channel_schedule_contract.py::test_prepare_channel_schedule_rows_does_not_create_unknown_business_entities
+FAILED backend/tests/test_feishu_channel_schedule_contract.py::test_prepare_channel_schedule_rows_skips_directory_entries_without_sheet_link
+FAILED backend/tests/test_feishu_channel_schedule_contract.py::test_prepare_channel_schedule_rows_archives_historical_slot_without_changing_active_cadence
+FAILED backend/tests/test_feishu_channel_schedule_contract.py::test_channel_schedule_upsert_is_idempotent_and_does_not_create_tasks
+FAILED backend/tests/test_feishu_channel_schedule_contract.py::test_feishu_resync_preserves_manually_overridden_video_fields
+FAILED backend/tests/test_feishu_sync_contract.py::test_channel_sync_imports_chinese_meaning
+FAILED backend/tests/test_health.py::test_health_reaches_mysql - assert False...
+FAILED backend/tests/test_health.py::test_identity_lists_require_login_and_start_from_tenant_database
+FAILED backend/tests/test_health.py::test_root_serves_management_ui - assert ...
+FAILED backend/tests/test_schedule_video_edit.py::test_task_created_from_schedule_inherits_video_identity
+FAILED backend/tests/test_schedule_video_edit.py::test_schedule_video_edit_updates_existing_task_and_marks_manual_override
+FAILED backend/tests/test_schedule_video_edit.py::test_task_video_edit_updates_linked_schedule
+FAILED backend/tests/test_schedule_video_edit.py::test_daily_schedule_overview_exposes_editable_video_identity
+FAILED backend/tests/test_tenant_relational_constraints.py::test_relational_revisions_form_the_only_head_chain
+FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_uses_returned_nodes_and_preserves_zhiju_owned_fields
+FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_skips_stale_and_unmatched_items
+FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_repairs_cloud_download_when_completed_final_is_stale
+FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_completes_cloud_download_for_new_finished_result
+```
+

@@ -10,7 +10,7 @@ from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
 class V14Setting(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "v14_settings"
     __table_args__ = (UniqueConstraint("tenant_id"),)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, comment="配置或阶段结构化内容")
 
 
 class V14Run(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
@@ -22,17 +22,17 @@ class V14Run(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         ForeignKeyConstraint(["tenant_id", "package_id"], ["operation_packages.tenant_id", "operation_packages.id"]),
         CheckConstraint("status IN ('queued','running','interrupted','needs_user_review','cancelled','text_ready')", name="valid_status"),
     )
-    work_order_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    package_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    host_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    account_profile: Mapped[str] = mapped_column(String(120), nullable=False)
-    model: Mapped[str] = mapped_column(String(120), nullable=False)
-    status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
-    claim_id: Mapped[str | None] = mapped_column(String(36))
-    input_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
-    rules_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
-    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    error: Mapped[str | None] = mapped_column(Text)
+    work_order_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="智矩工单ID")
+    package_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="关联运营包ID")
+    host_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="绑定执行主机ID")
+    account_profile: Mapped[str] = mapped_column(String(120), nullable=False, comment="本机Codex账号配置引用")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, comment="本次固定模型")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued", comment="运行状态")
+    claim_id: Mapped[str | None] = mapped_column(String(36), comment="本次领取ID")
+    input_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, comment="冻结的业务输入")
+    rules_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, comment="冻结的V14规则")
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="执行器最近心跳")
+    error: Mapped[str | None] = mapped_column(Text, comment="错误与修复反馈")
 
 
 class V14Attempt(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
@@ -42,11 +42,11 @@ class V14Attempt(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
         UniqueConstraint("run_id", "node_type", "sequence"),
         CheckConstraint("outcome IN ('running','accepted','content_error','system_error','interrupted')", name="valid_outcome"),
     )
-    run_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    claim_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    node_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    outcome: Mapped[str] = mapped_column(String(20), nullable=False, default="running")
-    payload: Mapped[dict | None] = mapped_column(JSON)
-    raw_payload: Mapped[dict | None] = mapped_column(JSON)
-    error: Mapped[str | None] = mapped_column(Text)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="所属V14运行ID")
+    claim_id: Mapped[str] = mapped_column(String(36), nullable=False, comment="本次领取ID")
+    node_type: Mapped[str] = mapped_column(String(20), nullable=False, comment="生产阶段")
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, comment="该阶段调用序号")
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False, default="running", comment="本次尝试结果类型")
+    payload: Mapped[dict | None] = mapped_column(JSON, comment="配置或阶段结构化内容")
+    raw_payload: Mapped[dict | None] = mapped_column(JSON, comment="模型原始完整响应")
+    error: Mapped[str | None] = mapped_column(Text, comment="错误与修复反馈")

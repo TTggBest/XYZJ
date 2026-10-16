@@ -10,7 +10,9 @@
 
 频道材料按智矩频道内部 ID 提供对象，每个对象包含 language、gender、direction、generation_spec、description_fixed_assets、community_footer_cta，以及 playlists（name/url 列表）。community_footer_cta 保留 full_video_cta、subscribe_cta、share_cta、layout_style。说明阶段还需当前频道自己的 channel_hashtag_whitelist，包含 mandatory_hashtags、selection_count、additional_candidates、target_language_tags，不能借用其他频道。generation_spec 保持现有 V14 的 GLOBAL、TITLE、COVER、DESCRIPTION、HASHTAG、COMMUNITY、PLAYLIST 七个标题段。材料缺失会阻止模型调用。
 
-在本机工作区之外保存执行器配置 JSON（限制为本机用户可读，绝不提交到 Git）：
+先在账号中心将设备绑定到当前用户及公司。保存 V14 设置后，点击“授权本机执行并下载配置”，下载一个使用现有认证体系的设备绑定会话，最长不超过当前网页登录会话的剩余有效期。不会切换浏览器当前账号，也不会新增设备绑定。
+
+在本机工作区之外保存下载的配置 JSON（限制为本机用户可读，绝不提交到 Git）：
 
 ```json
 {
@@ -34,7 +36,7 @@ Codex 使用当前 CLI 账号；可用可选 codex_home 指定本机凭据位置
 
 Ctrl-C/停止 LaunchAgent 后，先确认 Codex 子进程已退出，再在智矩点击继续并明确确认旧进程已停止。失联超过 90 秒仅显示中断，不自动把工作交给另一主机。
 
-输出成功但回传断网时，结果保存在当前用户缓存的公司/主机/运行目录；下一次启动先重传该结果，不重新生成。不要手动删除 pending.json 来跳过回传。缓存不是业务权威，恢复仍从云端已接受结果开始。
+输出成功但回传断网时，结果保存在当前用户缓存的公司/主机/运行目录；下一次启动先重传该结果，不重新生成。若操作者已明确取消或继续、使旧领取失效，执行器回读云端确认后将旧缓存保留为 abandoned.json，不再阻塞新领取；其他回传冲突仍报错。不要手动删除 pending.json 来跳过回传。缓存不是业务权威，恢复仍从云端已接受结果开始。
 
 ## 完成边界
 

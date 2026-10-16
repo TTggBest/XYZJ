@@ -94,6 +94,49 @@ def test_incomplete_channel_configuration_blocks_start(store):
             create_run(s, "work-a")
 
 
+@pytest.mark.parametrize("field,value,want", [
+    ("description_fixed_assets", {"disclaimer": "声明"}, "subscribe_line"),
+    ("playlists", [], "playlist"),
+    ("channel_hashtag_whitelist", {}, "hashtag"),
+    ("community_footer_cta", {"text": "关注"}, "full_video_cta"),
+])
+def test_static_material_faults_block_snapshot_before_any_model(store, field, value, want):
+    from copy import deepcopy
+    from zhiju.services.v14_runs import create_run, save_settings
+    from zhiju.services.identity import ConflictError
+    from zhiju.models.v14 import V14Run, V14Attempt
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        config = deepcopy(configure(s).payload)
+        config["channel_inputs"]["channel-a"][field] = value
+        save_settings(s, config)
+        with pytest.raises(ConflictError, match=want):
+            create_run(s, "work-a")
+        assert s.scalar(sa.select(sa.func.count()).select_from(V14Run)) == 0
+        assert s.scalar(sa.select(sa.func.count()).select_from(V14Attempt)) == 0
+
+
+def test_channel_material_language_must_match_channel(store):
+    from copy import deepcopy
+    from zhiju.services.v14_runs import create_run, save_settings
+    from zhiju.services.identity import ConflictError
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        config = deepcopy(configure(s).payload)
+        s.get(Channel, "channel-a").default_language = "ar"
+        config["channel_inputs"]["channel-a"]["language"] = "英语"
+        save_settings(s, config)
+        with pytest.raises(ConflictError, match="语言"):
+            create_run(s, "work-a")
+
+
+def test_configured_channel_uses_existing_production_eligibility(store):
+    from zhiju.services.v14_runs import create_run
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        configure(s)
+        s.get(Channel, "channel-a").status = "configured"
+        s.commit()
+        assert create_run(s, "work-a").status == "queued"
+
+
 def test_migration_creates_only_v14_tables():
     import importlib.util
     from pathlib import Path

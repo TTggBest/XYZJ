@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 from test_v14_runs import store, configure
@@ -138,3 +139,65 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
             assert s.scalar(sa.select(sa.func.count()).select_from(model).where(model.package_id == "package-a")) == count
         assert len(package_outputs.get_package_outputs(s, "package-a")["titles"]) == 3
     assert len(list(tmp_path.rglob("package.md"))) == 1
+
+
+def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, store):
+    from zhiju.models import Device, DeviceUserBinding, AuthSession
+    from zhiju.security import digest_token
+    now = datetime.now(timezone.utc)
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.add(Device(id="device-a", device_key="local-a", name="Mac", hostname="mac.local", os_type="macos", device_role="worker", trust_level="production_device", status="active"))
+        s.add(DeviceUserBinding(id="binding-a", device_id="device-a", user_id="user-a", tenant_id="tenant-a", credential_digest="dummy", bound_by_user_id="user-a", bound_at=now, status="active"))
+        s.add(AuthSession(id="parent-a", user_id="user-a", tenant_id="tenant-a", token_digest="parent-digest", status="active", expires_at=now + timedelta(hours=1), last_seen_at=now, created_at=now))
+        s.commit()
+    client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, device_id=None, session_id="parent-a")
+    response = client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        row = s.scalar(sa.select(AuthSession).where(AuthSession.token_digest == digest_token(data["session_token"])))
+        assert row.device_id == "device-a" and row.binding_id == "binding-a"
+        assert row.tenant_id == "tenant-a" and row.user_id == "user-a"
+        assert row.expires_at <= s.get(AuthSession, "parent-a").expires_at
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_executor_authorization_never_creates_a_device_binding(client):
+    response = client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"})
+    assert response.status_code == 409
+
+
+def test_expired_cached_claim_does_not_block_resumed_run(client, tmp_path, monkeypatch):
+    import json
+    from copy import deepcopy
+    from test_v14_contract import envelope
+    from v14_fixtures import valid_market_payload
+    from zhiju.services import v14_runs
+    from zhiju.v14_executor.client import CloudConflict
+    from zhiju.v14_executor.runner import run_once
+    # The same server protocol handles cancel/resume and the cache rejection.
+    _, old = start(client)
+    attempt_id = begin(client, old)
+    cache = tmp_path / old["run_id"] / "pending.json"
+    cache.parent.mkdir()
+    cache.write_text(json.dumps({"envelope": old, "attempt_id": attempt_id,
+        "body": {"claim_id": old["claim_id"], "outcome": "accepted", "result": {"old_result": True}}}))
+    client.post(f"/api/v3/v14/runs/{old['run_id']}/cancel")
+    assert client.post(f"/api/v3/v14/runs/{old['run_id']}/resume", json={"stopped_confirmed": True}).status_code == 200
+    class Cloud:
+        def submit(self, e, a, body):
+            r = client.put(f"/api/v3/v14/runs/{e['run_id']}/attempts/{a}", json=body)
+            if r.status_code == 409: raise CloudConflict(r.json()["detail"])
+            assert r.status_code == 200, r.text
+            return r.json()
+        def current(self, e): return client.get("/api/v3/work-orders/work-a/v14-runs/current").json()
+        def claim(self):
+            r = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+            assert r.status_code == 200, r.text
+            assert r.json()["claim_id"] != old["claim_id"]
+            raise StopIteration("reached new claim")
+    with pytest.raises(StopIteration, match="reached new claim"):
+        run_once(Cloud(), None, cache_root=tmp_path)
+    assert not cache.exists()
+    archived = list(cache.parent.glob("*.abandoned.json"))
+    assert len(archived) == 1 and json.loads(archived[0].read_text())["body"]["result"] == {"old_result": True}
