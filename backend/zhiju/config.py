@@ -1,11 +1,16 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
+
+
+class FeishuScheduleSource(BaseModel):
+    wiki_token: str = Field(min_length=1)
+    directory_sheet_id: str = Field(min_length=1)
 
 
 class Settings(BaseSettings):
@@ -42,6 +47,7 @@ class Settings(BaseSettings):
     feishu_drama_sheet_title: str = "剧库表"
     feishu_channel_schedule_wiki_token: str = "ErwWwX8TVionsikFwQMcEpCenih"
     feishu_channel_schedule_directory_sheet_id: str = "2FrKIE"
+    feishu_channel_schedule_sources: dict[str, FeishuScheduleSource] = Field(default_factory=dict)
     zhihe_api_base_url: str = ""
     zhihe_api_token: str = ""
 

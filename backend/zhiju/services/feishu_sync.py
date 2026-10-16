@@ -1367,13 +1367,15 @@ def _client() -> FeishuClient:
 
 
 def sync_channel_schedules(session: Session) -> dict[str, object]:
-    _require_tenant_context(session)
+    tenant_id = _require_tenant_context(session)
     settings = get_settings()
+    source = settings.feishu_channel_schedule_sources.get(tenant_id)
+    wiki_token = source.wiki_token if source else settings.feishu_channel_schedule_wiki_token
+    directory_sheet_id = source.directory_sheet_id if source else settings.feishu_channel_schedule_directory_sheet_id
     client = _client()
     token, spreadsheet_token, sheets = client.workbook_sheets(
-        settings.feishu_channel_schedule_wiki_token
+        wiki_token
     )
-    directory_sheet_id = settings.feishu_channel_schedule_directory_sheet_id
     if not any(str(sheet.get("sheet_id") or "") == directory_sheet_id for sheet in sheets):
         raise FeishuSyncError("飞书频道排期工作簿缺少频道目录")
     directory_rows = client.rows_from_workbook(
@@ -1382,10 +1384,18 @@ def sync_channel_schedules(session: Session) -> dict[str, object]:
         directory_sheet_id,
         "D",
     )
+    linked_sheet_ids = {
+        sheet_id for row in directory_rows
+        if (sheet_id := feishu_sheet_id_from_url(row.get("链接", "")))
+    }
+    missing_sheet_ids = linked_sheet_ids - {str(sheet.get("sheet_id") or "") for sheet in sheets}
+    if missing_sheet_ids:
+        raise FeishuSyncError(f"频道目录引用的排期工作表不存在：{', '.join(sorted(missing_sheet_ids))}")
     schedule_sheets = [
         (str(sheet.get("sheet_id") or ""), str(sheet.get("title") or "").strip())
         for sheet in sheets
-        if str(sheet.get("sheet_id") or "") != directory_sheet_id
+        if str(sheet.get("sheet_id") or "") in linked_sheet_ids
+        and str(sheet.get("sheet_id") or "") != directory_sheet_id
     ]
     if any(not sheet_id or not title for sheet_id, title in schedule_sheets):
         raise FeishuSyncError("飞书频道排期工作簿存在无标识或无标题的工作表")
