@@ -10,7 +10,7 @@
 
 频道材料按智矩频道内部 ID 提供对象，每个对象包含 language、gender、direction、generation_spec、description_fixed_assets、community_footer_cta，以及 playlists（name/url 列表）。community_footer_cta 保留 full_video_cta、subscribe_cta、share_cta、layout_style。说明阶段还需当前频道自己的 channel_hashtag_whitelist，包含 mandatory_hashtags、selection_count、additional_candidates、target_language_tags，不能借用其他频道。generation_spec 保持现有 V14 的 GLOBAL、TITLE、COVER、DESCRIPTION、HASHTAG、COMMUNITY、PLAYLIST 七个标题段。材料缺失会阻止模型调用。
 
-先在账号中心将设备绑定到当前用户及公司。保存 V14 设置后，点击“授权本机执行并下载配置”，下载一个使用现有认证体系的设备绑定会话，最长不超过当前网页登录会话的剩余有效期。不会切换浏览器当前账号，也不会新增设备绑定。
+先登记并启用执行主机，在当前公司 V14 设置中选择其设备 ID。保存设置后，由已登录的公司管理员点击“授权本机执行并下载配置”，下载一个使用现有认证体系、固定当前用户/公司/执行主机的短期会话，最长不超过当前网页登录会话的剩余有效期。AI 执行授权不依赖账号中心的“客户登录设备绑定”，不会创建或修改该绑定，也不会切换浏览器当前账号。
 
 在本机工作区之外保存下载的配置 JSON（限制为本机用户可读，绝不提交到 Git）：
 

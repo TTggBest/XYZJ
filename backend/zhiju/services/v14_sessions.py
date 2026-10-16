@@ -2,10 +2,8 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
-
 from zhiju.auth_context import _utc
-from zhiju.models import AuthSession, AuthEvent, Device, DeviceUserBinding
+from zhiju.models import AuthSession, AuthEvent, Device
 from zhiju.security import new_opaque_token, digest_token
 from zhiju.services.identity import ConflictError
 from zhiju.services.v14_runs import get_settings
@@ -18,20 +16,15 @@ def authorize_executor(session, principal):
     host = setting.payload["host_id"]
     now = datetime.now(timezone.utc)
     device = session.get(Device, host)
-    binding = session.scalar(select(DeviceUserBinding).where(
-        DeviceUserBinding.device_id == host, DeviceUserBinding.user_id == principal.user_id,
-        DeviceUserBinding.tenant_id == principal.tenant_id, DeviceUserBinding.status == "active"))
-    if not device or device.status != "active" or not binding or (binding.expires_at and _utc(binding.expires_at) <= now):
-        raise ConflictError("请先在账号中心将该设备有效绑定到当前用户和公司")
+    if not device or device.status != "active":
+        raise ConflictError("请先登记并启用 V14 配置中的执行主机")
     parent = session.get(AuthSession, principal.session_id) if principal.session_id else None
     if not parent or parent.user_id != principal.user_id or parent.tenant_id != principal.tenant_id or parent.status != "active" or _utc(parent.expires_at) <= now:
         raise ConflictError("当前登录会话已失效，请重新登录")
     expires = min(_utc(parent.expires_at), now + timedelta(hours=8))
-    if binding.expires_at:
-        expires = min(expires, _utc(binding.expires_at))
     token = new_opaque_token()
     row = AuthSession(user_id=principal.user_id, tenant_id=principal.tenant_id, device_id=host,
-        binding_id=binding.id, token_digest=digest_token(token), status="active",
+        token_digest=digest_token(token), status="active",
         expires_at=expires, last_seen_at=now, created_at=now)
     session.add(row)
     session.flush()

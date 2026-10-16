@@ -156,7 +156,7 @@ def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, s
     data = response.json()
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
         row = s.scalar(sa.select(AuthSession).where(AuthSession.token_digest == digest_token(data["session_token"])))
-        assert row.device_id == "device-a" and row.binding_id == "binding-a"
+        assert row.device_id == "device-a" and row.binding_id is None
         assert row.tenant_id == "tenant-a" and row.user_id == "user-a"
         assert row.expires_at <= s.get(AuthSession, "parent-a").expires_at
     assert response.headers["cache-control"] == "no-store"
@@ -165,6 +165,36 @@ def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, s
 def test_executor_authorization_never_creates_a_device_binding(client):
     response = client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"})
     assert response.status_code == 409
+
+
+def test_executor_authorization_still_requires_company_admin(client):
+    client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, membership_role="viewer")
+    assert client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"}).status_code == 403
+
+
+def test_cloud_executor_authorization_does_not_require_customer_login_binding(client, store):
+    from zhiju.models import Device, DeviceUserBinding, AuthSession
+    from zhiju.security import digest_token
+    now = datetime.now(timezone.utc)
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.add(Device(id="device-a", device_key="local-a", name="Mac", hostname="mac.local",
+            os_type="macos", device_role="worker", trust_level="normal", status="active"))
+        s.add(AuthSession(id="parent-a", user_id="user-a", tenant_id="tenant-a", token_digest="parent-digest",
+            status="active", expires_at=now + timedelta(hours=1), last_seen_at=now, created_at=now))
+        s.commit()
+    client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, device_id=None, session_id="parent-a")
+    response = client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"})
+    assert response.status_code == 200, response.text
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        row = s.scalar(sa.select(AuthSession).where(AuthSession.token_digest == digest_token(response.json()["session_token"])))
+        assert row.device_id == "device-a" and row.binding_id is None
+        assert row.tenant_id == "tenant-a" and row.user_id == "user-a"
+        assert row.expires_at <= s.get(AuthSession, "parent-a").expires_at
+        assert s.scalar(sa.select(sa.func.count()).select_from(DeviceUserBinding)) == 0
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.get(Device, "device-a").status = "inactive"
+        s.commit()
+    assert client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"}).status_code == 409
 
 
 def test_expired_cached_claim_does_not_block_resumed_run(client, tmp_path, monkeypatch):
