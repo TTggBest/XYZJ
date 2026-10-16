@@ -100,7 +100,7 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
             market = result.get("market_payload", {})
             issues = c._schema_issues(market, stage.schema)
             if issues:
-                return issues
+                raise ValueError("模型结构错误: " + "; ".join(issues))
             return validate_market_packaging_evidence(market, {
                 "drama_id": stage.item["video_id"] or stage.item["slot"], "drama_title": stage.item["drama_name"],
                 "channel_name": stage.item["channel"], "channel_language": stage.item["language"], "channel_type": stage.item["direction"]})
@@ -108,7 +108,7 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
             return []
         schema_issues = c.validate_model_output_schema(STAGES[stage.node_type], result, stage.item, stage.context)
         if schema_issues:
-            return schema_issues
+            raise ValueError("模型结构错误: " + "; ".join(schema_issues))
         c.normalize_identity(result, stage.item)
         if stage.node_type == "title":
             c.normalize_title_recommendation_order(result, stage.context)
