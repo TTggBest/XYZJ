@@ -15,7 +15,7 @@
     private: "私享", public: "公开", unlisted: "不公开", upload: "已上传", processed: "已处理", disabled: "停用", deprecated: "已弃用",
     missing: "缺失", partial: "部分就绪", expired: "已过期", blocked: "禁用", calibrated: "已校准",
     processing: "处理中", classified: "分类完成", partially_classified: "部分匹配", logo_ready: "Logo 已生成", partially_generated: "部分生成",
-    not_started: "未开始", not_producing: "不制作"
+    not_started: "未开始", not_producing: "不制作", queued: "已排队", interrupted: "执行中断", needs_user_review: "需要人工审核", text_ready: "文本已完成"
   };
   const DRAMA_PRODUCTION_NODES = [
     ["cloud_download_status", "网盘下载"],
@@ -34,7 +34,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], v14Config: null, settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
   const emptyPageState = structuredClone(state);
@@ -63,8 +63,8 @@
   function shortId(value) { return value ? `${String(value).slice(0, 8)}…` : "—"; }
   function label(value) { return STATUS_LABELS[value] || value || "—"; }
   function statusClass(value) {
-    if (["active", "authorized", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed", "calibrated", "classified", "logo_ready"].includes(value)) return "is-green";
-    if (["failed", "cancelled", "blocked", "changes_requested", "expired", "not_producing"].includes(value)) return "is-red";
+    if (["active", "authorized", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed", "calibrated", "classified", "logo_ready", "text_ready"].includes(value)) return "is-green";
+    if (["failed", "cancelled", "blocked", "changes_requested", "expired", "not_producing", "interrupted", "needs_user_review"].includes(value)) return "is-red";
     if (["running", "in_progress", "dispatched", "review_pending", "retrying"].includes(value)) return "is-blue";
     if (["pending", "pending_dispatch", "reserved", "draft", "partial", "partially_classified", "partially_generated", "waiting"].includes(value)) return "is-amber";
     return "";
@@ -700,10 +700,19 @@
     const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks);
     root.innerHTML = `<div class="page-stack">${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
+  function canRunV14() {
+    const actor = auth.current();
+    return actor?.platform_role === "super_admin" || ["owner", "admin"].includes(actor?.membership_role);
+  }
   async function workDetail(id) {
     const detail = await api(`/work-orders/${id}`);
     const w = detail.work_order, p = detail.package;
-    openDrawer("工单详情", `<div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${tag(p.status)}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div><div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`);
+    const run = canRunV14() ? await api(`/work-orders/${id}/v14-runs/current`) : null;
+    const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">运行 V14</button>`
+      : ["queued", "running"].includes(run.status) ? `<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
+      : ["interrupted", "cancelled"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">继续运行</button>` : "";
+    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>V14 本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">V14 设置</button></div></div>` : "";
+    openDrawer("工单详情", `<div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${tag(p.status)}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`);
   }
 
   function copyKey(packageId, field, value) {
@@ -1256,13 +1265,20 @@
     return items.length ? table(type === "status" ? ["时间", "实体", "实体 ID", "新状态", "原因", "执行者"] : ["时间", "动作", "实体", "实体 ID", "变更摘要", "执行者"], rows, 900) : empty("暂无日志", "数据库中尚无对应记录。");
   }
 
-  const SETTINGS_TABS = [["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["channelInitialization", "初始化规则", "wand-sparkles"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+  const SETTINGS_TABS = [["v14", "V14 执行", "bot"], ["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["channelInitialization", "初始化规则", "wand-sparkles"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
     return `<div class="settings-layout"><aside class="settings-tabs">${tabs}</aside><div class="settings-content">${body}</div></div>`;
   }
   function settingValue(name, value, mono = false) {
     return `<div class="setting-value"><span>${esc(name)}</span><strong class="${mono ? "mono" : ""}">${esc(value ?? "—")}</strong></div>`;
+  }
+  function v14SettingsForm(config = {}) {
+    return `<header class="settings-content-head"><div><h2>V14 本机执行设置</h2><p>配置保存在当前公司云端；Codex 凭据只留在本机。现有飞书同步全部保留。</p></div></header><form id="v14SettingsForm" class="form-grid"><div class="field"><label>执行主机设备 ID</label><input class="input mono" name="host_id" value="${esc(config.host_id || auth.current()?.device?.id || "")}" required maxlength="36"></div><div class="field"><label>本机账号配置名</label><input class="input" name="account_profile" value="${esc(config.account_profile || "current")}" required></div><div class="field field-wide"><label>模型（账号必须有使用权限，不自动回退）</label><input class="input mono" name="default_model" value="${esc(config.default_model || "")}" required list="v14ModelOptions"><datalist id="v14ModelOptions">${(config.available_models || []).map(model => `<option value="${esc(model)}"></option>`).join("")}</datalist></div><div class="field"><label>固定 V14 规则 JSON${config.rules ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="rules_file" accept="application/json,.json" ${config.rules ? "" : "required"}></div><div class="field"><label>频道材料 JSON${config.channel_inputs ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="channels_file" accept="application/json,.json" ${config.channel_inputs ? "" : "required"}></div><p class="field-wide settings-muted">材料按频道内部 ID 对应。新设置仅影响新运行，已运行工单保留原快照。此处不填写登录密码或令牌。</p><div class="form-actions"><button class="button button-primary" type="submit">保存 V14 配置</button></div></form>`;
+  }
+  async function showV14Settings() {
+    state.v14Config = await api("/v14/settings");
+    openModal("V14 设置", v14SettingsForm(state.v14Config || {}));
   }
   function deviceForm(device = {}) {
     const value = (key, fallback = "") => esc(device[key] ?? fallback);
@@ -1283,7 +1299,10 @@
       return;
     }
     let body;
-    if (state.settingsTab === "cadence") {
+    if (state.settingsTab === "v14") {
+      state.v14Config = await api("/v14/settings");
+      body = v14SettingsForm(state.v14Config || {});
+    } else if (state.settingsTab === "cadence") {
       const templates = await api("/cadence-templates");
       state.cadenceTemplates = templates;
       body = `<header class="settings-content-head"><div><h2>档期配置</h2><p>统一维护1更至5更的当地视频时间、主辅档及社群发布间隔；单更仅使用主档。</p></div></header><div class="cadence-template-list">${templates.map(cadenceTemplateForm).join("")}</div>`;
@@ -1685,6 +1704,19 @@
         renderPackageListResults();
       }
       else if (action === "work-detail") await workDetail(id);
+      else if (action === "v14-start") {
+        button.disabled = true;
+        await api(`/work-orders/${id}/v14-runs`, { method: "POST" });
+        notify("V14 已排队，等待绑定的本机执行器领取"); await workDetail(id);
+      }
+      else if (action === "v14-settings") await showV14Settings();
+      else if (action === "v14-cancel") {
+        await api(`/v14/runs/${id}/cancel`, { method: "POST" });
+        notify("已取消，既有结果保留"); await workDetail(button.dataset.workId);
+      }
+      else if (action === "v14-resume") {
+        openModal("继续 V14", `<form class="form-grid" id="v14ResumeForm"><input type="hidden" name="run_id" value="${esc(id)}"><input type="hidden" name="work_id" value="${esc(button.dataset.workId)}"><p class="field-wide">继续会保留已完成阶段，不重置内容重试次数。</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认继续</button></div></form>`);
+      }
       else if (action === "package-detail" || action === "package-page-detail") {
         state.packageDetailOrigin = null;
         await showPackagePageDetail(id);
@@ -2002,6 +2034,27 @@
       return;
     }
     try {
+      if (form.id === "v14SettingsForm") {
+        const previous = state.v14Config || {};
+        async function readJsonFile(name, fallback) {
+          const file = form.elements[name].files?.[0];
+          if (!file) { if (!fallback) throw new Error("请上传规则和频道材料 JSON"); return fallback; }
+          if (file.size > 5 * 1024 * 1024) throw new Error("配置 JSON 不能超过 5 MB");
+          return JSON.parse(await file.text());
+        }
+        const rules = await readJsonFile("rules_file", previous.rules);
+        const channelInputs = await readJsonFile("channels_file", previous.channel_inputs);
+        const payload = {host_id: data.host_id.trim(), account_profile: data.account_profile.trim(), default_model: data.default_model.trim(), available_models: [...new Set([...(previous.available_models || []), data.default_model.trim()])], rules, channel_inputs: channelInputs};
+        await api("/v14/settings", {method: "PUT", body: JSON.stringify(payload), expectedRevision});
+        state.v14Config = payload; notify("V14 配置已保存；旧运行快照不变"); closeModal();
+        if (state.view === "settings") await loadView("settings");
+        return;
+      }
+      if (form.id === "v14ResumeForm") {
+        if (!form.elements.stopped_confirmed.checked) throw new Error("请先确认旧进程已停止");
+        await api(`/v14/runs/${data.run_id}/resume`, {method: "POST", body: JSON.stringify({stopped_confirmed: true}), expectedRevision});
+        closeModal(); await workDetail(data.work_id); return;
+      }
       if (form.id === "youtubeChannelImportForm") {
         const importSessionId = form.dataset.importSessionId;
         const selections = [...form.querySelectorAll("[data-import-row]")]

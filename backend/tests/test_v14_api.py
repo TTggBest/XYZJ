@@ -98,3 +98,43 @@ def test_three_content_errors_require_review(client):
         assert response.status_code == 200, response.text
     assert response.json()["status"] == "needs_user_review"
     assert client.post(f"/api/v3/v14/runs/{claim['run_id']}/resume", json={"stopped_confirmed": True}).status_code == 409
+
+
+def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_path):
+    """Exercise real orchestration/projection; creative acceptance has separate contract tests."""
+    from copy import deepcopy
+    from types import SimpleNamespace
+    from test_v14_contract import envelope
+    from zhiju.services import v14_runs, v14_outputs, package_outputs
+    from zhiju.models import OperationPackage, PackageTitle, PackageCoverVariant, PackageDescription, PackageCommunityPost
+    import sqlalchemy as sa
+    sample = envelope()
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        config = deepcopy(v14_runs.get_settings(s).payload)
+        config["rules"] = sample["rules_snapshot"]
+        config["channel_inputs"]["channel-a"] = sample["input_snapshot"]["channel"]
+        v14_runs.save_settings(s, config)
+    monkeypatch.setattr(v14_outputs, "validate_result", lambda *args: [])
+    monkeypatch.setattr(package_outputs, "get_settings", lambda: SimpleNamespace(artifact_root=tmp_path))
+    _, claim = start(client)
+    outputs = {
+        "search": {"market_payload": {"final_angles": [{"angle_id": n} for n in ("A", "B", "C")]}, "plot_payload": {}},
+        "title": {"results": [{"packaging_brief": {"creative_slot_id": "slot"}, "directions": [{"index": n, "title": f"标题{n}", "translation": f"翻译{n}", "recommendation_score": 100 - n} for n in (1, 2, 3)]}]},
+        "cover": {"results": [{"titles": [{"title_index": n, "prompt_4_5": f"portrait {n}", "prompt_16_9": f"wide {n}"} for n in (1, 2, 3)]}]},
+        "description": {"results": [{"description": "说明", "translation": "翻译", "url": ""}]},
+        "community": {"results": [{"plan_index": 1, "copy": "社群", "copy_translation": "翻译", "image_prompt_1x1": "prompt"}]},
+        "merge": {"text_complete": True},
+    }
+    for node, output in outputs.items():
+        response = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts", json={"node_type": node, "claim_id": claim["claim_id"]})
+        assert response.status_code == 200, response.text
+        url = f"/api/v3/v14/runs/{claim['run_id']}/attempts/{response.json()['attempt_id']}"
+        response = client.put(url, json={"claim_id": claim["claim_id"], "outcome": "accepted", "result": output})
+        assert response.status_code == 200, response.text
+    assert response.json()["status"] == "text_ready"
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        assert s.get(OperationPackage, "package-a").status == "review_pending"
+        for model, count in ((PackageTitle, 3), (PackageCoverVariant, 6), (PackageDescription, 1), (PackageCommunityPost, 1)):
+            assert s.scalar(sa.select(sa.func.count()).select_from(model).where(model.package_id == "package-a")) == count
+        assert len(package_outputs.get_package_outputs(s, "package-a")["titles"]) == 3
+    assert len(list(tmp_path.rglob("package.md"))) == 1

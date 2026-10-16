@@ -8,7 +8,7 @@
 
 固定规则可在项目目录运行 `PYTHONPATH=backend .venv/bin/python -m zhiju.v14_executor --export-rules` 导出到标准输出；内容来自项目内固定 V14 资源，不改原 Skills。将输出保存为 JSON 后在设置页面上传。
 
-频道材料按智矩频道内部 ID 提供对象，每个对象包含 language、gender、direction、generation_spec、description_fixed_assets、community_footer_cta，以及 playlists（name/url 列表）。generation_spec 保持现有 V14 的 GLOBAL、TITLE、COVER、DESCRIPTION、HASHTAG、COMMUNITY、PLAYLIST 七个标题段。材料缺失会阻止模型调用。
+频道材料按智矩频道内部 ID 提供对象，每个对象包含 language、gender、direction、generation_spec、description_fixed_assets、community_footer_cta，以及 playlists（name/url 列表）。community_footer_cta 保留 full_video_cta、subscribe_cta、share_cta、layout_style。说明阶段还需当前频道自己的 channel_hashtag_whitelist，包含 mandatory_hashtags、selection_count、additional_candidates、target_language_tags，不能借用其他频道。generation_spec 保持现有 V14 的 GLOBAL、TITLE、COVER、DESCRIPTION、HASHTAG、COMMUNITY、PLAYLIST 七个标题段。材料缺失会阻止模型调用。
 
 在本机工作区之外保存执行器配置 JSON（限制为本机用户可读，绝不提交到 Git）：
 

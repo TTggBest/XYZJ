@@ -69,9 +69,10 @@ def test_network_retry_reuses_result(tmp_path):
         def generate(self, stage, model):
             self.calls += 1
             data = valid_market_payload()
-            data.update(drama_id="2026-10-20", drama_title="剧目", selection_context={"channel_name": "频道", "channel_language": "阿拉伯语", "channel_type": "复仇"})
+            data.update(drama_id="pending_r1", drama_title="剧目", selection_context={"channel_name": "频道", "channel_language": "阿拉伯语", "channel_type": "复仇"})
             return data
     e = {**envelope(), "tenant_id": "t1", "claim_id": "claim", "account_profile": "current"}
+    e["accepted_results"] = {}
     cloud, model = Cloud(e), Model()
     run_once(cloud, model, cache_root=tmp_path, evidence_provider=lambda item: {"status": "completed", "videos": []}, retry_delay=0)
     assert model.calls == 1
@@ -107,6 +108,7 @@ def test_schema_error_does_not_consume_creative_retry(tmp_path):
         account_profile = "current"
         def generate(self, stage, model): return {}
     e = {**envelope(), "tenant_id": "t1", "claim_id": "claim", "account_profile": "current"}
+    e["accepted_results"] = {}
     cloud = Cloud(e)
     cloud.submissions = 1
     run_once(cloud, Model(), cache_root=tmp_path, evidence_provider=lambda item: {"status": "completed"}, retry_delay=0)

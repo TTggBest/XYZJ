@@ -69,8 +69,14 @@ def create_run(session: Session, work_order_id: str) -> V14Run:
             "drama": {key: getattr(drama, key) for key in ("content_summary", "plot_archive", "plot_pattern", "core_personas")},
             "channel": deepcopy(channel_input), "community_count": work.community_count,
             "target_publish_date": str(work.target_publish_date),
-            "video_id": task.source_video_id, "video_url": task.source_video_url,
+            "video_id": task.source_video_id or f"pending_{work.id}", "video_url": task.source_video_url,
         })
+    from zhiju.v14_runtime.contract import build_stage_input
+    try:
+        build_stage_input({"run_id": work.id, "input_snapshot": run.input_snapshot,
+            "rules_snapshot": run.rules_snapshot}, "search")
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ConflictError(f"V14 配置不完整: {exc}") from exc
     session.add(run)
     session.commit()
     return run

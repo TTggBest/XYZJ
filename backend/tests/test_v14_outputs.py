@@ -50,7 +50,7 @@ def test_search_acceptance_preserves_raw_json_and_advances_once(store):
         claim = runs.claim_run(s, "device-a")
         stage = build_stage_input(claim, "search")
         market = valid_market_payload()
-        market.update(drama_id="2026-10-20", drama_title="剧目", selection_context={"channel_name": "频道", "channel_language": "阿拉伯语", "channel_type": "复仇"})
+        market.update(drama_id="pending_work-a", drama_title="剧目", selection_context={"channel_name": "频道", "channel_language": "阿拉伯语", "channel_type": "复仇"})
         payload = {"plot_payload": stage.context["plot_payload"], "market_payload": market,
                    "external_evidence": {"status": "completed", "videos": [{"video_url": "https://www.youtube.com/watch?v=abcdefghijk"}]}}
         attempt = runs.begin_attempt(s, run.id, claim["claim_id"], "search")

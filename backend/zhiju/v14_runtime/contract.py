@@ -8,6 +8,7 @@ from .channel import channel_theme_contract, title_channel_context
 from .market import MARKET_PACKAGING_SCHEMA, build_market_packaging_prompt, market_context_for_title, validate_market_packaging_evidence
 from .prompts import build_prompt, STAGE_DIRECTIVES
 from .rules import using_rules
+from .preflight import stage_preflight_issues
 
 STAGES = {"search": "xy-find", "title": "xy-title", "cover": "xy-cover", "description": "xy-place", "community": "xy-post"}
 PLOT_FIELDS = {"内容概述": "content_summary", "剧情档案": "plot_archive", "剧情套路": "plot_pattern", "核心人设": "core_personas"}
@@ -20,7 +21,8 @@ def bundled_rules():
         "machine_contracts": {key: json.loads((root / f"{name}_rules.json").read_text()) for key, name in
             {"title": "title", "cover": "cover", "description": "description", "community": "community"}.items()},
         "schemas": {key: deepcopy(c.schema_for(stage, {"workflow_contract_version": 2, "community_count": 1, "community_output_version": 2})) for key, stage in STAGES.items() if key != "search"},
-        "directives": deepcopy(STAGE_DIRECTIVES)}
+        "directives": deepcopy(STAGE_DIRECTIVES),
+        "semantic_contract": {"version": 11, "dynamic_channel_theme_grounding_required": True, "fixed_localized_title_candidates": False}}
     rules["schemas"]["search"] = deepcopy(MARKET_PACKAGING_SCHEMA)
     return rules
 
@@ -45,7 +47,8 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     for field in PLOT_FIELDS.values():
         if not data["drama"].get(field):
             raise ValueError(f"缺少剧情字段: {field}")
-    item = {"drama_name": data["drama_name"], "video_id": data.get("video_id") or "",
+    title_channel_context(channel["generation_spec"])
+    item = {"drama_name": data["drama_name"], "video_id": data.get("video_id") or f"pending_{envelope['run_id']}",
         "url": data.get("video_url") or "", "channel": data["channel_name"],
         "language": channel["language"], "gender": channel["gender"], "direction": channel["direction"],
         "slot": data["target_publish_date"], "workflow_contract_version": 2,
@@ -56,15 +59,17 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     search = accepted.get("search", {})
     identity = {k: c.first_result(plot)[k] for k in c.IDENTITY_PROPERTIES}
     context = {"task": item, "identity": identity, "plot_payload": plot,
+        "semantic_contract": rules["semantic_contract"],
         "channel_snapshot": channel["generation_spec"], "channel_theme_contract": channel_theme_contract(item, plot),
         "playlists": channel.get("playlists", []), "creative_slot": {"creative_slot_id": envelope["run_id"]},
         "description_fixed_assets": channel["description_fixed_assets"], "description_assets_frozen": True,
         "community_footer_cta": channel["community_footer_cta"],
-        "title_rule_contract": rules["machine_contracts"]["title"], "cover_rule_contract": rules["machine_contracts"]["cover"],
+        "title_rule_contract": rules["machine_contracts"]["title"].get("title_contract", {}), "cover_rule_contract": rules["machine_contracts"]["cover"],
         "description_rule_contract": rules["machine_contracts"]["description"].get("description_contract", {}),
         "community_rule_contract": rules["machine_contracts"]["community"],
         "title_payload": accepted.get("title", {}), "cover_payload": accepted.get("cover", {}), "place_payload": accepted.get("description", {}),
-        "market_packaging": market_context_for_title(search.get("market_payload", {})), "creative_history": [], "visual_history": []}
+        "market_packaging": market_context_for_title(search.get("market_payload", {})),
+        "channel_hashtag_whitelist": channel.get("channel_hashtag_whitelist", {}), "creative_history": [], "visual_history": []}
     grouped = {}
     for row in envelope.get("creative_history", []):
         previous = row["input_snapshot"]
@@ -73,8 +78,8 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
         if key:
             history[key] = row["payload"]
         if row["node_type"] == "cover":
-            for cover in c.cover_rows(row["payload"]):
-                context["visual_history"].append({**cover, "channel": previous["channel_name"], "drama_name": previous["drama_name"], "video_id": previous.get("video_id", "")})
+            for group, cover in enumerate(c.cover_rows(row["payload"]), 1):
+                context["visual_history"].append({**cover, "source_group_index": str(group), "channel": previous["channel_name"], "drama_name": previous["drama_name"], "video_id": previous.get("video_id", "")})
     context["creative_history"] = [h for h in grouped.values() if h["drama_name"] == data["drama_name"]]
     feedback = [r["error"] for r in envelope.get("retry_state", []) if r["node_type"] == node_type and r.get("error")]
     if node_type == "merge":
@@ -87,8 +92,12 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     if node_type == "search":
         prompt = build_market_packaging_prompt(item, plot, rules["prompts"]["search"], search.get("external_evidence"))
     else:
+        issues = stage_preflight_issues(STAGES[node_type], context, rules["machine_contracts"][node_type])
+        if issues:
+            raise ValueError("; ".join(issues))
         with using_rules(rules):
-            prompt = build_prompt(STAGES[node_type], rules["prompts"][node_type], context, feedback, rules["directives"][STAGES[node_type]])
+            model_context = {**context, "visual_history": context["visual_history"][-32:]}
+            prompt = build_prompt(STAGES[node_type], rules["prompts"][node_type], model_context, feedback, rules["directives"][STAGES[node_type]])
     return StageInput(node_type, prompt, schema, item, context, rules)
 
 

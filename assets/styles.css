@@ -791,3 +791,5 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
   .topbar-actions .button span { display: none; }
   .scroll-top-button { right: 14px; bottom: 18px; }
 }
+.v14-panel .row-actions { flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.v14-error { color: var(--danger, #b42318); white-space: pre-wrap; overflow-wrap: anywhere; }

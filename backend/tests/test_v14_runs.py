@@ -33,10 +33,13 @@ def store():
 
 def configure(s):
     from zhiju.services.v14_runs import save_settings
+    from test_v14_contract import envelope
+    sample = envelope()
+    sample["rules_snapshot"]["title"] = {"rule": "original"}
     return save_settings(s, {
         "host_id": "device-a", "account_profile": "current", "default_model": "test-model",
-        "available_models": ["test-model"], "rules": {"version": "V14", "title": {"rule": "original"}},
-        "channel_inputs": {"channel-a": {"generation_spec": "[GLOBAL]\n规则\n[TITLE]\n标题", "language": "ar"}},
+        "available_models": ["test-model"], "rules": sample["rules_snapshot"],
+        "channel_inputs": {"channel-a": sample["input_snapshot"]["channel"]},
     })
 
 
@@ -77,6 +80,18 @@ def test_tenant_cannot_read_other_run(store):
         with pytest.raises(HTTPException) as exc:
             get_run(s, run_id)
         assert exc.value.status_code == 404
+
+
+def test_incomplete_channel_configuration_blocks_start(store):
+    from copy import deepcopy
+    from zhiju.services.v14_runs import create_run, save_settings
+    from zhiju.services.identity import ConflictError
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        config = deepcopy(configure(s).payload)
+        config["channel_inputs"]["channel-a"]["generation_spec"] = ""
+        save_settings(s, config)
+        with pytest.raises(ConflictError, match="generation_spec"):
+            create_run(s, "work-a")
 
 
 def test_migration_creates_only_v14_tables():
