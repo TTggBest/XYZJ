@@ -16,8 +16,8 @@ class V14Setting(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
 class V14Run(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "v14_runs"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "work_order_id"),
-        UniqueConstraint("tenant_id", "id"),
+        UniqueConstraint("tenant_id", "work_order_id", name="uq_v14_runs_tenant_work_order"),
+        UniqueConstraint("tenant_id", "id", name="uq_v14_runs_tenant_id_id"),
         ForeignKeyConstraint(["tenant_id", "work_order_id"], ["work_orders.tenant_id", "work_orders.id"]),
         ForeignKeyConstraint(["tenant_id", "package_id"], ["operation_packages.tenant_id", "operation_packages.id"]),
         CheckConstraint("status IN ('queued','running','interrupted','needs_user_review','cancelled','text_ready')", name="valid_status"),

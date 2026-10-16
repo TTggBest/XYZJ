@@ -155,3 +155,31 @@ def test_migration_creates_only_v14_tables():
         assert set(sa.inspect(conn).get_table_names()) == {"unrelated", "v14_settings", "v14_runs", "v14_attempts"}
         revision.downgrade()
         assert sa.inspect(conn).get_table_names() == ["unrelated"]
+
+
+def test_mysql_v14_ddl_has_distinct_unique_index_names():
+    import importlib.util
+    import io
+    import re
+    from pathlib import Path
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from zhiju.models.base import NAMING_CONVENTION
+    from zhiju.models.v14 import V14Run
+
+    names = [c.name for c in V14Run.__table__.constraints if isinstance(c, sa.UniqueConstraint)]
+    assert len(names) == len(set(names)), "MySQL rejects duplicate unique index names"
+    path = Path(__file__).parents[1] / "alembic/versions/7b14a201d001_add_v14_execution.py"
+    spec = importlib.util.spec_from_file_location("v14_mysql_migration", path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    output = io.StringIO()
+    context = MigrationContext.configure(dialect_name="mysql", opts={
+        "as_sql": True, "output_buffer": output,
+        "target_metadata": sa.MetaData(naming_convention=NAMING_CONVENTION),
+    })
+    revision.op = Operations(context)
+    revision.upgrade()
+    for statement in output.getvalue().split(";"):
+        names = re.findall(r"CONSTRAINT (\w+) UNIQUE", statement)
+        assert len(names) == len(set(names)), statement

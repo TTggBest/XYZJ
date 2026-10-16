@@ -22,7 +22,7 @@ def upgrade():
         sa.Column("model", sa.String(120), nullable=False, comment="本次固定模型"), sa.Column("status", sa.String(30), nullable=False, comment="运行状态"),
         sa.Column("claim_id", sa.String(36), comment="本次领取ID"), sa.Column("input_snapshot", sa.JSON(), nullable=False, comment="冻结的业务输入"),
         sa.Column("rules_snapshot", sa.JSON(), nullable=False, comment="冻结的V14规则"), sa.Column("heartbeat_at", sa.DateTime(timezone=True), comment="执行器最近心跳"),
-        sa.Column("error", sa.Text(), comment="错误与修复反馈"), sa.UniqueConstraint("tenant_id", "work_order_id"), sa.UniqueConstraint("tenant_id", "id"),
+        sa.Column("error", sa.Text(), comment="错误与修复反馈"), sa.UniqueConstraint("tenant_id", "work_order_id", name="uq_v14_runs_tenant_work_order"), sa.UniqueConstraint("tenant_id", "id", name="uq_v14_runs_tenant_id_id"),
         sa.ForeignKeyConstraint(["tenant_id", "work_order_id"], ["work_orders.tenant_id", "work_orders.id"]),
         sa.ForeignKeyConstraint(["tenant_id", "package_id"], ["operation_packages.tenant_id", "operation_packages.id"]),
         sa.CheckConstraint("status IN ('queued','running','interrupted','needs_user_review','cancelled','text_ready')", name="valid_status"))
