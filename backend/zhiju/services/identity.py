@@ -103,7 +103,11 @@ def list_devices(session: Session) -> list[Device]:
 
 
 def create_channel(session: Session, payload: ChannelCreate) -> Channel:
-    channel = Channel(**payload.model_dump())
+    from zhiju.services.country_catalog import channel_operating_timezone
+
+    values = payload.model_dump()
+    values["timezone"] = channel_operating_timezone(payload.default_language, payload.timezone)
+    channel = Channel(**values)
     session.add(channel)
     try:
         session.flush()

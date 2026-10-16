@@ -50,3 +50,10 @@ def get_country_option(code: str) -> CountryOption:
     if country is None:
         raise ValueError("国家或地区代码无效")
     return country
+
+
+def channel_operating_timezone(language: str | None, selected_timezone: str) -> str:
+    # 阿拉伯语频道统一使用沙特运营时间，国家资料仍保持原值。
+    if (language or "").strip().lower().split("-")[0] == "ar":
+        return "Asia/Riyadh"
+    return selected_timezone

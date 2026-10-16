@@ -22,7 +22,7 @@ from zhiju.models import (
     YouTubeChannelImportSession,
 )
 from zhiju.models.base import new_id
-from zhiju.services.country_catalog import get_country_option
+from zhiju.services.country_catalog import channel_operating_timezone, get_country_option
 from zhiju.services.identity import ConflictError
 from zhiju.services.youtube_oauth import YOUTUBE_OAUTH_SCOPES, parse_youtube_channel_candidates
 
@@ -276,7 +276,10 @@ def commit_channel_import(
             country_name_zh=country.name_zh,
             default_language=(selection.default_language or "").strip() or country.recommended_language,
             default_genre=selection.default_genre.strip(),
-            timezone=(selection.timezone or "").strip() or country.recommended_timezone,
+            timezone=channel_operating_timezone(
+                (selection.default_language or "").strip() or country.recommended_language,
+                (selection.timezone or "").strip() or country.recommended_timezone,
+            ),
             daily_publish_count=0,
             status="authorized",
         )
