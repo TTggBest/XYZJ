@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
 from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
@@ -15,8 +15,9 @@ from zhiju.permissions import require_platform_permission
 from zhiju.models import YouTubeChannelImportSession
 from zhiju.schemas.operations import PlaylistRead
 from zhiju.schemas.youtube_oauth import (
-    YouTubeAuthorizationStart,
     CountryOptionRead,
+    YouTubeAuthorizationStart,
+
     YouTubeChannelImportCommit,
     YouTubeChannelImportCommitResult,
     YouTubeChannelImportRead,
@@ -30,6 +31,7 @@ from zhiju.services.youtube_channel_sync import (
     sync_authorized_channel_videos,
 )
 from zhiju.services.youtube_oauth import (
+    MacOSGrantTokenStore,
     MacOSKeychainSecretStore,
     OAuthCallbackRelay,
     YOUTUBE_OAUTH_SCOPES,
@@ -117,16 +119,22 @@ def post_start_youtube_channel_import(
     session: Session = Depends(get_tenant_db),
 ) -> YouTubeAuthorizationStart:
     settings = get_settings()
-    if getattr(settings, "deployment", "local") != "cloud":
-        raise HTTPException(status_code=409, detail="本地部署请使用原有频道授权流程")
+    cloud = getattr(settings, "deployment", "local") == "cloud"
+    if not cloud and settings.device_role != "builder":
+        raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube授权")
     try:
-        config = cloud_oauth_client_config(settings)
+        config = cloud_oauth_client_config(settings) if cloud else load_oauth_client_config(MacOSKeychainSecretStore())
         state = create_channel_import_state(
             session, principal, ttl_seconds=OAUTH_STATE_TTL_SECONDS,
         )
+        if not cloud:
+            callback_relay.ensure(
+                config.redirect_uri,
+                f"http://127.0.0.1:{settings.port}/api/v3/youtube/oauth/callback",
+            )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return YouTubeAuthorizationStart(
         authorization_url=build_authorization_url(config, state),
@@ -369,6 +377,51 @@ def get_youtube_oauth_callback(
 
     if settings.device_role != "builder":
         return _callback_page(False, "仅代码机可以完成YouTube授权")
+    import_context = session.scalar(
+        select(YouTubeChannelImportSession).where(
+            YouTubeChannelImportSession.opaque_state == state,
+        )
+    )
+    if import_context is not None:
+        try:
+            if error:
+                raise ValueError("Google授权已取消")
+            if not code:
+                raise ValueError("Google回调缺少授权码")
+            keychain = MacOSKeychainSecretStore()
+            config = load_oauth_client_config(keychain)
+            token = exchange_authorization_code(config, code)
+            access_token = str(token.get("access_token") or "")
+            if not access_token:
+                raise ValueError("Google未返回访问令牌")
+            identity = fetch_google_identity(access_token)
+            youtube_payload = fetch_youtube_channels(access_token)
+            with TenantSession(
+                bind=session.get_bind(), autoflush=False, expire_on_commit=False,
+                info={
+                    "tenant_id": import_context.tenant_id,
+                    "user_id": import_context.user_id,
+                    "permissions": frozenset({"channel.manage"}),
+                    "session_id": import_context.auth_session_id,
+                },
+            ) as tenant_session:
+                import_session_id = complete_channel_import_oauth(
+                    tenant_session,
+                    MacOSGrantTokenStore(keychain),
+                    opaque_state=state,
+                    identity=identity,
+                    token=token,
+                    youtube_payload=youtube_payload,
+                )
+            return _callback_page(
+                True,
+                "已读取可管理的YouTube频道",
+                event="youtube-channel-import-ready",
+                payload={"import_session_id": import_session_id},
+            )
+        except (ConflictError, RuntimeError, ValueError) as exc:
+            session.rollback()
+            return _callback_page(False, str(exc))
     try:
         context = consume_oauth_state(session, state)
         if error:

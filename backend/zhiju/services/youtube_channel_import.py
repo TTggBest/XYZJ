@@ -17,20 +17,19 @@ from zhiju.models import (
     GoogleAccount,
     OAuthGrant,
     OAuthGrantScope,
-    OAuthTokenSecret,
     YouTubeChannelImportCandidate,
     YouTubeChannelImportSession,
 )
 from zhiju.models.base import new_id
 from zhiju.services.country_catalog import channel_operating_timezone, get_country_option
 from zhiju.services.identity import ConflictError
+from zhiju.services.oauth_secret_store import EncryptedDatabaseSecretStore
 from zhiju.services.youtube_oauth import YOUTUBE_OAUTH_SCOPES, parse_youtube_channel_candidates
 
 
 class TokenSecretStore(Protocol):
     def put(self, grant_id: str, token: Mapping[str, object]) -> str: ...
     def get(self, grant_id: str) -> dict[str, object] | None: ...
-    def delete(self, grant_id: str) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -317,7 +316,7 @@ def commit_channel_import(
 
 def cleanup_expired_channel_imports(
     session: Session,
-    secret_store: TokenSecretStore,
+    secret_store: EncryptedDatabaseSecretStore,
     *,
     now: datetime | None = None,
 ) -> int:

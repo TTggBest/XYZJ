@@ -40,6 +40,15 @@
     };
   }
 
+  function packageLogosComplete(item) {
+    const readyAssets = new Set((item.media_assets || [])
+      .filter(asset => asset.asset_role === "thumbnail" && asset.status === "ready")
+      .map(asset => asset.id));
+    const logoCovers = (item.covers || []).filter(cover => cover.aspect_ratio === "16:9");
+    return logoCovers.length === 3
+      && logoCovers.every(cover => cover.asset_id && readyAssets.has(cover.asset_id));
+  }
+
   function packageImageClicksComplete(item) {
     if (item.source_complete !== true) return false;
     const copied = new Set(item.copied_keys || []);
@@ -57,19 +66,10 @@
     if (!coversComplete) return false;
 
     const communityCount = Number(item.community_count || 0);
-    const posts = item.community_posts || [];
     if (communityCount === 0) return true;
+    const posts = item.community_posts || [];
     return posts.length === communityCount
       && posts.every(post => post.image_prompt && copied.has(`community_image:${post.id}`));
-  }
-
-  function packageLogosComplete(item) {
-    const readyAssets = new Set((item.media_assets || [])
-      .filter(asset => asset.asset_role === "thumbnail" && asset.status === "ready")
-      .map(asset => asset.id));
-    const logoCovers = (item.covers || []).filter(cover => cover.aspect_ratio === "16:9");
-    return logoCovers.length === 3
-      && logoCovers.every(cover => cover.asset_id && readyAssets.has(cover.asset_id));
   }
 
   function imageInspectionTarget(item) {

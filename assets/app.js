@@ -34,7 +34,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], v14Config: null, settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", deployment: "local", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelSortOrder: "desc", channelAudience: "", channelLanguage: "", channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], v14Config: null, settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
   const emptyPageState = structuredClone(state);
@@ -281,7 +281,53 @@
     const nickname = item.operational_name && item.operational_name !== item.original_name
       ? `<span class="cell-sub">${esc(item.operational_name)}</span>`
       : "";
-    return `<div class="identity-cell">${avatar}<div><span class="cell-main">${esc(item.original_name)}</span>${nickname}</div></div>`;
+    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}</div></div>`;
+  }
+
+  function channelAudience(item) {
+    for (const value of [item.channel_type, item.default_genre, item.operational_name, item.original_name]) {
+      if (String(value || "").includes("男频")) return "male";
+      if (String(value || "").includes("女频")) return "female";
+    }
+    return "";
+  }
+
+  function renderChannels() {
+    const channels = state.channels || [];
+    const logoProfiles = state.logoProfiles || [];
+    const oauthStatus = state.oauthStatus || {};
+    const languageOptions = [...new Set(channels.map(item => item.default_language).filter(Boolean))]
+      .sort((left, right) => languageLabel(left).localeCompare(languageLabel(right), "zh-CN"));
+    const visibleChannels = channels
+      .filter(item => !state.channelAudience || channelAudience(item) === state.channelAudience)
+      .filter(item => !state.channelLanguage || String(item.default_language || "").toLowerCase() === state.channelLanguage.toLowerCase())
+      .sort((left, right) => {
+        const difference = (Date.parse(left.created_at) || 0) - (Date.parse(right.created_at) || 0);
+        if (difference) return state.channelSortOrder === "asc" ? difference : -difference;
+        return String(left.display_name || left.original_name).localeCompare(String(right.display_name || right.original_name), "zh-CN");
+      });
+    const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
+    const rows = visibleChannels.map(item => {
+      const profile = profileByChannel.get(item.channel_id);
+      const authorized = item.authorized_account_count > 0;
+      const deleteButton = auth.can("channel.delete")
+        ? `<button class="button button-danger button-small" data-action="delete-channel" data-id="${item.channel_id}">${icon("trash-2")} 删除</button>`
+        : "";
+      return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${esc(channelAudience(item) === "male" ? "男频" : channelAudience(item) === "female" ? "女频" : "—")}</td><td>${fmtUtc(item.created_at)}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions">${state.deployment === "cloud" ? "" : `<button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button>`}<button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button>${deleteButton}<button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
+    });
+    const filtersActive = Boolean(state.channelAudience || state.channelLanguage || state.channelSortOrder !== "desc");
+    const actions = `<div class="toolbar channel-list-toolbar">
+      <label class="field channel-list-control"><span>录入时间</span><select class="select" id="channelSortOrder"><option value="desc" ${state.channelSortOrder === "desc" ? "selected" : ""}>最新录入优先</option><option value="asc" ${state.channelSortOrder === "asc" ? "selected" : ""}>最早录入优先</option></select></label>
+      <label class="field channel-list-control"><span>频类</span><select class="select" id="channelAudienceFilter"><option value="">全部频类</option><option value="female" ${state.channelAudience === "female" ? "selected" : ""}>女频</option><option value="male" ${state.channelAudience === "male" ? "selected" : ""}>男频</option></select></label>
+      <label class="field channel-list-control"><span>语言</span><select class="select" id="channelLanguageFilter"><option value="">全部语言</option>${languageOptions.map(code => `<option value="${esc(code)}" ${state.channelLanguage === code ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}</select></label>
+      <button class="button button-secondary" data-action="apply-channel-list-filters">${icon("list-filter")} 筛选</button>
+      ${filtersActive ? `<button class="button button-secondary" data-action="reset-channel-list-filters">重置</button>` : ""}
+      <button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 新增频道</button>
+    </div>`;
+    const body = rows.length
+      ? table(["频道", "YouTube Channel ID", "语言", "频类", "录入时间", "日更", "授权", "Logo", "状态", ""], rows, 1260, "channel-list-table")
+      : empty(channels.length ? "没有符合筛选条件的频道" : "还没有频道", channels.length ? "请调整频类或语言筛选条件。" : "先授权 Google 账号，再选择要导入的 YouTube 频道。", channels.length ? "reset-channel-list-filters" : "start-youtube-channel-import", channels.length ? "重置筛选" : "新增频道");
+    root.innerHTML = `<div class="page-stack channel-list-page">${section("频道清单", `${channels.length} 个频道 · 当前显示 ${visibleChannels.length} 个 · Logo 素材按频道独立保存${oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : ""}`, body, actions)}</div>`;
   }
 
   async function showChannels() {
@@ -294,22 +340,7 @@
       })
     ]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
-    const cloudImport = oauthStatus.channel_import_enabled === true;
-    const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
-    const rows = channels.map(item => {
-      const profile = profileByChannel.get(item.channel_id), authorized = item.authorized_account_count > 0;
-      const localOAuthActions = cloudImport ? "" : `<button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button>`;
-      return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td><div class="row-actions">${localOAuthActions}<button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button><button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
-    });
-    const addAction = cloudImport ? "start-youtube-channel-import" : "add-channel";
-    const addLabel = cloudImport ? "授权并导入频道" : "新增频道";
-    const oauthHint = cloudImport
-      ? (oauthStatus.configured ? " · 频道身份由 YouTube 授权自动读取" : " · 管理员尚未配置云端 YouTube OAuth")
-      : (oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : "");
-    const addButton = cloudImport
-      ? `<button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 授权并导入频道</button>`
-      : `<button class="button button-primary" data-action="add-channel">${icon("plus")} 新增频道</button>`;
-    root.innerHTML = `<div class="page-stack">${section("频道清单", `${channels.length} 个频道 · Logo 素材按频道独立保存${oauthHint}`, rows.length ? table(["频道", "YouTube Channel ID", "语言", "日更", "授权", "Logo", "状态", ""], rows, 1060) : empty("还没有频道", cloudImport ? "先授权 Google 账号，再选择要导入的 YouTube 频道。" : "先录入频道，后续排期、任务和分析都以频道 ID 关联。", addAction, addLabel), addButton)}</div>`;
+    renderChannels();
   }
   function channelLogoForm(channel) {
     return `<form class="form-grid" id="channelLogoForm"><input type="hidden" name="channel_id" value="${esc(channel.channel_id)}"><div class="field field-wide"><label>频道</label><input class="input" value="${esc(channel.display_name)}" disabled></div><div class="field"><label>左 Logo</label><input class="input" type="file" name="left_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field"><label>右 Logo</label><input class="input" type="file" name="right_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field field-wide"><label>tem 模板图</label><input class="input" type="file" name="template" accept="image/png,image/jpeg,image/webp" required></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("wand-sparkles")} 上传并自动校准</button></div></form>`;
@@ -1455,6 +1486,7 @@
       const config = await api("/realtime/config");
       if (actor !== auth.current() || document.visibilityState !== "visible") return;
       state.runtimeConfigFailed = false;
+      state.deployment = config.deployment || "local";
       auth.setDeployment(config.deployment);
       applyDeviceRole(config.device_role);
       renderAccount();
@@ -1480,6 +1512,16 @@
       state.realtimeConnecting = false;
     }
   }
+
+  document.addEventListener("change", event => {
+    if (!auth.current()) return;
+    if (event.target.id === "channelSortOrder") state.channelSortOrder = event.target.value || "desc";
+    else if (event.target.id === "channelAudienceFilter") state.channelAudience = event.target.value || "";
+    else if (event.target.id === "channelLanguageFilter") state.channelLanguage = event.target.value || "";
+    else return;
+    renderChannels();
+    renderIcons();
+  });
 
   document.addEventListener("click", async event => {
     const closeModalButton = event.target.closest("[data-close-modal]"); if (closeModalButton) return closeModal();
@@ -1517,12 +1559,26 @@
     try {
       if (action === "add-channel") openModal("新增频道", channelForm());
       else if (action === "start-youtube-channel-import") {
-        if (!state.oauthStatus?.configured) throw new Error("云端 YouTube OAuth 尚未配置，请联系超级管理员");
+        if (!state.oauthStatus?.configured) throw new Error("YouTube OAuth 尚未配置，请联系超级管理员");
         button.disabled = true;
         const authorization = await api("/youtube/channel-imports/start", { method: "POST" });
         const authTab = window.open(authorization.authorization_url, "_blank");
         if (!authTab) { button.disabled = false; throw new Error("浏览器阻止了授权页面，请允许此站点打开新标签页"); }
         authTab.focus();
+      }
+      else if (action === "apply-channel-list-filters") {
+        state.channelSortOrder = el("channelSortOrder")?.value || "desc";
+        state.channelAudience = el("channelAudienceFilter")?.value || "";
+        state.channelLanguage = el("channelLanguageFilter")?.value || "";
+        renderChannels();
+        renderIcons();
+      }
+      else if (action === "reset-channel-list-filters") {
+        state.channelSortOrder = "desc";
+        state.channelAudience = "";
+        state.channelLanguage = "";
+        renderChannels();
+        renderIcons();
       }
       else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
       else if (action === "add-drama") openModal("新增剧目", dramaForm());
@@ -1751,6 +1807,12 @@
         });
       }
       else if (action === "focus-missing-prompt") focusMissingPackagePrompt(button.dataset.role);
+      else if (action === "copy-channel-name") {
+        const value = button.dataset.value;
+        if (!value) return;
+        await copyText(value);
+        notify(`已复制频道名：${value}`);
+      }
       else if (action === "copy-package-field") {
         const expectedRevision = auth.capture();
         const value = state.copyValues.get(button.dataset.copyKey);
@@ -1770,6 +1832,14 @@
         }
       }
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
+      else if (action === "delete-channel") {
+        const channel = state.channels.find(item => item.channel_id === id);
+        if (!channel || !auth.can("channel.delete")) return;
+        if (!window.confirm(`确认从智矩中删除频道“${channel.original_name}”？\n\n该操作会停止此频道后续任务并从正常列表隐藏；历史数据会保留。`)) return;
+        await api(`/channels/${id}${query({ reason: "用户在频道管理页删除频道" })}`, { method: "DELETE" });
+        notify("频道已从智矩列表删除，历史数据已保留");
+        await loadView("channels");
+      }
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "channel-detail-tab") await showChannelDetail(id, button.dataset.channelDetailTab);
       else if (action === "edit-channel-initialization") {

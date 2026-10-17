@@ -161,7 +161,10 @@ def test_relational_revisions_form_the_only_head_chain():
     assert revisions["c8e1f4a9b387"].down_revision == "b7d0e3f8a276"
     assert revisions["d9f2a5b0c498"].down_revision == "c8e1f4a9b387"
     assert revisions["0d7a4c9e12f6"].down_revision == "d9f2a5b0c498"
-    assert scripts.get_heads() == ["0d7a4c9e12f6"]
+    assert revisions["6a81c4d290fe"].down_revision == "0d7a4c9e12f6"
+    assert revisions["7b14a201d001"].down_revision == "6a81c4d290fe"
+    assert revisions["8c14a201d002"].down_revision == "7b14a201d001"
+    assert scripts.get_heads() == ["8c14a201d002"]
 
 
 def _revision_module(revision_id: str):

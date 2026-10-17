@@ -64,6 +64,9 @@ def test_route_scopes_keep_tenant_business_data_and_platform_catalog_writes_sepa
         ("POST", "/api/v3/feishu-sync/work-orders"),
         ("POST", "/api/v3/integrations/zhihe/drama-progress/sync"),
         ("GET", "/api/v3/system-events"),
+        ("GET", "/api/v3/youtube/channel-imports/{import_session_id}"),
+        ("POST", "/api/v3/youtube/channel-imports/start"),
+        ("POST", "/api/v3/youtube/channel-imports/{import_session_id}/commit"),
     }
     platform_catalog_writes = {
         ("POST", "/api/v3/languages"),

@@ -90,4 +90,3 @@ FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_skips_stale_an
 FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_repairs_cloud_download_when_completed_final_is_stale
 FAILED backend/tests/test_zhihe_progress_sync.py::test_zhihe_sync_completes_cloud_download_for_new_finished_result
 ```
-

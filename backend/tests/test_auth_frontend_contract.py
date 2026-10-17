@@ -108,6 +108,7 @@ def test_sticky_panels_follow_the_rendered_topbar_height_when_super_admin_banner
     assert "top: var(--topbar-height, 78px)" in styles
     assert ".package-list-page > .section > .section-head { position: sticky; top: 78px;" not in styles
     assert ".media-assets-fixed-panel { position: sticky; top: 78px;" not in styles
+    assert ".channel-list-page > .section > .section-head { position: sticky; top: var(--topbar-height, 78px);" in styles
 
 
 def test_switch_tenant_clears_old_context_preserves_actor_and_uses_server_options():
@@ -652,7 +653,7 @@ const openCalls=[];
 const page=start(process.argv[1],auth,async(path,options)=>{
  paths.push(path);
  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker","deployment":"cloud"}');
- if(path==='/api/v3/channels/overview')return new Response('[]');
+ if(path==='/api/v3/channels/overview')return new Response(JSON.stringify([{channel_id:'channel-cloud',original_name:'Cloud Channel',youtube_channel_id:'UC-cloud',default_language:'en',authorized_account_count:1}]));
  if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
  if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true,"channel_import_enabled":true}');
  if(path==='/api/v3/youtube/channel-imports/start')return new Response('{"authorization_url":"https://accounts.google.test/auth","expires_in_seconds":600}');
@@ -665,6 +666,8 @@ await clickAction(page,'start-youtube-channel-import');
 await settle(page);
 assert(paths.includes('/api/v3/youtube/channel-imports/start'));
 assert.deepEqual(openCalls,[['https://accounts.google.test/auth','_blank']]);
+assert.doesNotMatch(page.nodes.get('viewRoot').innerHTML,/data-action="authorize-youtube-channel"/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/channelLanguageFilter/);
 """)
 
 
@@ -702,6 +705,102 @@ assert.equal(auth.current().tenant_id,'t2');const count=paths.length;
 release();await pending;
 assert.deepEqual(paths.filter(path=>path.endsWith('/dispatch')),['/api/v3/tasks/a1/dispatch']);
 assert.equal(paths.length,count);assert.match(page.nodes.get('tenantBanner').textContent,/乙公司/);
+""")
+
+
+def test_add_channel_starts_oauth_discovery_instead_of_opening_manual_form():
+    run_node(APP_FIXTURE + """
+const opened=[];
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path==='/api/v3/channels/overview')return new Response('[]');
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response(JSON.stringify({
+  configured:true,can_manage:true,client_type:'installed',
+  project_id:'fixture',redirect_uri:'http://127.0.0.1:8080',credential_ref:'keychain://fixture',
+  scopes:[],legacy_file_available:false
+ }));
+ if(path==='/api/v3/youtube/channel-imports/start'){
+  assert.equal(options.method,'POST');
+  return new Response(JSON.stringify({authorization_url:'https://accounts.google.com/o/oauth2/v2/auth?fixture=1',expires_in_seconds:600}));
+ }
+ if(path==='/api/v3/youtube/channel-imports/import-a')return new Response(JSON.stringify({
+  id:'import-a',status:'ready',expires_at:'2030-01-01T00:00:00Z',
+  candidates:[{id:'candidate-a',youtube_channel_id:'UC-a',title:'Google 频道 A',description:null,avatar_url:null,custom_url:'@a',youtube_country_code:'BR',youtube_default_language:'pt-BR',uploads_playlist_id:'UU-a'}],
+  countries:[{code:'BR',name_zh:'巴西',recommended_language:'pt-BR',recommended_timezone:'America/Sao_Paulo'}]
+ }));
+ return defaultResponse(path);
+},{window:{open:(url,name,features)=>{opened.push({url,name,features});return {focus(){}};}}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/data-action="start-youtube-channel-import"/);assert.match(html,/新增频道/);
+assert.doesNotMatch(html,/data-action="add-channel"/);
+await clickAction(page,'start-youtube-channel-import');await settle(page);
+assert.deepEqual(paths.filter(path=>path==='/api/v3/youtube/channel-imports/start'),['/api/v3/youtube/channel-imports/start']);
+assert.equal(opened.length,1);assert.match(opened[0].url,/accounts[.]google[.]com/);
+assert.equal(page.nodes.get('modalBackdrop').hidden,true);
+await page.window.emit('message',{origin:'http://fixture',data:{type:'youtube-channel-import-ready',import_session_id:'import-a'}});
+await settle(page);
+assert(paths.includes('/api/v3/youtube/channel-imports/import-a'));
+assert.match(page.nodes.get('modalTitle').textContent,/选择要导入的 YouTube 频道/);
+assert.match(page.nodes.get('modalBody').innerHTML,/Google 频道 A/);
+assert.match(page.nodes.get('modalBody').innerHTML,/pt-BR/);
+""")
+
+
+def test_channel_list_sorts_by_created_time_and_filters_by_audience_and_language():
+    run_node(APP_FIXTURE + """
+const channels=[
+ {channel_id:'old-female',youtube_channel_id:'UC-old',original_name:'旧女频',operational_name:'旧女频-英语-女频',display_name:'旧女频',youtube_avatar_url:null,default_language:'en',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-01T00:00:00Z'},
+ {channel_id:'new-male',youtube_channel_id:'UC-new',original_name:'新男频',operational_name:'新男频-印尼语-男频',display_name:'新男频',youtube_avatar_url:null,default_language:'id',default_genre:'男频',channel_type:'男频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-03T00:00:00Z'},
+ {channel_id:'mid-female',youtube_channel_id:'UC-mid',original_name:'中女频',operational_name:'中女频-西语-女频',display_name:'中女频',youtube_avatar_url:null,default_language:'es',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-02T00:00:00Z'}
+];
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
+ return defaultResponse(path);
+});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+let html=page.nodes.get('viewRoot').innerHTML;
+assert(html.indexOf('新男频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('旧女频'));
+assert.match(html,/最新录入优先/);assert.match(html,/全部频类/);assert.match(html,/全部语言/);assert.match(html,/录入时间/);
+await page.document.emit('change',{target:{id:'channelAudienceFilter',value:'female',matches:()=>false,closest:()=>null}});
+html=page.nodes.get('viewRoot').innerHTML;
+assert.doesNotMatch(html,/新男频/);assert.match(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 2 个/);
+await page.document.emit('change',{target:{id:'channelLanguageFilter',value:'es',matches:()=>false,closest:()=>null}});
+html=page.nodes.get('viewRoot').innerHTML;
+assert.doesNotMatch(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 1 个/);
+await clickAction(page,'reset-channel-list-filters');
+await page.document.emit('change',{target:{id:'channelSortOrder',value:'asc',matches:()=>false,closest:()=>null}});
+html=page.nodes.get('viewRoot').innerHTML;
+assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
+""")
+
+
+def test_clicking_channel_name_copies_exact_original_name():
+    run_node(APP_FIXTURE + """
+const copied=[];
+const channels=[
+ {channel_id:'channel-a',youtube_channel_id:'UC-a',original_name:'Cinta Kedua Setelah Berpisah',operational_name:'Cinta Kedua Setelah Berpisah-印尼-女频',display_name:'Cinta Kedua Setelah Berpisah',youtube_avatar_url:null,default_language:'id',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-03T00:00:00Z'}
+];
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
+ if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
+ return defaultResponse(path);
+},{navigator:{clipboard:{writeText:async value=>copied.push(value)}}});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
+await settle(page);
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/data-action="copy-channel-name"/);assert.match(html,/title="点击复制频道名"/);
+await clickAction(page,'copy-channel-name',{value:'Cinta Kedua Setelah Berpisah'});
+assert.deepEqual(copied,['Cinta Kedua Setelah Berpisah']);
 """)
 
 

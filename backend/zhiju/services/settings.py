@@ -214,6 +214,32 @@ def list_runtime_packages(session: Session) -> list[RuntimePackageBuild]:
     return list(session.scalars(select(RuntimePackageBuild).order_by(RuntimePackageBuild.build_number.desc())))
 
 
+def seed_runtime_package_registry(registry: Session, current_database: Session) -> None:
+    if registry.scalar(select(func.count(RuntimePackageBuild.id))):
+        return
+    for row in current_database.scalars(
+        select(RuntimePackageBuild).order_by(RuntimePackageBuild.build_number)
+    ):
+        registry.add(
+            RuntimePackageBuild(
+                id=row.id,
+                build_number=row.build_number,
+                version=row.version,
+                target_environment=row.target_environment,
+                status=row.status,
+                artifact_path=row.artifact_path,
+                file_count=row.file_count,
+                size_bytes=row.size_bytes,
+                started_at=row.started_at,
+                completed_at=row.completed_at,
+                error_message=row.error_message,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+        )
+    registry.commit()
+
+
 def _included_files() -> list[Path]:
     files: list[Path] = []
     for path in APP_ROOT.rglob("*"):

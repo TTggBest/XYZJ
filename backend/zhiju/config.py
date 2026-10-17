@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     port: int = 19732
     log_level: str = "INFO"
     artifact_root: Path = APP_ROOT / ".runtime" / "artifacts"
+    runtime_package_registry_path: Path = APP_ROOT / ".runtime" / "runtime-package-builds.sqlite3"
     device_id: str = ""
     device_role: str = "builder"
     device_key: str = ""
@@ -93,6 +94,10 @@ class Settings(BaseSettings):
     def validate_cloud_contract(self):
         if self.deployment != "cloud":
             return self
+        if "runtime_package_registry_path" not in self.model_fields_set:
+            self.runtime_package_registry_path = (
+                self.shared_root or Path("/var/lib/zhiju/shared")
+            ) / "runtime-package-builds.sqlite3"
         if self.env != "production":
             raise ValueError("云端部署必须保持 ZHJ_ENV=production")
         if self.host != "127.0.0.1":

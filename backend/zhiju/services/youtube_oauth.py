@@ -192,6 +192,15 @@ class MacOSKeychainSecretStore:
         )
         return result.stdout.rstrip("\n") if result.returncode == 0 else None
 
+class MacOSGrantTokenStore:
+    def __init__(self, store: MacOSKeychainSecretStore | None = None):
+        self._store = store or MacOSKeychainSecretStore()
+
+    def put(self, grant_id: str, token: Mapping[str, object]) -> str:
+        return save_oauth_token(self._store, grant_id, token)
+
+    def get(self, grant_id: str) -> dict[str, object] | None:
+        return load_oauth_token(self._store, grant_id)
 
 def import_oauth_client_file(
     path: Path,
@@ -223,6 +232,7 @@ def oauth_client_status(
     return {
         "configured": config is not None,
         "can_manage": can_manage,
+        "channel_import_enabled": can_manage,
         "client_type": config.client_type if config else None,
         "project_id": config.project_id if config else None,
         "redirect_uri": config.redirect_uri if config else None,
@@ -368,16 +378,10 @@ def parse_youtube_channel_candidates(
         title, avatar_url = youtube_channel_identity(item)
         if not youtube_channel_id or not title:
             continue
-        content_details = (
-            item.get("contentDetails")
-            if isinstance(item.get("contentDetails"), dict)
-            else {}
-        )
-        related_playlists = (
-            content_details.get("relatedPlaylists")
-            if isinstance(content_details.get("relatedPlaylists"), dict)
-            else {}
-        )
+        content_details = item.get("contentDetails") if isinstance(item.get("contentDetails"), dict) else {}
+        related_playlists = content_details.get("relatedPlaylists") if isinstance(content_details.get("relatedPlaylists"), dict) else {}
+        branding = item.get("brandingSettings") if isinstance(item.get("brandingSettings"), dict) else {}
+        branding_channel = branding.get("channel") if isinstance(branding.get("channel"), dict) else {}
         candidates.append({
             "youtube_channel_id": youtube_channel_id,
             "title": title,
@@ -385,7 +389,7 @@ def parse_youtube_channel_candidates(
             "avatar_url": avatar_url,
             "custom_url": str(snippet.get("customUrl") or "").strip() or None,
             "youtube_country_code": str(snippet.get("country") or "").strip().upper() or None,
-            "youtube_default_language": str(snippet.get("defaultLanguage") or "").strip() or None,
+            "youtube_default_language": str(branding_channel.get("defaultLanguage") or "").strip() or None,
             "uploads_playlist_id": str(related_playlists.get("uploads") or "").strip() or None,
         })
     return candidates

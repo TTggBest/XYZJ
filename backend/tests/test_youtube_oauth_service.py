@@ -18,9 +18,9 @@ from zhiju.services.youtube_oauth import (
     import_oauth_client_file,
     oauth_client_status,
     parse_oauth_client_document,
+    parse_youtube_channel_candidates,
     refresh_oauth_access_token,
     save_oauth_token,
-    parse_youtube_channel_candidates,
     fetch_youtube_channels,
     youtube_channel_identity,
 )
@@ -88,7 +88,8 @@ def test_missing_keychain_item_returns_none() -> None:
     assert MacOSKeychainSecretStore(runner).get("service", "account") is None
 
 
-def test_client_status_is_redacted_and_reports_legacy_source(tmp_path) -> None:
+@pytest.mark.parametrize("can_manage", [True, False])
+def test_client_status_is_redacted_and_reports_legacy_source(tmp_path, can_manage) -> None:
     source = tmp_path / "client_secret.json"
     source.write_text(client_document(), encoding="utf-8")
 
@@ -96,10 +97,11 @@ def test_client_status_is_redacted_and_reports_legacy_source(tmp_path) -> None:
         def get(self, service, account):
             return client_document()
 
-    status = oauth_client_status(source, Store(), can_manage=True)
+    status = oauth_client_status(source, Store(), can_manage=can_manage)
 
     assert status["configured"] is True
-    assert status["can_manage"] is True
+    assert status["can_manage"] is can_manage
+    assert status["channel_import_enabled"] is can_manage
     assert status["legacy_file_available"] is True
     assert status["project_id"] == "xiaoyu-youtube"
     assert status["credential_ref"].startswith("keychain://")
@@ -174,6 +176,19 @@ def test_parse_youtube_channel_candidates_keeps_every_managed_channel() -> None:
     assert rows[0]["uploads_playlist_id"] == "UU-one"
     assert rows[0]["avatar_url"] == "https://img.example/one.jpg"
     assert rows[0]["custom_url"] == "@one"
+
+
+def test_channel_candidate_reads_google_country_and_default_language() -> None:
+    candidates = parse_youtube_channel_candidates({
+        "items": [{
+            "id": "UC-target",
+            "snippet": {"title": "Actual Channel", "country": "BR"},
+            "brandingSettings": {"channel": {"defaultLanguage": "pt-BR"}},
+        }],
+    })
+
+    assert candidates[0]["youtube_country_code"] == "BR"
+    assert candidates[0]["youtube_default_language"] == "pt-BR"
 
 
 def test_oauth_token_is_saved_in_keychain_and_returns_reference() -> None:

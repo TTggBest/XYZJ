@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+from threading import Event, Thread
 from types import SimpleNamespace
 
 import pytest
@@ -249,3 +250,69 @@ def test_production_upgrade_uses_project_alembic_chain(
     assert environment["ZHJ_ENV"] == "production"
     assert environment["ZHJ_DATABASE_URL"].endswith("/zhiju_prod")
     assert environment["ZHJ_MIGRATION_DATABASE_URL"].endswith("/zhiju_prod")
+
+
+def test_production_upgrade_rejects_a_second_concurrent_migration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_config = tmp_path / "zhiju-runtime.env"
+    runtime_config.write_text(
+        "ZHJ_ENV=production\n"
+        "ZHJ_DATABASE_URL=mysql+pymysql://app:secret@db:33306/zhiju_prod\n"
+        "ZHJ_MIGRATION_DATABASE_URL=mysql+pymysql://migrator:secret@db:33306/zhiju_prod\n",
+        encoding="utf-8",
+    )
+    started = Event()
+    release = Event()
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        if len(calls) == 1:
+            started.set()
+            assert release.wait(timeout=5)
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(database_module, "PRODUCTION_CONFIG_CANDIDATES", (runtime_config,))
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    first = Thread(target=database_module.upgrade_production_database)
+    first.start()
+    assert started.wait(timeout=5)
+    try:
+        with pytest.raises(RuntimeError, match="生产数据库迁移正在执行"):
+            database_module.upgrade_production_database()
+    finally:
+        release.set()
+        first.join(timeout=5)
+
+    assert not first.is_alive()
+    assert len(calls) == 1
+
+
+def test_production_upgrade_reports_the_database_error_instead_of_sqlalchemy_help_link(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime_config = tmp_path / "zhiju-runtime.env"
+    runtime_config.write_text(
+        "ZHJ_ENV=production\n"
+        "ZHJ_DATABASE_URL=mysql+pymysql://app:secret@db:33306/zhiju_prod\n"
+        "ZHJ_MIGRATION_DATABASE_URL=mysql+pymysql://migrator:secret@db:33306/zhiju_prod\n",
+        encoding="utf-8",
+    )
+    stderr = "\n".join((
+        "Traceback (most recent call last):",
+        "sqlalchemy.exc.OperationalError: (pymysql.err.OperationalError) (1684, 'metadata lock')",
+        "[SQL: CREATE TABLE example]",
+        "(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+    ))
+    monkeypatch.setattr(database_module, "PRODUCTION_CONFIG_CANDIDATES", (runtime_config,))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 1, stdout="", stderr=stderr),
+    )
+
+    with pytest.raises(RuntimeError, match="OperationalError.*1684.*metadata lock"):
+        database_module.upgrade_production_database()

@@ -73,6 +73,24 @@ def test_cloud_web_settings_do_not_require_migration_credentials() -> None:
     assert settings.migration_database_url is None
 
 
+def test_cloud_package_registry_uses_writable_shared_root(monkeypatch, tmp_path) -> None:
+    from zhiju import runtime_package_registry
+
+    settings = cloud_settings(shared_root=tmp_path)
+    assert settings.runtime_package_registry_path == tmp_path / "runtime-package-builds.sqlite3"
+    monkeypatch.setattr(runtime_package_registry, "get_settings", lambda: settings)
+    sessions = runtime_package_registry.get_runtime_package_db()
+    session = next(sessions)
+    assert session.scalar(select(RuntimePackageBuild)) is None
+    sessions.close()
+    assert settings.runtime_package_registry_path.is_file()
+
+
+def test_cloud_package_registry_preserves_explicit_path(tmp_path) -> None:
+    explicit = tmp_path / "registry.sqlite3"
+    assert cloud_settings(runtime_package_registry_path=explicit).runtime_package_registry_path == explicit
+
+
 def test_cloud_platform_control_accepts_bootstrap_admin_without_device(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

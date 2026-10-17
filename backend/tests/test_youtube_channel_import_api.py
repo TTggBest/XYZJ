@@ -12,6 +12,7 @@ from zhiju.api import youtube_oauth as youtube_oauth_api
 from zhiju.auth_context import Principal
 
 
+
 PRINCIPAL = Principal(
     user_id="user-a",
     tenant_id="tenant-a",

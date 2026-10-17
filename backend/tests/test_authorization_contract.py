@@ -68,7 +68,16 @@ def test_channel_list_shows_youtube_identity_and_chinese_language_name() -> None
     )
 
     assert "item.youtube_avatar_url" in app_js
-    assert '${esc(item.original_name)}</span>${nickname}' in app_js
+    assert 'data-action="copy-channel-name"' in app_js
+    assert 'data-value="${esc(item.original_name)}"' in app_js
     assert "item.operational_name !== item.original_name" in app_js
     assert 'id: "印度尼西亚语"' in app_js
     assert '"pt-BR": "巴西葡萄牙语"' in app_js
+
+
+def test_channel_overview_exposes_fields_needed_for_sorting_and_audience_filtering() -> None:
+    document = TestClient(app).get("/openapi.json").json()
+    properties = document["components"]["schemas"]["ChannelOverview"]["properties"]
+
+    assert "created_at" in properties
+    assert "channel_type" in properties
