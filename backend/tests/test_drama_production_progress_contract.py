@@ -371,6 +371,12 @@ def test_frontend_compacts_drama_progress_table_for_desktop_width() -> None:
     assert ".drama-progress-title-cell" in style_source
     assert ".drama-progress-updated-cell" in style_source
 
+    # The text must use the actual title column width when the table expands.
+    for selector in (".drama-progress-title-cell .cell-main", ".drama-progress-title-cell .cell-sub"):
+        declarations = style_source.split(selector + " {", 1)[1].split("}", 1)[0]
+        assert "max-width: 100%" in declarations
+        assert "max-width: 150px" not in declarations
+
 
 def test_frontend_uses_single_vertical_scroll_for_drama_progress() -> None:
     app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")

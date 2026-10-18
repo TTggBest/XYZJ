@@ -367,8 +367,8 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .drama-progress-table .data-table th:nth-child(15) { width: 78px; }
 .drama-progress-table .data-table th:nth-child(16) { width: 104px; }
 .drama-progress-title-cell { width: 160px; }
-.drama-progress-title-cell .cell-main { display: -webkit-box; max-width: 150px; white-space: normal; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.drama-progress-title-cell .cell-sub { max-width: 150px; }
+.drama-progress-title-cell .cell-main { display: -webkit-box; max-width: 100%; white-space: normal; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.drama-progress-title-cell .cell-sub { max-width: 100%; }
 .drama-progress-batch-cell,
 .drama-progress-node-cell { text-align: center; white-space: nowrap; }
 .drama-progress-excluded-cell { text-align: center; }
