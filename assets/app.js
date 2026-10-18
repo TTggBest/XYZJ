@@ -580,7 +580,7 @@
     const review = entityType === "schedule" ? item.video_sync : null;
     const link = item.source_video_url
       ? `<a class="schedule-video-id mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开链接")}</a>`
-      : `<span class="schedule-video-id is-empty ${item.source_video_id ? "mono" : ""}">${esc(item.source_video_id || review?.empty_label || "待补充")}</span>`;
+      : `<span class="schedule-video-id ${item.source_video_id ? "mono" : "is-empty"}">${esc(item.source_video_id || review?.empty_label || "待补充")}</span>`;
     const warnings = review?.warnings || [];
     const languageError = warnings.some(w => ["language_error", "identity_conflict"].includes(w.code));
     const warning = warnings.length ? `<button class="video-warning" data-action="schedule-video-review" data-id="${targetId}" aria-label="查看视频同步警告" title="${esc([...new Set(warnings.map(w => w.message))].join('；'))}">${icon("circle-alert")}</button>` : "";

@@ -442,9 +442,9 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .video-error { color: var(--red); font-weight: 600; white-space: normal; }
 .schedule-video-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 180px; max-width: 280px; }
 .schedule-video-main { display: flex; align-items: center; justify-content: flex-start; gap: 6px; }
-.schedule-video-id { color: var(--text); text-decoration: none; white-space: nowrap; }
-.schedule-video-id:hover { color: var(--green); text-decoration: underline; }
-.schedule-video-id.is-empty { color: var(--muted); }
+.schedule-video-id { color: var(--blue); font-weight: 600; text-decoration: none; white-space: nowrap; }
+a.schedule-video-id:hover { color: var(--blue); text-decoration: underline; }
+.schedule-video-id.is-empty { color: var(--muted); font-weight: 400; }
 .schedule-video-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 10px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .video-cell-action, .video-review-link { display: inline-flex; align-items: center; gap: 3px; padding: 2px 0; border: 0; border-radius: 3px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; line-height: 1.5; white-space: nowrap; cursor: pointer; }
 .video-cell-action svg { width: 13px; height: 13px; }

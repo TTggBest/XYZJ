@@ -8,7 +8,8 @@ const selected={video_id:'3892TkDbQzc',state:'private',warnings:[]};
 const rows=[
  {schedule_id:'s1',chinese_title:'已上传的剧',source_video_id:selected.video_id,source_video_url:'https://youtu.be/'+selected.video_id,
   video_sync:{sync_complete:true,selected,warnings:[],videos:[selected]}},
- {schedule_id:'s2',chinese_title:'未上传的剧',video_sync:{sync_complete:true,selected:null,warnings:[],videos:[],empty_label:'本次未上传'}}
+ {schedule_id:'s2',chinese_title:'未上传的剧',video_sync:{sync_complete:true,selected:null,warnings:[],videos:[],empty_label:'本次未上传'}},
+ {schedule_id:'s3',chinese_title:'只有视频ID的剧',source_video_id:'idOnly12345'}
 ];
 const page=start(process.argv[1],auth,async(path)=>{
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
@@ -31,6 +32,7 @@ assert.doesNotMatch(html,/待补充/);
 assert.equal((html.match(/本次未上传/g)||[]).length,1);
 assert.match(html,/aria-label="编辑视频信息"/);
 assert.match(html,/查看视频/);
+assert.match(html,/<span class="schedule-video-id mono">idOnly12345<\/span>/);
 """)
 
 
