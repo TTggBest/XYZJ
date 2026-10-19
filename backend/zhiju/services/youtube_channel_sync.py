@@ -41,6 +41,9 @@ _DURATION_PATTERN = re.compile(
 
 
 def parse_youtube_duration(value: str) -> int:
+    # YouTube can report P0D while an uploaded video is still processing.
+    if value.strip() == "P0D":
+        return 0
     match = _DURATION_PATTERN.fullmatch(value.strip())
     if match is None:
         raise ValueError("YouTube视频时长格式无效")

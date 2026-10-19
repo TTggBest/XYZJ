@@ -139,6 +139,7 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
     suffix = uuid4().hex[:12]
     known_video_id = f"K{suffix[:10]}"
     unknown_video_id = f"U{suffix[:10]}"
+    processing_video_id = f"P{suffix[:10]}"
     now = datetime.now(timezone.utc)
     engine = sa.create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
@@ -214,7 +215,10 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
 
         def fetcher(access_token: str, youtube_channel_id: str) -> list[dict[str, object]]:
             calls.append((access_token, youtube_channel_id))
+            processing_video = _remote_video(processing_video_id, "Processing drama", "P0D")
+            processing_video["status"] = {"privacyStatus": "private", "uploadStatus": "uploaded"}
             return [
+                processing_video,
                 _remote_video(known_video_id, "Known drama"),
                 _remote_video(unknown_video_id, "Unknown drama", "PT44M40S"),
             ]
@@ -235,17 +239,21 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
         }
         assert calls == [("test-access", channel.youtube_channel_id)]
         assert result == {
-            "fetched": 2,
-            "inserted": 2,
+            "fetched": 3,
+            "inserted": 3,
             "updated": 0,
             "bound": 1,
-            "unmatched": 1,
+            "unmatched": 2,
         }
         assert videos[known_video_id].drama_id == drama.id
         assert videos[known_video_id].source == "youtube_sync"
         assert videos[known_video_id].duration_seconds == 3723
         assert videos[unknown_video_id].drama_id is None
         assert videos[unknown_video_id].duration_seconds == 2680
+        assert videos[processing_video_id].duration_seconds == 0
+        assert videos[processing_video_id].upload_status == "uploaded"
+        assert videos[processing_video_id].privacy_status == "private"
+        assert videos[processing_video_id].publish_status == "draft"
     finally:
         session.close()
         engine.dispose()
