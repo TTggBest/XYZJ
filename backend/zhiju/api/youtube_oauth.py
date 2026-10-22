@@ -229,20 +229,22 @@ def post_start_youtube_authorization(
     principal: Principal = Depends(get_current_principal),
     session: Session = Depends(get_tenant_db),
 ) -> YouTubeAuthorizationStart:
-    _require_macos_capability()
     settings = get_settings()
-    if settings.device_role != "builder":
+    cloud = getattr(settings, "deployment", "local") == "cloud"
+    if cloud and "channel.manage" not in principal.permissions and principal.platform_role != "super_admin":
+        raise HTTPException(status_code=403, detail="没有频道管理权限")
+    if not cloud and settings.device_role != "builder":
         raise HTTPException(status_code=403, detail="仅代码机可以执行YouTube授权")
-    store = MacOSKeychainSecretStore()
     try:
-        config = load_oauth_client_config(store)
+        config = cloud_oauth_client_config(settings) if cloud else load_oauth_client_config(MacOSKeychainSecretStore())
         state = create_oauth_state(
             session, principal, channel_id, ttl_seconds=OAUTH_STATE_TTL_SECONDS,
         )
-        callback_relay.ensure(
-            config.redirect_uri,
-            f"http://127.0.0.1:{settings.port}/api/v3/youtube/oauth/callback",
-        )
+        if not cloud:
+            callback_relay.ensure(
+                config.redirect_uri,
+                f"http://127.0.0.1:{settings.port}/api/v3/youtube/oauth/callback",
+            )
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (RuntimeError, ValueError) as exc:
@@ -324,8 +326,7 @@ def get_youtube_oauth_callback(
                     YouTubeChannelImportSession.opaque_state == state,
                 )
             )
-            if import_context is None:
-                raise ValueError("授权状态无效或已经使用")
+            context = consume_oauth_state(session, state) if import_context is None else None
             if error:
                 raise ValueError("Google授权已取消")
             if not code:
@@ -344,12 +345,20 @@ def get_youtube_oauth_callback(
             with TenantSession(
                 bind=session.get_bind(), autoflush=False, expire_on_commit=False,
                 info={
-                    "tenant_id": import_context.tenant_id,
-                    "user_id": import_context.user_id,
+                    "tenant_id": context.tenant_id if context else import_context.tenant_id,
+                    "user_id": context.user_id if context else import_context.user_id,
                     "permissions": frozenset({"channel.manage"}),
-                    "session_id": import_context.auth_session_id,
+                    "session_id": context.session_id if context else import_context.auth_session_id,
                 },
             ) as tenant_session:
+                if context:
+                    complete_channel_authorization(
+                        tenant_session,
+                        EncryptedDatabaseSecretStore(tenant_session, settings.oauth_encryption_key),
+                        channel_id=context.channel_id, identity=identity,
+                        token=token, youtube_payload=youtube_payload,
+                    )
+                    return _callback_page(True, "YouTube频道重新授权完成", payload={"channel_id": context.channel_id})
                 import_session_id = complete_channel_import_oauth(
                     tenant_session,
                     EncryptedDatabaseSecretStore(
@@ -453,7 +462,7 @@ def get_youtube_oauth_callback(
                 token=token,
                 youtube_payload=youtube_payload,
             )
-        return _callback_page(True, "YouTube频道授权完成")
+        return _callback_page(True, "YouTube频道授权完成", payload={"channel_id": context.channel_id})
     except (ConflictError, RuntimeError, ValueError) as exc:
         session.rollback()
         return _callback_page(False, str(exc))

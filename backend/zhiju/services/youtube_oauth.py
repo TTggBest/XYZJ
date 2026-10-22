@@ -31,6 +31,10 @@ from zhiju.services.identity import ConflictError
 from zhiju.services.google_http import open_google_url
 
 
+class YouTubeAuthorizationRequired(Exception):
+    """The current channel operation needs renewed Google consent."""
+
+
 YOUTUBE_OAUTH_SCOPES = (
     "openid",
     "email",
@@ -444,6 +448,13 @@ def _request_json(
         with open_google_url(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
+        if form and form.get("grant_type") == "refresh_token":
+            try:
+                error_code = json.loads(exc.read()).get("error")
+            except (ValueError, AttributeError):
+                error_code = None
+            if error_code == "invalid_grant":
+                raise YouTubeAuthorizationRequired("YouTube授权已失效，请重新授权该频道") from None
         raise ValueError(f"Google OAuth 请求失败：HTTP {exc.code}") from exc
     except (URLError, TimeoutError) as exc:
         raise ValueError("无法连接Google OAuth服务") from exc
@@ -552,14 +563,16 @@ def complete_channel_authorization(
         session.add(grant)
         session.flush()
 
+    from zhiju.services.oauth_secret_store import EncryptedDatabaseSecretStore
+    cloud_store = isinstance(store, EncryptedDatabaseSecretStore)
     saved_token = dict(token)
-    previous_token = load_oauth_token(store, grant.id)
+    previous_token = store.get(grant.id) if cloud_store else load_oauth_token(store, grant.id)
     if not saved_token.get("refresh_token") and previous_token:
         saved_token["refresh_token"] = previous_token.get("refresh_token")
     if not saved_token.get("refresh_token"):
         raise ValueError("Google未返回刷新令牌，请重新授权并允许离线访问")
 
-    grant.credential_ref = save_oauth_token(store, grant.id, saved_token)
+    grant.credential_ref = store.put(grant.id, saved_token) if cloud_store else save_oauth_token(store, grant.id, saved_token)
     grant.status = "active"
     expires_in = int(saved_token.get("expires_in") or 0)
     grant.token_expires_at = now + timedelta(seconds=expires_in) if expires_in else None

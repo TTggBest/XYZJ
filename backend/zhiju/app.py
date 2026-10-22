@@ -29,11 +29,20 @@ from zhiju.api.image_processing import router as image_processing_router
 from zhiju.api.youtube_oauth import router as youtube_oauth_router
 from zhiju.realtime import build_change_event, publish_change_event
 from zhiju.tenant_scope import TENANT_ROUTES
+from zhiju.services.youtube_oauth import YouTubeAuthorizationRequired
 
 
 def create_app() -> FastAPI:
     frontend_root = Path(__file__).resolve().parents[2]
     app = FastAPI(title="筱宇智矩 API", version=__version__)
+
+    @app.exception_handler(YouTubeAuthorizationRequired)
+    async def handle_youtube_authorization_error(request, exc):
+        return JSONResponse(status_code=409, content={"detail": {
+            "code": "youtube_reauthorization_required",
+            "channel_id": request.path_params.get("channel_id"),
+            "message": str(exc),
+        }})
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request, exc):

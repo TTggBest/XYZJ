@@ -38,6 +38,19 @@
   const el = id => document.getElementById(id);
   const root = el("viewRoot");
   const emptyPageState = structuredClone(state);
+  const youtubeReauthorizationChannels = new Set();
+
+  function renderYouTubeReauthorizationNotice() {
+    const notice = el("youtubeReauthorizationNotice");
+    notice.hidden = youtubeReauthorizationChannels.size === 0;
+    const canManage = auth.can("channel.manage") || auth.current()?.platform_role === "super_admin";
+    notice.innerHTML = [...youtubeReauthorizationChannels].map(id => {
+      const channel = state.channels.find(item => item.channel_id === id);
+      return `<div><span>${esc(channel?.display_name || channel?.original_name || "当前频道")}：YouTube 授权已失效或权限不足，请重新授权后重试。</span>${canManage ? `<button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${esc(id)}">${icon("key-round")} 重新授权</button>` : "<span>请联系频道管理员重新授权。</span>"}</div>`;
+    }).join("");
+    renderIcons();
+    syncTopbarHeight();
+  }
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
@@ -83,7 +96,15 @@
     return search.toString() ? `?${search}` : "";
   }
   async function api(path, options = {}) {
-    return auth.request(fetch, path, options);
+    try {
+      return await auth.request(fetch, path, options);
+    } catch (error) {
+      if (error.detail?.code === "youtube_reauthorization_required" && error.detail.channel_id) {
+        youtubeReauthorizationChannels.add(error.detail.channel_id);
+        renderYouTubeReauthorizationNotice();
+      }
+      throw error;
+    }
   }
   function notify(message, isError = false) {
     if (!auth.current()) return;
@@ -142,6 +163,9 @@
   }
   function closeAccountMenu() { el("accountMenu").hidden = true; el("accountButton").setAttribute("aria-expanded", "false"); }
   function clearPageSession() {
+    youtubeReauthorizationChannels.clear();
+    el("youtubeReauthorizationNotice").hidden = true;
+    el("youtubeReauthorizationNotice").innerHTML = "";
     closeRealtime(); closeMediaViewer();
     clearTimeout(state.realtimeRefreshTimer); clearTimeout(state.packageInspectionHighlightTimer);
     for (const key of Object.keys(state)) delete state[key];
@@ -2008,11 +2032,17 @@
         await loadView("settings", { preservePosition: true });
       }
       else if (action === "authorize-youtube-channel") {
-        button.disabled = true;
-        const authorization = await api(`/channels/${id}/youtube-authorization/start`, { method: "POST" });
-        const popup = window.open(authorization.authorization_url, "zhiju-youtube-oauth", "popup,width=680,height=780");
+        const popup = window.open("about:blank", "zhiju-youtube-oauth", "popup,width=680,height=780");
         if (!popup) throw new Error("浏览器阻止了授权窗口，请允许此站点打开弹窗");
-        popup.focus();
+        button.disabled = true;
+        try {
+          const authorization = await api(`/channels/${id}/youtube-authorization/start`, { method: "POST" });
+          popup.location.href = authorization.authorization_url;
+          popup.focus();
+        } catch (error) {
+          popup.close();
+          throw error;
+        } finally { button.disabled = false; }
       }
       else if (action === "schedule-video-review") await showScheduleVideoReview(id);
       else if (action === "select-schedule-youtube") {
@@ -2374,6 +2404,8 @@
       notify(event.data.message || "已读取 YouTube 频道");
       await openYouTubeChannelImport(event.data.import_session_id);
     } else if (oauthEvent === "youtube-auth-complete") {
+      if (event.data.channel_id) youtubeReauthorizationChannels.delete(event.data.channel_id);
+      renderYouTubeReauthorizationNotice();
       notify(event.data.message || "YouTube频道授权完成");
       await loadView(state.view, { preservePosition: true });
     } else {

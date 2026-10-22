@@ -98,8 +98,8 @@
     if (text) { try { data = JSON.parse(text); } catch { data = text; } }
     if (!response.ok) {
       if (response.status === 401) clear();
-      const detail = typeof data?.detail === "string" ? data.detail : `请求失败（${response.status}）`;
-      throw Object.assign(new Error(detail), { status: response.status });
+      const detail = typeof data?.detail === "string" ? data.detail : data?.detail?.message || `请求失败（${response.status}）`;
+      throw Object.assign(new Error(detail), { status: response.status, detail: data?.detail });
     }
     return data;
   }

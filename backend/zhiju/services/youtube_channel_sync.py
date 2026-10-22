@@ -25,6 +25,7 @@ from zhiju.services.identity import ConflictError, _audit
 from zhiju.services.google_http import open_google_url
 from zhiju.services.youtube import complete_sync, start_sync, upsert_video
 from zhiju.services.youtube_oauth import (
+    YouTubeAuthorizationRequired,
     OAUTH_TOKEN_KEYCHAIN_SERVICE,
     load_oauth_client_config,
     cloud_oauth_client_config,
@@ -71,7 +72,7 @@ def ensure_grant_access_token(
     cloud_store = isinstance(store, EncryptedDatabaseSecretStore)
     token = store.get(grant.id) if cloud_store else load_oauth_token(store, grant.id)
     if token is None:
-        raise ValueError("YouTube授权令牌不存在，请重新授权频道")
+        raise YouTubeAuthorizationRequired("YouTube授权令牌不存在，请重新授权频道")
     access_token = str(token.get("access_token") or "").strip()
     expires_at = _as_utc(grant.token_expires_at)
     if access_token and (expires_at is None or expires_at > current_time + timedelta(seconds=60)):
@@ -79,7 +80,7 @@ def ensure_grant_access_token(
 
     refresh_token = str(token.get("refresh_token") or "").strip()
     if not refresh_token:
-        raise ValueError("YouTube授权缺少刷新令牌，请重新授权频道")
+        raise YouTubeAuthorizationRequired("YouTube授权缺少刷新令牌，请重新授权频道")
     if refresher is None:
         config = cloud_oauth_client_config(get_settings()) if cloud_store else load_oauth_client_config(store)
         refresher = lambda value: refresh_oauth_access_token(config, value)
@@ -105,6 +106,15 @@ def _youtube_request_json(url: str, access_token: str) -> Mapping[str, object]:
         with open_google_url(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
+        if exc.code == 401:
+            raise YouTubeAuthorizationRequired("YouTube授权无效，请重新授权该频道") from None
+        if exc.code == 403:
+            try:
+                reasons = [item.get("reason") for item in json.loads(exc.read()).get("error", {}).get("errors", [])]
+            except (ValueError, AttributeError, TypeError):
+                reasons = []
+            if "insufficientPermissions" in reasons:
+                raise YouTubeAuthorizationRequired("YouTube授权权限不足，请重新授权该频道") from None
         raise ValueError(f"YouTube API请求失败：HTTP {exc.code}") from exc
     except (URLError, TimeoutError) as exc:
         raise ValueError("无法连接YouTube API") from exc
@@ -199,10 +209,10 @@ def create_authorized_channel_playlist(
         .limit(1)
     )
     if authorization is None:
-        raise ConflictError("频道没有匹配且有效的YouTube授权绑定")
+        raise YouTubeAuthorizationRequired("频道没有有效的YouTube授权，请重新授权频道")
     grant = session.get(OAuthGrant, authorization.oauth_grant_id)
     if grant is None or grant.status != "active":
-        raise ConflictError("频道授权使用的OAuth Grant不可用")
+        raise YouTubeAuthorizationRequired("频道YouTube授权已失效，请重新授权频道")
     access_token = ensure_grant_access_token(session, store, grant, now=current_time)
     resource = creator(
         access_token,
@@ -408,10 +418,10 @@ def sync_authorized_channel_videos(
         .limit(1)
     )
     if authorization is None:
-        raise ConflictError("频道没有匹配且有效的YouTube授权绑定")
+        raise YouTubeAuthorizationRequired("频道没有有效的YouTube授权，请重新授权频道")
     grant = session.get(OAuthGrant, authorization.oauth_grant_id)
     if grant is None or grant.status != "active":
-        raise ConflictError("频道授权使用的OAuth Grant不可用")
+        raise YouTubeAuthorizationRequired("频道YouTube授权已失效，请重新授权频道")
     worker_key = f"channel-video-sync:{channel_id}"
     start_sync(
         session,
