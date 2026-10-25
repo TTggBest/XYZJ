@@ -939,10 +939,16 @@ def list_schedule_overview(
     )
     if channel_id:
         statement = statement.where(ChannelScheduleEntry.channel_id == channel_id)
+    # The day views display Beijing time; publish_date belongs to the channel's timezone.
     if publish_date_from:
-        statement = statement.where(ChannelScheduleEntry.publish_date >= publish_date_from)
+        statement = statement.where(
+            ChannelScheduleEntry.planned_beijing_time >= datetime.combine(publish_date_from, time.min)
+        )
     if publish_date_to:
-        statement = statement.where(ChannelScheduleEntry.publish_date <= publish_date_to)
+        statement = statement.where(
+            ChannelScheduleEntry.planned_beijing_time
+            < datetime.combine(publish_date_to + timedelta(days=1), time.min)
+        )
     if status:
         statement = statement.where(ChannelScheduleEntry.status == status)
     if has_task is True:
@@ -952,8 +958,7 @@ def list_schedule_overview(
     rows = list(
         session.execute(
             statement.order_by(
-                ChannelScheduleEntry.publish_date,
-                ChannelScheduleEntry.planned_utc_time,
+                ChannelScheduleEntry.planned_beijing_time,
                 ChannelScheduleEntry.priority,
                 ChannelScheduleEntry.created_at,
             )
