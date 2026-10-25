@@ -343,6 +343,7 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 
 .table-wrap { overflow-x: auto; }
 .channel-schedule-table { overflow-x: auto; overflow-y: visible; overscroll-behavior-x: contain; }
+.schedule-batch-select { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: var(--muted); }
 .schedule-toolbar .search-field { min-width: 230px; flex: 1 1 280px; }
 .schedule-view-switch { display: flex; align-items: end; gap: 5px; }
 .drama-filter-body { padding-bottom: 12px; }
