@@ -16,7 +16,7 @@ LANGUAGES = {
     "英语": "en", "英文": "en", "english": "en", "en": "en",
     "法语": "fr", "french": "fr", "fr": "fr",
     "巴葡": "pt-BR", "巴葡语": "pt-BR", "巴西葡萄牙语": "pt-BR", "葡萄牙语": "pt", "pt-br": "pt-BR",
-    "印尼语": "id", "印度尼西亚语": "id", "indonesian": "id", "id": "id",
+    "印尼": "id", "印尼语": "id", "印度尼西亚语": "id", "indonesian": "id", "id": "id",
     "西班牙语": "es", "西语": "es", "es": "es", "德语": "de", "de": "de",
     "日语": "ja", "ja": "ja", "韩语": "ko", "ko": "ko", "中文": "zh", "zh": "zh",
     "泰语": "th", "th": "th", "越南语": "vi", "vi": "vi", "土耳其语": "tr", "tr": "tr",

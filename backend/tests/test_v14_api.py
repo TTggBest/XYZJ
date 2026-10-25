@@ -50,6 +50,25 @@ def test_task_start_dispatches_and_enqueues_v14_idempotently(client):
     assert claim.json()["run_id"] == run["run_id"]
 
 
+@pytest.mark.parametrize("material_language", ["印尼", "印尼语", "印度尼西亚语", "Indonesian", "id"])
+def test_indonesian_material_alias_can_start_bound_channel(client, store, material_language):
+    from copy import deepcopy
+    from zhiju.models import Channel
+    from zhiju.models.v14 import V14Setting
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.get(Channel, "channel-a").default_language = "id"
+        setting = s.scalar(sa.select(V14Setting))
+        config = deepcopy(setting.payload)
+        config["channel_inputs"]["channel-a"]["language"] = material_language
+        setting.payload = config
+        s.commit()
+    response = client.post("/api/v3/tasks/task-a/start-v14")
+    assert response.status_code == 200, response.text
+    run = response.json()
+    assert run["status"] == "queued"
+    assert client.post("/api/v3/tasks/task-a/start-v14").json()["run_id"] == run["run_id"]
+
+
 @pytest.mark.parametrize("configured", [True, False])
 def test_pending_task_start_is_atomic(client, store, configured):
     from datetime import date
