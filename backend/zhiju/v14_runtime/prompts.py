@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy
 import json
+import re
 from typing import Any
 from .canonical import first_result, title_rows, cover_rows, title_format_from_snapshot, public_playlist_urls_in_text, title_row_requires_minor_child, cover_group_child_requirements
 from .rules import load_description_rule_bundle

@@ -43,6 +43,18 @@ def test_downstream_inherits_packaging_brief():
     assert "brief-1" in stage.prompt and "真实承诺" in stage.prompt
 
 
+def test_cover_retry_builds_correction_prompt_without_regenerating_accepted_inputs():
+    from zhiju.v14_runtime.contract import build_stage_input
+    e = envelope()
+    e["retry_state"] = [{"node_type": "cover", "outcome": "content_error",
+        "error": "cover_1_key_prop_missing; cover_2_key_prop_missing"}]
+    original = deepcopy(e)
+    stage = build_stage_input(e, "cover")
+    assert "key_prop_missing" in stage.prompt
+    assert stage.context["title_payload"] == original["accepted_results"]["title"]
+    assert e == original
+
+
 @pytest.mark.parametrize("count", [0, 1, 2])
 def test_community_count_zero_one_two(count):
     from zhiju.v14_runtime.contract import build_stage_input
