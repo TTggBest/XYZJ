@@ -63,6 +63,11 @@ def create(work_order_id: str, s: Session = Depends(get_tenant_db), p=Depends(op
     return service.run_read(s, call(service.create_run, s, work_order_id))
 
 
+@router.post("/tasks/{task_id}/start-v14")
+def start_task(task_id: str, s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    return service.run_read(s, call(service.start_task, s, task_id))
+
+
 @router.get("/work-orders/{work_order_id}/v14-runs/current")
 def current(work_order_id: str, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     require_tenant_entity(s, WorkOrder, work_order_id)

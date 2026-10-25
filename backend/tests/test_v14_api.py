@@ -37,6 +37,58 @@ def start(client):
     return run, claim.json()
 
 
+def test_task_start_dispatches_and_enqueues_v14_idempotently(client):
+    first = client.post("/api/v3/tasks/task-a/start-v14")
+    assert first.status_code == 200, first.text
+    run = first.json()
+    assert run["work_order_id"] == "work-a"
+    assert run["package_id"] == "package-a"
+    assert run["status"] == "queued"
+    assert client.post("/api/v3/tasks/task-a/start-v14").json()["run_id"] == run["run_id"]
+    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+    assert claim.status_code == 200, claim.text
+    assert claim.json()["run_id"] == run["run_id"]
+
+
+@pytest.mark.parametrize("configured", [True, False])
+def test_pending_task_start_is_atomic(client, store, configured):
+    from datetime import date
+    from zhiju.models import OperationTask, WorkOrder, OperationPackage
+    from zhiju.models.v14 import V14Setting, V14Run
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.add(OperationTask(id="new-task", batch_id="batch-a", channel_id="channel-a",
+            drama_id="drama-a", source="manual", task_date=date(2026, 10, 27),
+            target_publish_date=date(2026, 10, 27), idempotency_key="new-task",
+            source_video_id="video-new", status="pending_dispatch", community_count=0))
+        if not configured:
+            s.delete(s.scalar(sa.select(V14Setting)))
+        s.commit()
+    response = client.post("/api/v3/tasks/new-task/start-v14")
+    assert response.status_code == (200 if configured else 409), response.text
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        task = s.get(OperationTask, "new-task")
+        work = s.scalar(sa.select(WorkOrder).where(WorkOrder.task_id == task.id))
+        if not configured:
+            assert task.status == "pending_dispatch"
+            assert work is None
+            assert s.scalar(sa.select(sa.func.count()).select_from(V14Run)) == 0
+        else:
+            assert task.status == "dispatched"
+            assert work.drama_id == task.drama_id and work.channel_id == task.channel_id
+            package = s.scalar(sa.select(OperationPackage).where(OperationPackage.work_order_id == work.id))
+            run = s.get(V14Run, response.json()["run_id"])
+            assert run.package_id == package.id
+            assert run.input_snapshot["video_id"] == "video-new"
+            assert run.input_snapshot["community_count"] == 0
+            assert client.post("/api/v3/tasks/new-task/start-v14").json()["run_id"] == run.id
+
+
+def test_task_start_preserves_v14_operator_and_tenant_boundaries(client):
+    assert client.post("/api/v3/tasks/task-b/start-v14").status_code == 404
+    client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, membership_role="member")
+    assert client.post("/api/v3/tasks/task-a/start-v14").status_code == 403
+
+
 def begin(client, claim):
     r = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts", json={"claim_id": claim["claim_id"], "node_type": "search"})
     assert r.status_code == 200, r.text

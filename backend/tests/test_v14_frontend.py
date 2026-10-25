@@ -1,3 +1,5 @@
+import pytest
+
 from test_auth_frontend_contract import run_node
 
 BOOT = r"""
@@ -66,6 +68,59 @@ def test_feishu_workorder_sync_entry_remains():
 await click('go-workorders');
 assert.match(page.nodes.get('viewRoot').innerHTML,/sync-feishu-workorders/);
 assert.match(page.nodes.get('viewRoot').innerHTML,/一键同步飞书/);
+""")
+
+
+@pytest.mark.parametrize("action,expected", [
+    ("dispatch-selected", ["t2"]),
+    ("dispatch-all", ["t1", "t2"]),
+])
+def test_workorder_start_buttons_enqueue_v14_without_extra_click(action, expected):
+    boot = BOOT.replace("return new Response('[]');", r"""
+ if(path.startsWith('/api/v3/tasks/overview'))return new Response(JSON.stringify([
+  {task_id:'t1',task_status:'pending_dispatch',nodes:[]},
+  {task_id:'t2',task_status:'pending_dispatch',nodes:[]},
+  {task_id:'t3',task_status:'completed',nodes:[]}
+ ]));
+ if(path.endsWith('/start-v14'))return new Response('{"status":"queued","run_id":"r"}');
+ return new Response('[]');
+""")
+    run_node(boot + r"""
+await click('go-workorders');
+page.document.querySelectorAll=s=>s==='.task-check:checked'?[{value:'t2'}]:[];
+await click(ACTION);
+const starts=requests.filter(([p,o])=>p.endsWith('/start-v14')&&o.method==='POST');
+assert.deepEqual(starts.map(([p])=>p.split('/')[4]),EXPECTED);
+assert.equal(requests.filter(([p,o])=>p.endsWith('/dispatch')&&o.method==='POST').length,0);
+assert.match(toasts.join('\n'),/V14.*排队/);
+""".replace("ACTION", repr(action)).replace("EXPECTED", repr(expected)))
+
+
+def test_batch_v14_start_prevents_double_click_and_reports_partial_failure():
+    boot = BOOT.replace("return new Response('[]');", r"""
+ if(path.startsWith('/api/v3/tasks/overview'))return new Response(JSON.stringify([
+  {task_id:'t1',task_status:'pending_dispatch',nodes:[]},
+  {task_id:'t2',task_status:'pending_dispatch',nodes:[]}
+ ]));
+ if(path.endsWith('/start-v14')){
+  if(path.includes('/t1/')){await gate;return new Response('{"status":"queued","run_id":"r1"}');}
+  return new Response('{"detail":"缺少当前频道 V14 材料或固定规则"}',{status:409});
+ }
+ return new Response('[]');
+""")
+    run_node(boot + r"""
+let release;
+const gate=new Promise(resolve=>{release=resolve;});
+await click('go-workorders');
+const first=click('dispatch-all');
+await page.tick();
+await click('dispatch-all');
+assert.equal(requests.filter(([p])=>p.endsWith('/start-v14')).length,1);
+release();await first;
+assert.equal(requests.filter(([p])=>p.endsWith('/start-v14')).length,2);
+assert.match(toasts.join('\n'),/缺少当前频道 V14 材料/);
+assert.match(toasts.join('\n'),/V14 已排队 1 条工单，失败 1 条/);
+assert.doesNotMatch(toasts.join('\n'),/已开始生产/);
 """)
 
 

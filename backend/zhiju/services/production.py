@@ -181,7 +181,7 @@ def _detail(session: Session, work_order: WorkOrder) -> dict[str, object]:
     return {"task": task, "work_order": work_order, "package": package, "nodes": _latest_nodes(session, work_order.id)}
 
 
-def dispatch_task(session: Session, task_id: str) -> dict[str, object]:
+def dispatch_task(session: Session, task_id: str, *, commit: bool = True) -> dict[str, object]:
     task = require_tenant_entity(session, OperationTask, task_id, lock=True)
     if task is None:
         raise NotFoundError("任务不存在")
@@ -251,7 +251,10 @@ def dispatch_task(session: Session, task_id: str) -> dict[str, object]:
     _system_event(session, "work_order", work_order.id, None, "queued", "任务下发")
     _system_event(session, "operation_package", package.id, None, "building", "初始化运营包")
     _audit(session, "task.dispatched", "operation_task", task.id)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(work_order)
     return _detail(session, work_order)
 

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, PackageCommunityPost,
                           PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language)
 from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
-from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel
+from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel, dispatch_task
 from zhiju.services.identity import ConflictError
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
@@ -34,7 +34,19 @@ def get_run(session: Session, run_id: str) -> V14Run:
     return require_tenant_entity(session, V14Run, run_id, lock=True)
 
 
-def create_run(session: Session, work_order_id: str) -> V14Run:
+def start_task(session: Session, task_id: str) -> V14Run:
+    """Dispatch and enqueue the existing V14 workflow as one transaction."""
+    try:
+        detail = dispatch_task(session, task_id, commit=False)
+        run = create_run(session, detail["work_order"].id, commit=False)
+        session.commit()
+        return run
+    except Exception:
+        session.rollback()
+        raise
+
+
+def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> V14Run:
     work = require_tenant_entity(session, WorkOrder, work_order_id, lock=True)
     existing = session.scalar(select(V14Run).where(V14Run.work_order_id == work.id,
                                                   V14Run.tenant_id == session.info["tenant_id"]))
@@ -87,7 +99,10 @@ def create_run(session: Session, work_order_id: str) -> V14Run:
     except (ValueError, KeyError, TypeError) as exc:
         raise ConflictError(f"V14 配置不完整: {exc}") from exc
     session.add(run)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return run
 
 

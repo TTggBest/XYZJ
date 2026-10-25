@@ -696,14 +696,14 @@ def test_real_app_bulk_dispatch_does_not_send_next_old_id_after_tenant_switch():
 let release;
 const page=start(process.argv[1],auth,async(path,options)=>{
  paths.push(path);
- if(path==='/api/v3/tasks/a1/dispatch')return new Promise(resolve=>{release=()=>resolve(new Response('{}'));});
+ if(path==='/api/v3/tasks/a1/start-v14')return new Promise(resolve=>{release=()=>resolve(new Response('{}'));});
  return defaultResponse(path);
 });
 await settle(page);const pending=clickAction(page,'dispatch-all');await page.tick();
 assert.equal(typeof release,'function');await switchCompany(page);
 assert.equal(auth.current().tenant_id,'t2');const count=paths.length;
 release();await pending;
-assert.deepEqual(paths.filter(path=>path.endsWith('/dispatch')),['/api/v3/tasks/a1/dispatch']);
+assert.deepEqual(paths.filter(path=>path.endsWith('/start-v14')),['/api/v3/tasks/a1/start-v14']);
 assert.equal(paths.length,count);assert.match(page.nodes.get('tenantBanner').textContent,/乙公司/);
 """)
 
@@ -809,11 +809,11 @@ def test_real_app_bulk_dispatch_completes_under_one_identity(first_status):
     run_node(APP_FIXTURE + f"const firstStatus={first_status};" + """
 const page=start(process.argv[1],auth,async(path,options)=>{
  paths.push(path);
- if(path==='/api/v3/tasks/a1/dispatch')return new Response('{"detail":"已下发"}',{status:firstStatus});
+ if(path==='/api/v3/tasks/a1/start-v14')return new Response('{"detail":"已排队"}',{status:firstStatus});
  return defaultResponse(path);
 });
 await settle(page);await clickAction(page,'dispatch-all');
-assert.deepEqual(paths.filter(path=>path.endsWith('/dispatch')),['/api/v3/tasks/a1/dispatch','/api/v3/tasks/a2/dispatch']);
+assert.deepEqual(paths.filter(path=>path.endsWith('/start-v14')),['/api/v3/tasks/a1/start-v14','/api/v3/tasks/a2/start-v14']);
 assert.match(page.nodes.get('viewRoot').innerHTML,/工单列表/);assert.equal(auth.current().tenant_id,'t1');
 """)
 
@@ -823,14 +823,14 @@ def test_real_app_bulk_dispatch_stops_on_auth_failure_or_abort(failure):
     run_node(APP_FIXTURE + f"const failure={json.dumps(failure)};" + """
 const page=start(process.argv[1],auth,async(path,options)=>{
  paths.push(path);
- if(path==='/api/v3/tasks/a1/dispatch'){
+ if(path==='/api/v3/tasks/a1/start-v14'){
   if(failure==='abort')throw new DOMException('cancelled','AbortError');
   return new Response('{"detail":"请先登录"}',{status:401});
  }
  return defaultResponse(path);
 });
 await settle(page);const count=paths.length;await clickAction(page,'dispatch-all');
-assert.deepEqual(paths.slice(count),['/api/v3/tasks/a1/dispatch']);
+assert.deepEqual(paths.slice(count),['/api/v3/tasks/a1/start-v14']);
 """)
 
 

@@ -782,22 +782,33 @@
     const tools = `<div class="toolbar"><div class="field"><label>任务日期</label><input class="input" type="date" id="taskDate" value="${state.date}"></div><button class="button button-secondary" data-action="dispatch-selected">下发选中</button><button class="button button-primary" data-action="dispatch-all">${icon("send")} 一键下发待下发</button></div>`;
     root.innerHTML = `<div class="page-stack">${section("数据库任务列表", `${tasks.length} 条任务 · 默认只下发状态为“待下发”的任务`, rows.length ? table(["", "剧目", "频道", "计划发布", "社群", "状态", "生产进度", ""], rows, 980) : empty("当天没有任务", "请先在排期页面为当天排期生成任务。", "go-schedules", "进入排期"), tools)}</div>`;
   }
+  let taskStartingV14 = false;
   async function dispatchMany(ids) {
+    if (taskStartingV14) return;
     if (!ids.length) return notify("没有待生产的工单", true);
     const expectedRevision = auth.capture();
+    const startDate = state.date;
     let done = 0;
-    for (const id of ids) {
-      if (!auth.isCurrent(expectedRevision)) return;
-      try {
-        await api(`/tasks/${id}/dispatch`, { method: "POST", expectedRevision });
-        if (!auth.isCurrent(expectedRevision)) return;
-        done += 1;
-      } catch (error) {
-        if (!auth.isCurrent(expectedRevision) || error.status === 401 || error.name === "AbortError") return;
-        notify(error.message, true);
+    let failed = 0;
+    taskStartingV14 = true;
+    try {
+      for (const id of new Set(ids)) {
+        if (!auth.isCurrent(expectedRevision) || state.date !== startDate) return;
+        try {
+          await api(`/tasks/${id}/start-v14`, { method: "POST", expectedRevision });
+          if (!auth.isCurrent(expectedRevision)) return;
+          done += 1;
+        } catch (error) {
+          if (!auth.isCurrent(expectedRevision) || error.status === 401 || error.name === "AbortError") return;
+          failed += 1;
+          notify(error.message, true);
+        }
       }
+      notify(`V14 已排队 ${done} 条工单${failed ? `，失败 ${failed} 条` : ""}，等待绑定执行器领取`, !!failed);
+      if (state.date === startDate) await loadView("workorders");
+    } finally {
+      taskStartingV14 = false;
     }
-    notify(`已开始生产 ${done} 条工单`); await loadView("workorders");
   }
 
   async function showWorkorders() {
