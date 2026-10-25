@@ -256,6 +256,7 @@ def fetch_channel_upload_videos(
         raise ValueError("YouTube频道未返回上传视频播放列表")
 
     video_ids: list[str] = []
+    deleted_placeholders: set[str] = set()
     upload_times = {}
     page_token = ""
     while True:
@@ -273,6 +274,9 @@ def fetch_channel_upload_videos(
         for item in items:
             details = item.get("contentDetails") if isinstance(item, dict) else None
             video_id = str(details.get("videoId") or "").strip() if isinstance(details, dict) else ""
+            snippet = (item.get("snippet") or {}) if isinstance(item, dict) else {}
+            if video_id and snippet.get("title") == "Deleted video" and not snippet.get("videoOwnerChannelId"):
+                deleted_placeholders.add(video_id)
             if video_id and video_id not in video_ids:
                 video_ids.append(video_id)
                 upload_times[video_id] = (item.get("snippet") or {}).get("publishedAt")
@@ -300,9 +304,11 @@ def fetch_channel_upload_videos(
                 video_id = str(item.get("id") or "").strip()
                 if video_id:
                     resources[video_id] = {**item, "upload_recorded_at": upload_times.get(video_id)}
-    if set(video_ids) - resources.keys():
+    # YouTube keeps deleted-video placeholders in the uploads playlist. Only
+    # ignore their missing details; an ordinary unreadable video still fails sync.
+    if set(video_ids) - resources.keys() - deleted_placeholders:
         raise ValueError("部分上传记录无法读取视频详情，结果不完整；请检查频道授权或视频状态后重试，未自动分配视频")
-    return [resources[video_id] for video_id in video_ids]
+    return [resources[video_id] for video_id in video_ids if video_id in resources]
 
 
 def _parse_timestamp(value: object) -> datetime | None:

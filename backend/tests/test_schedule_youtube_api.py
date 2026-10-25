@@ -133,7 +133,8 @@ def test_sync_api_recomputes_red_yellow_and_cleared_warnings(api_context, monkey
     assert [v["video_id"] for v in cleared["videos"]] == ["firstvideo1"]
 
 
-def test_incomplete_channel_read_keeps_existing_id_and_returns_failed_sync(api_context, monkeypatch):
+@pytest.mark.parametrize("snippet", [{}, {"title": "Private video"}, {"title": "Deleted video", "videoOwnerChannelId": "UC-owner"}])
+def test_incomplete_channel_read_keeps_existing_id_and_returns_failed_sync(api_context, monkeypatch, snippet):
     client, session, schedule, _ = api_context
     schedule.source_video_id = "keep-this01"
     session.commit()
@@ -142,7 +143,7 @@ def test_incomplete_channel_read_keeps_existing_id_and_returns_failed_sync(api_c
         if path.endswith("/channels"):
             return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU-owner"}}}]}
         if path.endswith("/playlistItems"):
-            return {"items": [{"contentDetails": {"videoId": "unreadable1"}}]}
+            return {"items": [{"snippet": snippet, "contentDetails": {"videoId": "unreadable1"}}]}
         return {"items": []}
     monkeypatch.setattr("zhiju.services.youtube_channel_sync._youtube_request_json", google_get)
     response = client.post(f"/api/v3/channels/{schedule.channel_id}/youtube-videos/sync")
@@ -151,6 +152,40 @@ def test_incomplete_channel_read_keeps_existing_id_and_returns_failed_sync(api_c
     review = client.get(f"/api/v3/schedules/{schedule.id}/youtube-review").json()
     assert review["sync_complete"] is False
     assert schedule.source_video_id == "keep-this01"
+
+
+def test_deleted_upload_placeholder_does_not_abort_sync_or_remain_a_duplicate(api_context, monkeypatch):
+    client, session, schedule, title = api_context
+    from zhiju.models import YoutubeVideo
+    session.add(YoutubeVideo(youtube_video_id="deleted0001", channel_id=schedule.channel_id,
+        title=title, original_file_name=f"{title}_阿拉伯语.mp4", privacy_status="private",
+        publish_status="draft", upload_status="uploaded", source="youtube_sync",
+        url="https://youtu.be/deleted0001", last_synced_at=datetime.now(timezone.utc) - timedelta(days=1)))
+    schedule.planned_utc_time = datetime.now(timezone.utc) + timedelta(days=10)
+    session.commit()
+
+    def google_get(url, token):
+        path = urlparse(url).path
+        if path.endswith("/channels"):
+            return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU-owner"}}}]}
+        if path.endswith("/playlistItems"):
+            return {"items": [
+                {"snippet": {"title": "Deleted video"}, "contentDetails": {"videoId": "deleted0001"}},
+                {"snippet": {"title": title, "publishedAt": "2026-10-15T12:00:00Z"}, "contentDetails": {"videoId": "normalvideo"}},
+            ]}
+        return {"items": [{"id": "normalvideo", "snippet": {"title": title},
+            "status": {"privacyStatus": "private", "uploadStatus": "processed"},
+            "fileDetails": {"fileName": f"{title}_阿拉伯语.mp4"}, "contentDetails": {"duration": "PT1H"}}]}
+
+    monkeypatch.setattr("zhiju.services.youtube_channel_sync._youtube_request_json", google_get)
+    response = client.post(f"/api/v3/channels/{schedule.channel_id}/youtube-videos/sync")
+    assert response.status_code == 200, response.text
+    assert response.json()["fetched"] == 1
+    review = client.get(f"/api/v3/schedules/{schedule.id}/youtube-review").json()
+    assert review["sync_complete"] is True
+    assert review["warnings"] == []
+    assert review["selected"]["video_id"] == "normalvideo"
+    assert [v["video_id"] for v in review["videos"]] == ["normalvideo"]
 
 
 def test_cloud_expired_token_refresh_uses_cloud_config_and_preserves_refresh_token(api_context, monkeypatch):

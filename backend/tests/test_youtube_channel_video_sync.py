@@ -135,6 +135,31 @@ def test_upload_playlist_fetcher_follows_pages_and_reads_video_details() -> None
     assert any("pageToken=page-2" in url for url in calls)
 
 
+def test_deleted_placeholder_label_does_not_hide_a_readable_video() -> None:
+    def requester(url, access_token):
+        path = urlparse(url).path
+        if path.endswith("/channels"):
+            return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU-test"}}}]}
+        if path.endswith("/playlistItems"):
+            return {"items": [{"snippet": {"title": "Deleted video"}, "contentDetails": {"videoId": "readable001"}}]}
+        return {"items": [_remote_video("readable001", "Deleted video")]}
+
+    videos = fetch_channel_upload_videos("access", "UC-test", requester=requester)
+    assert [v["id"] for v in videos] == ["readable001"]
+
+
+def test_upload_list_with_only_deleted_placeholders_is_empty_not_failed() -> None:
+    def requester(url, access_token):
+        path = urlparse(url).path
+        if path.endswith("/channels"):
+            return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU-test"}}}]}
+        if path.endswith("/playlistItems"):
+            return {"items": [{"snippet": {"title": "Deleted video"}, "contentDetails": {"videoId": "deleted0001"}}]}
+        return {"items": []}
+
+    assert fetch_channel_upload_videos("access", "UC-test", requester=requester) == []
+
+
 def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() -> None:
     suffix = uuid4().hex[:12]
     known_video_id = f"K{suffix[:10]}"
