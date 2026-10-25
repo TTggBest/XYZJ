@@ -169,3 +169,23 @@ assert.equal(config.host_id,'device-a');
 assert.equal(config.session_token,'test-only');
 assert.equal(auth.current().user_id,'u1');
 """)
+
+
+def test_date_change_stops_next_enqueue_but_wakes_already_queued_work():
+    boot = BOOT.replace("return new Response('[]');", r"""
+ if(path.startsWith('/api/v3/tasks/overview'))return new Response(JSON.stringify([
+  {task_id:'t1',task_status:'pending_dispatch',nodes:[]},
+  {task_id:'t2',task_status:'pending_dispatch',nodes:[]}
+ ]));
+ if(path.endsWith('/start-v14')){
+  await page.document.emit('change',{target:{id:'workDate',value:'2026-10-29',matches:()=>false}});
+  return new Response('{"status":"queued","run_id":"r1"}');
+ }
+ return new Response('[]');
+""")
+    run_node(boot + r"""
+await click('go-workorders');
+await click('dispatch-all');
+assert.equal(requests.filter(([p])=>p.endsWith('/start-v14')).length,1);
+assert.equal(requests.filter(([p])=>p==='http://127.0.0.1:19733/start').length,1);
+""")

@@ -832,7 +832,8 @@
     try {
       const config = await prepareV14Executor(expectedRevision);
       for (const id of new Set(ids)) {
-        if (!auth.isCurrent(expectedRevision) || state.date !== startDate) return;
+        if (!auth.isCurrent(expectedRevision)) return;
+        if (state.date !== startDate) break;
         try {
           await api(`/tasks/${id}/start-v14`, { method: "POST", expectedRevision });
           if (!auth.isCurrent(expectedRevision)) return;
