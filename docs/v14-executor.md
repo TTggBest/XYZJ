@@ -30,9 +30,20 @@ Codex 使用当前 CLI 账号；可用可选 codex_home 指定本机凭据位置
 
 ## 启动与停止
 
-项目目录执行 `PYTHONPATH=backend .venv/bin/python -m zhiju.v14_executor --config /绝对路径/executor.json --once`，只领取一条。
+正常使用不需要手动开执行器。绑定的 Mac 一次性安装本机唤起组件后，“开始生产选中”“一键开始待生产”、单条开始、详情重试唤起和继续运行都会自动检查本机授权与 Codex 登录，再启动执行器。队列处理完后执行器和 Codex 子进程退出；只有不运行模型、不轮询业务队列的轻量 loopback 唤起服务保留，由当前用户 launchd 自动管理。
 
-去掉 --once 持续领取。可由本机用户级 launchd 运行相同命令：ProgramArguments 使用 Python 绝对路径、`-m`、`zhiju.v14_executor`、`--config` 和配置绝对路径；WorkingDirectory 指向本项目，EnvironmentVariables.PYTHONPATH 指向本项目 backend。登录用户负责安装/加载 LaunchAgent，本次开发不自动安装或启动服务。
+安装须获用户授权，并从已提交推送的 dev 版本进行。使用已装好运行依赖的 Python：
+
+```bash
+python scripts/install_v14_launcher.py --origin https://你的智矩地址 \
+  --tenant-id 当前公司ID --host-id 已绑定主机ID --codex-binary /本机/codex/绝对路径
+```
+
+组件仅监听 `127.0.0.1:19733`，只接受安装时指定的智矩网页来源、公司、主机和账号配置；不接受远程 shell 或浏览器指定的执行路径。网页登录短期授权通过私有 stdin 传给本次子进程，不保存在配置文件、URL 或日志里。浏览器首次询问本地网络访问权限时需要允许。在其他机器访问云端页面不能通过此组件唤起绑定 Mac。
+
+组件不存在、Codex 未登录、授权过期或绑定不一致时，预检失败，不创建新的生产任务。排队后若唤起失败，页面明确报错，可在工单详情“重试唤起执行器”；不会重复创建工单。退出码异常保存在本机 `/health` 状态中，日志位于 `~/Library/Application Support/zhiju-v14-launcher/worker.log`。
+
+手工诊断仍可执行 `PYTHONPATH=backend .venv/bin/python -m zhiju.v14_executor --config /绝对路径/executor.json --once`，只领取一条；`--drain` 处理完队列后退出。去掉两者则持续领取，仅作为显式手工运维方式，正常网页操作不依赖此方式。
 
 Ctrl-C/停止 LaunchAgent 后，先确认 Codex 子进程已退出，再在智矩点击继续并明确确认旧进程已停止。失联超过 90 秒仅显示中断，不自动把工作交给另一主机。
 

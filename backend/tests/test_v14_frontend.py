@@ -9,8 +9,15 @@ const downloads=[];
 const detail={work_order:{id:'work-a',status:'queued',production_date:'2026-10-17',target_publish_date:'2026-10-20'},package:{id:'package-a',status:'building'},nodes:[]};
 let run=null;
 let createError=false;
+let launcherOffline=false;
+let wakeOffline=false;
 const page=start(process.argv[1],auth,async(path,opts={})=>{
  requests.push([path,opts]);
+ if(path.startsWith('http://127.0.0.1:19733/')){
+  if(launcherOffline)throw new TypeError('offline');
+  if(wakeOffline&&path.endsWith('/start'))throw new TypeError('offline');
+  return new Response('{"ready":true,"running":true,"pid":123,"host_id":"device-a","tenant_id":"t1"}');
+ }
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
@@ -30,6 +37,7 @@ const toasts=[]; page.nodes.get('toastStack').appendChild=item=>toasts.push(item
 async function click(action,id,extra={}){
  const button={dataset:{action,id,...extra},closest:()=>null};
  await page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
+ return button;
 }
 """
 
@@ -41,6 +49,31 @@ assert.match(page.nodes.get('drawerBody').innerHTML,/运行 V14/);
 await click('v14-start','work-a');
 assert.equal(requests.filter(([p,o])=>p==='/api/v3/work-orders/work-a/v14-runs'&&o.method==='POST').length,1);
 assert.match(page.nodes.get('drawerBody').innerHTML,/selected-model/);
+assert.equal(requests.filter(([p])=>p==='http://127.0.0.1:19733/start').length,1);
+""")
+
+
+def test_missing_launcher_blocks_start_before_creating_a_run():
+    run_node(BOOT + r"""
+launcherOffline=true;
+const button=await click('v14-start','work-a');
+assert.equal(button.disabled,false);
+assert.equal(requests.filter(([p,o])=>p.endsWith('/v14-runs')&&o.method==='POST').length,0);
+assert.match(toasts.join('\n'),/本机.*组件|本地网络/);
+""")
+
+
+def test_wake_retry_reuses_queued_run_after_local_failure():
+    run_node(BOOT + r"""
+wakeOffline=true;
+const button=await click('v14-start','work-a');
+assert.equal(button.disabled,false);
+assert.match(toasts.join('\n'),/已排队.*唤起失败/);
+wakeOffline=false;
+const retry=await click('v14-wake','work-a');
+assert.equal(retry.disabled,false);
+assert.equal(requests.filter(([p,o])=>p.endsWith('/v14-runs')&&o.method==='POST').length,1);
+assert.equal(requests.filter(([p])=>p==='http://127.0.0.1:19733/start').length,2);
 """)
 
 
@@ -92,7 +125,8 @@ await click(ACTION);
 const starts=requests.filter(([p,o])=>p.endsWith('/start-v14')&&o.method==='POST');
 assert.deepEqual(starts.map(([p])=>p.split('/')[4]),EXPECTED);
 assert.equal(requests.filter(([p,o])=>p.endsWith('/dispatch')&&o.method==='POST').length,0);
-assert.match(toasts.join('\n'),/V14.*排队/);
+assert.equal(requests.filter(([p])=>p==='http://127.0.0.1:19733/start').length,1);
+assert.match(toasts.join('\n'),/已唤起.*执行器/);
 """.replace("ACTION", repr(action)).replace("EXPECTED", repr(expected)))
 
 

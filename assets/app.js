@@ -783,6 +783,44 @@
     root.innerHTML = `<div class="page-stack">${section("数据库任务列表", `${tasks.length} 条任务 · 默认只下发状态为“待下发”的任务`, rows.length ? table(["", "剧目", "频道", "计划发布", "社群", "状态", "生产进度", ""], rows, 980) : empty("当天没有任务", "请先在排期页面为当天排期生成任务。", "go-schedules", "进入排期"), tools)}</div>`;
   }
   let taskStartingV14 = false;
+  async function localV14Request(path, config) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(`http://127.0.0.1:19733${path}`, {method: "POST",
+        headers: {"Content-Type": "application/json"}, body: JSON.stringify(config),
+        credentials: "omit", referrerPolicy: "no-referrer", signal: controller.signal});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "本机 V14 启动失败");
+      return result;
+    } catch (error) {
+      if (error.name === "TypeError" || error.name === "AbortError") {
+        throw new Error("无法连接本机 V14 唤起组件：请确认已安装，并允许浏览器访问本地网络");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function prepareV14Executor(expectedRevision) {
+    const session = await api("/v14/executor-session", {method: "POST", expectedRevision});
+    if (!auth.isCurrent(expectedRevision)) throw new DOMException("账号已切换", "AbortError");
+    const config = {...session, base_url: window.location.origin};
+    const ready = await localV14Request("/prepare", config);
+    if (!ready.ready || ready.host_id !== config.host_id || ready.tenant_id !== config.tenant_id) {
+      throw new Error("本机 V14 唤起组件与当前公司或执行主机不匹配，请检查安装");
+    }
+    if (!auth.isCurrent(expectedRevision)) throw new DOMException("账号已切换", "AbortError");
+    return config;
+  }
+  async function wakeV14Executor(config, expectedRevision) {
+    if (!auth.isCurrent(expectedRevision)) throw new DOMException("账号已切换", "AbortError");
+    try {
+      await localV14Request("/start", config);
+    } catch (error) {
+      throw new Error(`V14 已排队，但本机唤起失败：${error.message}。可在工单详情点击“重试唤起执行器”`);
+    }
+  }
   async function dispatchMany(ids) {
     if (taskStartingV14) return;
     if (!ids.length) return notify("没有待生产的工单", true);
@@ -792,6 +830,7 @@
     let failed = 0;
     taskStartingV14 = true;
     try {
+      const config = await prepareV14Executor(expectedRevision);
       for (const id of new Set(ids)) {
         if (!auth.isCurrent(expectedRevision) || state.date !== startDate) return;
         try {
@@ -804,7 +843,8 @@
           notify(error.message, true);
         }
       }
-      notify(`V14 已排队 ${done} 条工单${failed ? `，失败 ${failed} 条` : ""}，等待绑定执行器领取`, !!failed);
+      if (done) await wakeV14Executor(config, expectedRevision);
+      notify(`V14 已排队 ${done} 条工单${failed ? `，失败 ${failed} 条` : ""}${done ? "；已唤起本机执行器，处理完队列后自动退出" : ""}`, !!failed);
       if (state.date === startDate) await loadView("workorders");
     } finally {
       taskStartingV14 = false;
@@ -827,7 +867,7 @@
     const w = detail.work_order, p = detail.package;
     const run = canRunV14() ? await api(`/work-orders/${id}/v14-runs/current`) : null;
     const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">运行 V14</button>`
-      : ["queued", "running"].includes(run.status) ? `<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
+      : ["queued", "running"].includes(run.status) ? `${run.status === "queued" ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
       : ["interrupted", "cancelled"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">继续运行</button>` : "";
     const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>V14 本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">V14 设置</button></div></div>` : "";
     openDrawer("工单详情", `<div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${tag(p.status)}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`);
@@ -1850,8 +1890,18 @@
       else if (action === "work-detail") await workDetail(id);
       else if (action === "v14-start") {
         button.disabled = true;
-        await api(`/work-orders/${id}/v14-runs`, { method: "POST" });
-        notify("V14 已排队，等待绑定的本机执行器领取"); await workDetail(id);
+        const revision = auth.capture();
+        const config = await prepareV14Executor(revision);
+        await api(`/work-orders/${id}/v14-runs`, { method: "POST", expectedRevision: revision });
+        await wakeV14Executor(config, revision);
+        notify("已唤起本机 V14 执行器，处理完队列后自动退出"); await workDetail(id);
+      }
+      else if (action === "v14-wake") {
+        button.disabled = true;
+        const revision = auth.capture();
+        const config = await prepareV14Executor(revision);
+        await wakeV14Executor(config, revision);
+        notify("已唤起本机 V14 执行器"); await workDetail(id);
       }
       else if (action === "v14-settings") await showV14Settings();
       else if (action === "v14-authorize") {
@@ -2138,6 +2188,9 @@
       else if (action === "add-integration-account") openModal("添加第三方账号", integrationAccountForm(id));
       else if (action === "add-credential") openModal("添加凭证引用", credentialForm(id));
     } catch (error) { notify(error.message, true); }
+    finally {
+      if (["v14-start", "v14-wake"].includes(action)) button.disabled = false;
+    }
   });
 
   document.addEventListener("change", async event => {
@@ -2228,7 +2281,9 @@
       }
       if (form.id === "v14ResumeForm") {
         if (!form.elements.stopped_confirmed.checked) throw new Error("请先确认旧进程已停止");
+        const config = await prepareV14Executor(expectedRevision);
         await api(`/v14/runs/${data.run_id}/resume`, {method: "POST", body: JSON.stringify({stopped_confirmed: true}), expectedRevision});
+        await wakeV14Executor(config, expectedRevision);
         closeModal(); await workDetail(data.work_id); return;
       }
       if (form.id === "youtubeChannelImportForm") {

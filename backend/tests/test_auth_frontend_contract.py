@@ -532,6 +532,9 @@ const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
 const companyB={...superUser,tenant_id:'t2',current_tenant:superUser.switchable_tenants[1]};
 const paths=[];let serverUser=superUser;
 function defaultResponse(path) {
+ if(path==='/api/v3/v14/executor-session')return new Response('{"host_id":"d1","tenant_id":"t1","account_profile":"current","session_token":"fixture-only"}');
+ if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"host_id":"d1","tenant_id":"t1"}');
+ if(path==='http://127.0.0.1:19733/start')return new Response('{"running":true,"pid":123}');
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(serverUser));
  if(path==='/api/v3/auth/switch-tenant'){serverUser=companyB;return new Response(JSON.stringify(serverUser));}
  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true},"web_port":8200}');
@@ -830,7 +833,7 @@ const page=start(process.argv[1],auth,async(path,options)=>{
  return defaultResponse(path);
 });
 await settle(page);const count=paths.length;await clickAction(page,'dispatch-all');
-assert.deepEqual(paths.slice(count),['/api/v3/tasks/a1/start-v14']);
+assert.deepEqual(paths.slice(count),['/api/v3/v14/executor-session','http://127.0.0.1:19733/prepare','/api/v3/tasks/a1/start-v14']);
 """)
 
 
