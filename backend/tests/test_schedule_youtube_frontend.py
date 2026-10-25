@@ -1,6 +1,46 @@
 from test_auth_frontend_contract import run_node
 
 
+def test_sync_warning_colors_follow_latest_results_and_clear():
+    run_node(r"""
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+let warnings=[{code:'multiple_candidates',message:'存在多个未公开视频',severity:'warning'}];
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"频道"}]');
+ if(path.endsWith('/youtube-videos/sync'))return new Response('{"fetched":1}');
+ const review={sync_complete:true,warnings,videos:[],channel_language:'en',channel_timezone:'UTC'};
+ if(path.startsWith('/api/v3/schedules/overview'))return new Response(JSON.stringify([{schedule_id:'s1',chinese_title:'剧',video_sync:review}]));
+ if(path.includes('/youtube-review'))return new Response(JSON.stringify(review));
+ return new Response('[]');
+});
+for(let i=0;i<4;i++)await page.tick();
+async function click(action){
+ const button={dataset:{action,id:'s1'},closest:()=>null};
+ await page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
+}
+await click('go-schedules');
+assert.match(page.nodes.get('viewRoot').innerHTML,/video-warning is-amber/);
+await click('schedule-video-review');
+assert.match(page.nodes.get('modalBody').innerHTML,/video-review-issues is-amber/);
+warnings.push({code:'youtube_blocked',message:'YouTube 已屏蔽',severity:'error'});
+await click('sync-schedule-channel');
+assert.match(page.nodes.get('viewRoot').innerHTML,/video-warning is-red/);
+await click('schedule-video-review');
+assert.match(page.nodes.get('modalBody').innerHTML,/video-review-issues is-red/);
+warnings=[];
+await click('sync-schedule-channel');
+assert.doesNotMatch(page.nodes.get('viewRoot').innerHTML,/video-warning/);
+await click('schedule-video-review');
+assert.doesNotMatch(page.nodes.get('modalBody').innerHTML,/video-review-issues/);
+const css=require('fs').readFileSync(process.argv[1]+'/assets/styles.css','utf8');
+assert.match(css,/\.video-warning\.is-amber\s*\{[^}]*color:\s*var\(--amber\)/);
+""")
+
+
 def test_normal_video_cell_is_compact_and_does_not_duplicate_empty_state():
     run_node(r"""
 const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');

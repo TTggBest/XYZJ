@@ -98,7 +98,6 @@ def test_explicit_choice_survives_resync_and_cannot_be_used_by_another_schedule(
     ({"original_file_name": None}, "language_unknown"),
     ({"upload_status": "uploaded"}, "video_processing"),
     ({"upload_status": "rejected", "publish_status": "error"}, "video_error"),
-    ({"last_synced_at": NOW - timedelta(days=1)}, "video_unavailable"),
 ])
 def test_uncertain_or_wrong_uploads_are_not_automatically_bound(fixture, change, warning):
     session, schedule, _ = fixture
@@ -118,6 +117,16 @@ def test_language_error_cannot_be_overridden_by_selection(fixture):
     with pytest.raises(ConflictError):
         select_schedule_video(session, schedule.id, "candidate01", confirm_unknown=True)
     assert schedule.source_video_id is None
+
+
+def test_absent_unbound_upload_does_not_remain_a_candidate_or_warning(fixture):
+    session, schedule, _ = fixture
+    add_video(session, schedule, last_synced_at=NOW - timedelta(days=1))
+    reconcile_channel_schedules(session, schedule.channel_id, now=NOW)
+    review = schedule_video_reviews(session, [schedule], now=NOW)[schedule.id]
+    assert review["videos"] == []
+    assert review["warnings"] == []
+    assert review["empty_label"] == "本次未上传"
 
 
 def test_unknown_language_requires_explicit_confirmation(fixture):

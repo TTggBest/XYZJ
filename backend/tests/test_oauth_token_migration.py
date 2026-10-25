@@ -63,6 +63,6 @@ def test_existing_cloud_tokens_survive_upgrade_retry_and_downgrade(missing_index
 
 def test_local_and_cloud_upgrades_share_one_forward_chain():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == ["8c14a201d002"]
-    assert [revision.revision for revision in scripts.iterate_revisions("head", "0d7a4c9e12f6")] == ["8c14a201d002", "7b14a201d001", "6a81c4d290fe"]
-    assert [revision.revision for revision in scripts.iterate_revisions("head", "7b14a201d001")] == ["8c14a201d002"]
+    assert scripts.get_heads() == ["9d25a201d003"]
+    assert [revision.revision for revision in scripts.iterate_revisions("head", "0d7a4c9e12f6")] == ["9d25a201d003", "8c14a201d002", "7b14a201d001", "6a81c4d290fe"]
+    assert [revision.revision for revision in scripts.iterate_revisions("head", "7b14a201d001")] == ["9d25a201d003", "8c14a201d002"]

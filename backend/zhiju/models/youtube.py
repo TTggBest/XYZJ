@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -45,6 +46,7 @@ class YoutubeVideo(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     original_file_name: Mapped[str | None] = mapped_column(String(1000), comment="YouTube原始上传文件名")
     uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="上传播放列表收录时间")
     upload_status: Mapped[str | None] = mapped_column(String(20), comment="YouTube上传处理状态")
+    region_restriction: Mapped[dict | None] = mapped_column(JSON, comment="YouTube当前地区屏蔽或允许范围")
     description: Mapped[str | None] = mapped_column(Text, comment="YouTube当前说明")
     url: Mapped[str] = mapped_column(String(1000), nullable=False, comment="YouTube视频地址")
     privacy_status: Mapped[str] = mapped_column(String(20), nullable=False, comment="公开视频、私享或不公开")

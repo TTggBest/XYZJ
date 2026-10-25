@@ -86,6 +86,53 @@ def test_foreign_channel_and_schedule_are_rejected_before_any_google_request(api
     assert client.post("/api/v3/schedules/foreign/youtube-selection", json={"video_id": "arabic-one1"}).status_code == 404
 
 
+def test_sync_api_recomputes_red_yellow_and_cleared_warnings(api_context, monkeypatch):
+    client, session, schedule, title = api_context
+    schedule.planned_utc_time = datetime.now(timezone.utc) + timedelta(days=10)
+    session.commit()
+    restriction = {"blocked": ["US", "SA"]}
+    ids = ["firstvideo1", "duplicate01"]
+    failed = False
+
+    def google_get(url, token):
+        if failed:
+            raise ValueError("无法连接YouTube API")
+        path = urlparse(url).path
+        if path.endswith("/channels"):
+            return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU-owner"}}}]}
+        if path.endswith("/playlistItems"):
+            return {"items": [{"snippet": {"publishedAt": f"2026-10-15T0{i}:00:00Z"}, "contentDetails": {"videoId": v}} for i, v in enumerate(ids)]}
+        return {"items": [{"id": v, "snippet": {"title": title},
+            "status": {"privacyStatus": "private", "uploadStatus": "processed"},
+            "fileDetails": {"fileName": f"{title}_阿拉伯语.mp4"},
+            "contentDetails": {"duration": "PT1H", **({"regionRestriction": restriction} if v == "duplicate01" and restriction else {})}}
+            for v in ids]}
+
+    monkeypatch.setattr("zhiju.services.youtube_channel_sync._youtube_request_json", google_get)
+
+    def sync():
+        response = client.post(f"/api/v3/channels/{schedule.channel_id}/youtube-videos/sync")
+        assert response.status_code == 200, response.text
+        return client.get(f"/api/v3/schedules/{schedule.id}/youtube-review").json()
+
+    blocked = sync()
+    assert blocked["warning_level"] == "error"
+    assert next(v for v in blocked["videos"] if v["video_id"] == "duplicate01")["selectable"] is False
+    failed = True
+    assert client.post(f"/api/v3/channels/{schedule.channel_id}/youtube-videos/sync").status_code == 409
+    uncertain = client.get(f"/api/v3/schedules/{schedule.id}/youtube-review").json()
+    assert uncertain["sync_complete"] is False
+    assert "youtube_blocked" in [w["code"] for w in uncertain["warnings"]]
+    failed = False
+    restriction = None
+    assert sync()["warning_level"] == "warning"
+    ids = ["firstvideo1"]
+    cleared = sync()
+    assert cleared["warnings"] == []
+    assert cleared["warning_level"] is None
+    assert [v["video_id"] for v in cleared["videos"]] == ["firstvideo1"]
+
+
 def test_incomplete_channel_read_keeps_existing_id_and_returns_failed_sync(api_context, monkeypatch):
     client, session, schedule, _ = api_context
     schedule.source_video_id = "keep-this01"

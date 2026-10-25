@@ -40,7 +40,9 @@ def upload_identity(value):
 
 
 def _warning(code, message):
-    return {"code": code, "message": message}
+    errors = {"youtube_blocked", "blocked", "language_error", "identity_conflict", "wrong_language_scheduled",
+              "video_error", "video_unavailable", "video_deleted", "bound_unavailable"}
+    return {"code": code, "message": message, "severity": "error" if code in errors else "warning"}
 
 
 def schedule_video_reviews(session, schedules, *, now=None):
@@ -84,6 +86,11 @@ def schedule_video_reviews(session, schedules, *, now=None):
             identity_conflict = bool((file_title and file_title not in names[schedule.drama_id]) or (video.drama_id and video.drama_id != schedule.drama_id))
             language_check = "mismatch" if mismatch else "conflict" if conflict else "unknown" if not file_language else "match"
             current = bool(complete and video.last_synced_at and utc(video.last_synced_at) >= utc(watermark.data_through_at))
+            # Historical rows remain stored, but missing/deleted uploads must not
+            # count as current duplicates or keep obsolete restriction warnings.
+            deleted = video.deleted_at is not None or video.publish_status == "deleted" or video.upload_status == "deleted"
+            if not bound and (deleted or (complete and not current)):
+                continue
             occupied = [s.id for s in channel_schedules if s.id != schedule.id and s.source_video_id == video.youtube_video_id]
             if video.schedule_id and video.schedule_id != schedule.id and video.schedule_id not in occupied:
                 occupied.append(video.schedule_id)
@@ -95,7 +102,21 @@ def schedule_video_reviews(session, schedules, *, now=None):
                 state = "processing" if video.upload_status == "uploaded" else "unknown"
             if not current:
                 state = "unavailable"
+            elif deleted:
+                state = "deleted"
             issues = []
+            restriction = video.region_restriction or {}
+            youtube_blocked = bool((current or not complete) and not deleted and (restriction.get("blocked") or "allowed" in restriction))
+            if youtube_blocked:
+                if "allowed" in restriction:
+                    allowed = restriction["allowed"]
+                    regions = "、".join(allowed) if len(allowed) <= 8 else f"{len(allowed)} 个国家或地区"
+                    message = f"YouTube 已屏蔽：仅允许在 {regions} 播放，其他地区不可播放" if allowed else "YouTube 已屏蔽：所有国家和地区均不可播放"
+                else:
+                    blocked_regions = restriction["blocked"]
+                    regions = "、".join(blocked_regions) if len(blocked_regions) <= 8 else f"{len(blocked_regions)} 个国家或地区"
+                    message = f"YouTube 已屏蔽：{regions} 不可播放"
+                issues.append(_warning("youtube_blocked", message))
             if language_check in {"mismatch", "conflict"}:
                 message = f"语言错误：视频标注 {LANGUAGE_LABELS.get(language, language) or '未知'}，频道要求 {LANGUAGE_LABELS.get(channel.default_language, channel.default_language)}"
                 if conflict:
@@ -111,8 +132,9 @@ def schedule_video_reviews(session, schedules, *, now=None):
                 issues.append(_warning("upload_time_unknown", "上传记录时间未知，不能按最早上传自动选择"))
             if occupied:
                 issues.append(_warning("occupied", "已绑定其他排期，不能重复自动分配"))
-            if state in {"error", "processing", "unknown", "unavailable"}:
-                issues.append(_warning("video_" + state, {"error": "视频处理失败或被拒绝", "processing": "视频仍在处理", "unknown": "上传处理状态未知", "unavailable": "本次无法确认该视频状态，保留原绑定"}[state]))
+            if state in {"error", "processing", "unknown", "unavailable", "deleted"}:
+                unavailable_message = "当前绑定视频已不在最新同步结果中，可能已删除或不可访问；请重新选择视频" if complete else "最近同步未完成，暂时无法确认该视频状态，保留原绑定"
+                issues.append(_warning("video_" + state, {"error": "视频处理失败或被拒绝", "processing": "视频仍在处理", "unknown": "上传处理状态未知", "unavailable": unavailable_message, "deleted": "当前绑定视频已删除，请重新选择视频"}[state]))
             if was_public and video.privacy_status != "public":
                 issues.append(_warning("previously_public", "该视频曾经公开，不能视为新上传"))
             if video.scheduled_publish_at and video.privacy_status != "public":
@@ -126,11 +148,12 @@ def schedule_video_reviews(session, schedules, *, now=None):
             if bound and video.privacy_status != "public" and utc(schedule.planned_utc_time) <= now:
                 issues.append(_warning("publish_overdue", "排期时间已过，本次视频仍未公开，请检查"))
             selectable = bool(current and not occupied and not identity_conflict and language_check not in {"mismatch", "conflict"}
-                              and video.privacy_status != "public" and not was_public and state in {"private", "unlisted", "scheduled"} and not video.is_blocked)
+                              and video.privacy_status != "public" and not was_public and state in {"private", "unlisted", "scheduled"} and not video.is_blocked and not youtube_blocked)
             candidates.append({"video_id": video.youtube_video_id, "title": video.title,
                 "file_name": video.original_file_name, "url": video.url,
                 "thumbnail_url": f"https://i.ytimg.com/vi/{video.youtube_video_id}/default.jpg",
                 "language": language, "language_check": language_check, "state": state,
+                "youtube_blocked": youtube_blocked,
                 "uploaded_at": video.uploaded_at, "scheduled_at": video.scheduled_publish_at,
                 "published_at": video.published_at, "previously_public": was_public,
                 "occupied_schedule_ids": occupied, "selected": bound,
@@ -151,7 +174,9 @@ def schedule_video_reviews(session, schedules, *, now=None):
             warnings.append(_warning("no_eligible_video", "发现相关视频，但没有符合本次排期的可用新视频"))
         for video in candidates:
             warnings.extend(video["warnings"])
+        warning_level = "error" if any(w["severity"] == "error" for w in warnings) else "warning" if warnings else None
         result[schedule.id] = {"videos": candidates, "warnings": warnings, "public_count": public_count,
+            "warning_level": warning_level,
             "selected": selected, "sync_complete": complete,
             "last_synced_at": watermark.data_through_at if watermark else None,
             "channel_language": channel.default_language, "channel_timezone": channel.timezone,
@@ -194,8 +219,10 @@ def reconcile_channel_schedules(session, channel_id, *, now=None):
                 _audit(session, "schedule.youtube_auto_selected", "channel_schedule_entry", schedule.id)
         selected = next((v for v in review["videos"] if v["video_id"] == schedule.source_video_id), None)
         if selected and selected["state"] not in {"unavailable", "unknown"}:
-            schedule.is_uploaded = selected["state"] not in {"error", "processing"}
+            schedule.is_uploaded = selected["state"] not in {"error", "processing", "deleted"}
             schedule.is_published = selected["state"] == "public"
+        elif selected and review["sync_complete"] and selected["state"] == "unavailable":
+            schedule.is_uploaded = schedule.is_published = False
         elif not schedule.source_video_id:
             schedule.is_uploaded = schedule.is_published = False
     session.commit()

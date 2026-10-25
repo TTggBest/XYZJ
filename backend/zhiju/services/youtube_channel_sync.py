@@ -382,6 +382,7 @@ def _video_payload(
         original_file_name=(resource.get("fileDetails") or {}).get("fileName"),
         uploaded_at=_parse_timestamp(resource.get("upload_recorded_at")),
         upload_status=upload_status,
+        region_restriction=details.get("regionRestriction"),
         description=str(snippet.get("description") or "") or None,
         url=f"https://www.youtube.com/watch?v={video_id}",
         privacy_status=privacy,
@@ -441,10 +442,11 @@ def sync_authorized_channel_videos(
                 select(YoutubeVideo).where(YoutubeVideo.youtube_video_id == video_id)
             )
             linkage = _linkage_for_video(session, channel.id, video_id)
-            video = upsert_video(
-                session,
-                _video_payload(channel.id, resource, linkage, current_time),
-            )
+            payload = _video_payload(channel.id, resource, linkage, current_time)
+            # The operator's manual ban is independent of YouTube restrictions.
+            if existing is not None:
+                payload.is_blocked = existing.is_blocked
+            video = upsert_video(session, payload)
             if existing is None:
                 inserted += 1
             else:
