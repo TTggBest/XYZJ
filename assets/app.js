@@ -635,8 +635,8 @@
     if (!value) return "未设置发布时间（请先核实排期，勿据此预约）";
     const date = new Date(/[Zz]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
     const format = zone => esc(date.toLocaleString("zh-CN", { timeZone: zone, hour12: false,
-      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZoneName: "shortOffset" }));
-    return `北京时间 ${format("Asia/Shanghai")}${timeZone ? ` ／ 频道当地 ${esc(timeZone)} ${format(timeZone)}` : ""}`;
+      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }));
+    return `北京时间 ${format("Asia/Shanghai")}${timeZone ? ` ／ 当地时间 ${format(timeZone)}` : ""}`;
   }
   async function showScheduleVideoReview(scheduleId) {
     const review = await api(`/schedules/${scheduleId}/youtube-review`);

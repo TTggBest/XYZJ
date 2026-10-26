@@ -28,8 +28,9 @@ await page.document.emit('click',{target:{closest:s=>s==='[data-view]'?{dataset:
 for(let i=0;i<4;i++)await page.tick();
 const html=page.nodes.get('viewRoot').innerHTML;
 assert.match(html,/北京时间[^<]*2026\/10\/27[^<]*01:00/);
-assert.match(html,/America\/New_York[^<]*2026\/10\/26[^<]*13:00/);
+assert.match(html,/当地时间[^<]*2026\/10\/26[^<]*13:00/);
 assert.match(html,/北京时间[^<]*2026\/10\/27[^<]*03:00/);
+assert.doesNotMatch(html,/GMT|UTC|America\/New_York/);
 assert.match(html,/src="\/api\/v3\/media-assets\/asset-1\/thumbnail"/);
 assert.doesNotMatch(html,/<img[^>]*src="[^"]*\/content"/);
 assert.match(html,DEPLOYMENT==='cloud'?/下载原图/:/打开文件夹/);
