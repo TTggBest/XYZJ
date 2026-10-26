@@ -66,7 +66,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> 
         raise ConflictError("请先配置 V14 执行主机、模型和规则")
     config = setting.payload
     task = require_tenant_entity(session, OperationTask, work.task_id)
-    if work.community_count == 0 and task.schedule_id:
+    if task.schedule_id:
         from zhiju.models import ChannelScheduleEntry
         from zhiju.services.community_requirements import initialize_schedule_community
         schedule = require_tenant_entity(session, ChannelScheduleEntry, task.schedule_id, lock=True)

@@ -11,21 +11,24 @@ from zhiju.tenant_repository import require_tenant_entity
 
 
 def initialize_schedule_community(session, schedule):
-    """Resolve the old Feishu default zero, never an explicitly saved zero."""
-    if schedule.source_type != "feishu" or schedule.community_count != 0:
+    """Resolve Feishu defaults before production, never an explicitly saved count."""
+    if schedule.source_type != "feishu":
         return schedule.community_count
     explicit = session.scalar(select(AuditEvent.id).where(
         AuditEvent.action == "community.requirement_updated",
         AuditEvent.entity_type == "channel_schedule_entry", AuditEvent.entity_id == schedule.id).limit(1))
     if explicit:
-        return 0
+        return schedule.community_count
     daily_count = session.scalar(select(func.count()).select_from(ChannelScheduleEntry).where(
         ChannelScheduleEntry.channel_id == schedule.channel_id,
         func.date(ChannelScheduleEntry.planned_beijing_time) == schedule.planned_beijing_time.date(),
         ChannelScheduleEntry.status.notin_(["cancelled", "replaced"])))
-    schedule.community_count = 2 if daily_count == 1 else 1
+    count = 2 if daily_count == 1 else 1
+    if schedule.community_count == count:
+        return count
+    schedule.community_count = count
     _audit(session, "community.requirement_initialized", "channel_schedule_entry", schedule.id,
-        f"旧飞书默认零值按北京时间当日 {daily_count} 条初始化为 {schedule.community_count} 套")
+        f"飞书默认数量按北京时间当日 {daily_count} 条初始化为 {schedule.community_count} 套")
     return schedule.community_count
 
 
@@ -43,9 +46,9 @@ def update_community(session, kind, entity_id, count):
     run = session.scalar(select(V14Run).where(V14Run.work_order_id == work.id).with_for_update()) if work else None
     old_count = work.community_count if work else task.community_count if task else schedule.community_count
     if old_count == count:
-        if count == 0 and schedule:
+        if schedule:
             _audit(session, "community.requirement_updated", "channel_schedule_entry", schedule.id,
-                "操作者明确保留零社群")
+                f"操作者明确保留 {count} 套社群")
             session.commit()
         return {"community_count": count, "run": v14_runs.run_read(session, run) if run else None}
     if run and run.status in {"running", "queued"}:

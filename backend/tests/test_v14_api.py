@@ -263,15 +263,43 @@ def test_synced_schedules_use_v14_daily_community_counts_and_preserve_edits(stor
         source_row_number=i+2, source_video_id=None, source_video_url=None,
         is_uploaded=False, is_published=False, is_task_written=False) for i in range(updates)]
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        if updates == 2:
+            # A first partial sync must not hide a second row on the same Beijing day.
+            upsert_channel_schedule_rows(s, rows[:1], now=day)
+            s.commit()
         upsert_channel_schedule_rows(s, rows, now=day)
         s.commit()
         schedules = list(s.scalars(sa.select(ChannelScheduleEntry).order_by(ChannelScheduleEntry.publish_slot_id)))
         assert [r.community_count for r in schedules] == expected
-        schedules[0].community_count = 0
-        s.commit()
+        from zhiju.services.community_requirements import update_community
+        update_community(s, "schedules", schedules[0].id, 0)
         upsert_channel_schedule_rows(s, rows, now=day)
         s.commit()
         assert schedules[0].community_count == 0
+
+
+def test_partial_sync_counts_existing_rows_across_local_dates(store):
+    from zhiju.services.feishu_sync import upsert_channel_schedule_rows
+    from zhiju.models import ChannelScheduleEntry
+    day = datetime(2026, 10, 29)
+    rows = [dict(channel_id="channel-a", drama_id="drama-a", publish_slot_id=f"split-{i}",
+        publish_date=(day - timedelta(days=i)).date(), planned_local_time=day,
+        planned_beijing_time=day, planned_utc_time=day, source_type="feishu",
+        source_sheet_id="sheet", source_sheet_title="channel", source_row_number=i+2,
+        source_video_id=None, source_video_url=None, is_uploaded=False, is_published=False,
+        is_task_written=False) for i in range(2)]
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        upsert_channel_schedule_rows(s, rows[:1], now=day)
+        s.commit()
+        upsert_channel_schedule_rows(s, rows[1:], now=day)
+        s.commit()
+        second = s.scalar(sa.select(ChannelScheduleEntry).where(ChannelScheduleEntry.publish_slot_id == "split-1"))
+        assert second.community_count == 1
+        first = s.scalar(sa.select(ChannelScheduleEntry).where(ChannelScheduleEntry.publish_slot_id == "split-0"))
+        from zhiju.services.production import create_task
+        from zhiju.schemas.production import TaskCreate
+        task = create_task(s, TaskCreate(schedule_id=first.id, task_date=day.date(), idempotency_key="split-sync-task"))
+        assert task.community_count == 1
 
 
 @pytest.mark.parametrize("updates,expected", [(1, 2), (2, 1)])

@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, func
 from sqlalchemy.orm import Session
 
 from zhiju.config import APP_ROOT, get_settings
@@ -476,10 +476,19 @@ def upsert_channel_schedule_rows(
 
     channel_ids = {str(row["channel_id"]) for row in rows}
     publish_dates = {row["publish_date"] for row in rows}
+    beijing_dates = {row["planned_beijing_time"].date() for row in rows}
     existing_rows = list(session.scalars(select(ChannelScheduleEntry).where(
         ChannelScheduleEntry.channel_id.in_(channel_ids),
-        ChannelScheduleEntry.publish_date.in_(publish_dates),
+        or_(ChannelScheduleEntry.publish_date.in_(publish_dates),
+            func.date(ChannelScheduleEntry.planned_beijing_time).in_(beijing_dates)),
     ))) if rows else []
+    from zhiju.models import AuditEvent
+    existing_ids = [s.id for s in existing_rows]
+    manual_counts = set(session.scalars(select(AuditEvent.entity_id).where(
+        AuditEvent.action == "community.requirement_updated", AuditEvent.entity_type == "channel_schedule_entry",
+        AuditEvent.entity_id.in_(existing_ids)))) if existing_ids else set()
+    tasked_schedules = set(session.scalars(select(OperationTask.schedule_id).where(
+        OperationTask.schedule_id.in_(existing_ids)))) if existing_ids else set()
     existing_by_key = {
         (schedule.channel_id, schedule.publish_date, schedule.publish_slot_id): schedule
         for schedule in existing_rows
@@ -566,6 +575,8 @@ def upsert_channel_schedule_rows(
             continue
 
         values = {field: row[field] for field in synced_fields}
+        if schedule.source_type == "feishu" and schedule.id not in manual_counts | tasked_schedules:
+            values["community_count"] = 2 if len(day_slots[(key[0], row["planned_beijing_time"].date())]) == 1 else 1
         if schedule.source_video_overridden:
             values.pop("source_video_id")
             values.pop("source_video_url")
