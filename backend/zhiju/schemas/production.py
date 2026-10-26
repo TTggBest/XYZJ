@@ -434,6 +434,7 @@ class PackageCommunityCell(BaseModel):
     chinese_translation: str | None
     image_prompt: str | None
     planned_time: datetime | None
+    planned_utc_time: datetime | None = None
     asset_ids: list[str] = Field(default_factory=list)
     selected: bool
     status: str
@@ -483,6 +484,8 @@ class PackageOperationOverview(BaseModel):
     production_date: date
     target_publish_date: date
     planned_local_time: datetime | None
+    planned_utc_time: datetime | None = None
+    channel_timezone: str | None = None
     channel_id: str
     channel_name: str
     channel_original_name: str

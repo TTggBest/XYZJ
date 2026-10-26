@@ -11,7 +11,8 @@ const calls=[],opened=[];
 const item={package_id:'p1',work_order_id:'w1',channel_id:'c1',chinese_title:'剧目',status:'review_pending',
  titles:[{id:'t1',variant_number:1,localized_title:'title'}],
  covers:[{title_id:'t1',aspect_ratio:'16:9',asset_id:'asset-1'}],
- media_assets:[{id:'asset-1'}],community_posts:[],playlists:[]};
+ production_date:'2026-10-27',channel_timezone:'America/New_York',planned_utc_time:'2026-10-26T17:00:00Z',
+ media_assets:[{id:'asset-1'}],community_posts:[{id:'post-1',sequence_number:1,planned_utc_time:'2026-10-26T19:00:00Z'}],playlists:[]};
 const page=start(process.argv[1],auth,async(path,opts={})=>{
  calls.push([path,opts]);
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(superUser));
@@ -26,6 +27,9 @@ for(let i=0;i<6;i++)await page.tick();
 await page.document.emit('click',{target:{closest:s=>s==='[data-view]'?{dataset:{view:'packages'}}:null}});
 for(let i=0;i<4;i++)await page.tick();
 const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/北京时间[^<]*2026\/10\/27[^<]*01:00/);
+assert.match(html,/America\/New_York[^<]*2026\/10\/26[^<]*13:00/);
+assert.match(html,/北京时间[^<]*2026\/10\/27[^<]*03:00/);
 assert.match(html,/src="\/api\/v3\/media-assets\/asset-1\/thumbnail"/);
 assert.doesNotMatch(html,/<img[^>]*src="[^"]*\/content"/);
 assert.match(html,DEPLOYMENT==='cloud'?/下载原图/:/打开文件夹/);

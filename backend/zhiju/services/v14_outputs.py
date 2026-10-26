@@ -30,7 +30,10 @@ def apply_outputs(session, run, attempt, result):
             "variant_number": r["index"], "localized_title": r["title"], "chinese_translation": r["translation"],
             "score": r["recommendation_score"]} for r in title_rows(result)]), commit=False)
     elif attempt.node_type == "cover":
-        titles = {t.variant_number: t.id for t in session.scalars(select(PackageTitle).where(PackageTitle.package_id == pid, PackageTitle.selected.is_(True)))}
+        title_rows_by_number = {t.variant_number: t for t in session.scalars(select(PackageTitle).where(PackageTitle.package_id == pid, PackageTitle.selected.is_(True)))}
+        titles = {number: title.id for number, title in title_rows_by_number.items()}
+        for row in cover_rows(result):
+            title_rows_by_number[row["title_index"]].core_phrase = row["core_words"]
         out.write_covers(session, pid, CoverBatchWrite(covers=[{
             "title_id": titles[r["title_index"]], "aspect_ratio": ratio, "creative_prompt": r[key]}
             for r in cover_rows(result) for ratio, key in (("4:5", "prompt_4_5"), ("16:9", "prompt_16_9"))]), commit=False)

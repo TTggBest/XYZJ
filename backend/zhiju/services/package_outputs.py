@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from pathlib import Path
 
@@ -36,6 +37,7 @@ from zhiju.models import (
     PackageValidationResult,
     ProductionNodeRun,
     ProductionBatch,
+    PublishCadenceTemplateSlot,
     WorkOrder,
     YoutubeVideo,
 )
@@ -292,6 +294,46 @@ def _community_payload(session: Session, rows: list[PackageCommunityPost]) -> li
     return result
 
 
+def publish_timing(schedule, task, publish_slot, channel):
+    zone = publish_slot.timezone if publish_slot else channel.timezone
+    local = schedule.planned_local_time if schedule else (
+        datetime.combine(task.target_publish_date, publish_slot.local_time) if publish_slot else None)
+    utc = schedule.planned_utc_time.replace(tzinfo=timezone.utc) if schedule else (
+        local.replace(tzinfo=ZoneInfo(zone)).astimezone(timezone.utc) if local and zone else None)
+    return local, utc, zone
+
+
+def planned_community_time(session, package, sequence_number):
+    """Keep planned_time in channel-local wall time, as existing imported posts do."""
+    if sequence_number != 1:
+        return None  # No configured rule for additional posts; never invent an appointment.
+    work = require_tenant_entity(session, WorkOrder, package.work_order_id)
+    task = require_tenant_entity(session, OperationTask, work.task_id)
+    channel = require_tenant_entity(session, Channel, package.channel_id)
+    schedule = require_tenant_entity(session, ChannelScheduleEntry, package.schedule_id) if package.schedule_id else None
+    slot = require_tenant_entity(session, ChannelPublishSlot, task.publish_slot_id) if task.publish_slot_id else None
+    if not slot:
+        return None
+    daily_count, slot_number = channel.daily_publish_count, slot.slot_number
+    if schedule and schedule.source_type == "feishu":
+        # Imported slots are historical and may all be numbered 1. Use the
+        # actual Beijing-day sequence, just like community-count initialization.
+        day = list(session.scalars(select(ChannelScheduleEntry).where(
+            ChannelScheduleEntry.channel_id == channel.id,
+            func.date(ChannelScheduleEntry.planned_beijing_time) == schedule.planned_beijing_time.date(),
+            ChannelScheduleEntry.status.notin_(["cancelled", "replaced"])
+        ).order_by(ChannelScheduleEntry.planned_utc_time)))
+        daily_count = len(day)
+        slot_number = next(i for i, entry in enumerate(day, 1) if entry.id == schedule.id)
+    template = session.scalar(select(PublishCadenceTemplateSlot).where(
+        PublishCadenceTemplateSlot.daily_publish_count == daily_count,
+        PublishCadenceTemplateSlot.slot_number == slot_number))
+    _, utc, zone = publish_timing(schedule, task, slot, channel)
+    if template is None or utc is None:
+        return None
+    return (utc + timedelta(minutes=template.engagement_offset_minutes)).astimezone(ZoneInfo(zone)).replace(tzinfo=None)
+
+
 def write_community(session: Session, package_id: str, payload: CommunityBatchWrite, *, commit: bool = True) -> list[dict[str, object]]:
     package = _package(session, package_id)
     node = _running_node(session, package, "community")
@@ -336,6 +378,9 @@ def write_community(session: Session, package_id: str, payload: CommunityBatchWr
         for item in payload.posts
     ]
     session.add_all(rows)
+    for row in rows:
+        if row.planned_time is None:
+            row.planned_time = planned_community_time(session, package, row.sequence_number)
     session.flush()
     for item, row in zip(payload.posts, rows, strict=True):
         session.add_all(
@@ -718,6 +763,8 @@ def list_package_operation_overview(
         package_covers = covers.get(package.id, [])
         package_description = descriptions.get(package.id)
         package_communities = sorted(communities.get(package.id, []), key=lambda item: item.sequence_number)
+        publish_slot = require_tenant_entity(session, ChannelPublishSlot, task.publish_slot_id) if task.publish_slot_id else None
+        planned_local_time, planned_utc_time, channel_timezone = publish_timing(schedule, task, publish_slot, channel)
         package_community_cells = [
             {
                 "id": post.id,
@@ -726,6 +773,8 @@ def list_package_operation_overview(
                 "chinese_translation": post.chinese_translation,
                 "image_prompt": post.image_prompt,
                 "planned_time": post.planned_time,
+                "planned_utc_time": (post.planned_time.replace(tzinfo=ZoneInfo(channel_timezone)).astimezone(timezone.utc)
+                    if post.planned_time and channel_timezone else None),
                 "asset_ids": community_asset_ids.get(post.id, []),
                 "selected": post.selected,
                 "status": post.status,
@@ -736,14 +785,6 @@ def list_package_operation_overview(
             package.id,
             _copy_targets(package_titles, package_covers, package_description, package_communities),
             copied_by_package.get(package.id, set()),
-        )
-        publish_slot = require_tenant_entity(session, ChannelPublishSlot, task.publish_slot_id) if task.publish_slot_id else None
-        planned_local_time = (
-            schedule.planned_local_time
-            if schedule
-            else datetime.combine(task.target_publish_date, publish_slot.local_time)
-            if publish_slot
-            else None
         )
         result.append({
             "package_id": package.id,
@@ -756,6 +797,8 @@ def list_package_operation_overview(
             "production_date": work_order.production_date,
             "target_publish_date": work_order.target_publish_date,
             "planned_local_time": planned_local_time,
+            "planned_utc_time": planned_utc_time,
+            "channel_timezone": channel_timezone,
             "channel_id": channel.id,
             "channel_name": channel.operational_name or channel.original_name,
             "channel_original_name": channel.original_name,
@@ -935,6 +978,15 @@ def _selected_snapshot(session: Session, package: OperationPackage) -> dict[str,
     }
 
 
+def _appointment_text(local_time, zone):
+    if not local_time or not zone:
+        return "未设置发布时间，请先核实排期"
+    local = datetime.fromisoformat(local_time) if isinstance(local_time, str) else local_time
+    local = local.replace(tzinfo=ZoneInfo(zone)) if local.tzinfo is None else local.astimezone(ZoneInfo(zone))
+    beijing = local.astimezone(ZoneInfo("Asia/Shanghai"))
+    return f"北京时间 {beijing.isoformat(sep=' ', timespec='minutes')} / 频道当地 {zone} {local.isoformat(sep=' ', timespec='minutes')}"
+
+
 def _render_markdown(snapshot: dict[str, object]) -> str:
     channel = snapshot["channel"]
     drama = snapshot["drama"]
@@ -945,7 +997,9 @@ def _render_markdown(snapshot: dict[str, object]) -> str:
         f"- 工单 ID: {snapshot['work_order']['id']}",
         f"- 频道: {channel['operational_name'] or channel['name']}",
         f"- 剧库 ID: {drama['drama_code']}",
-        f"- 目标发布日期: {snapshot['work_order']['target_publish_date']}",
+        f"- 生产日期: {snapshot['work_order']['production_date']}",
+        f"- 频道当地目标发布日期: {snapshot['work_order']['target_publish_date']}",
+        f"- 视频预约: {_appointment_text((snapshot.get('schedule') or {}).get('planned_local_time'), channel.get('timezone'))}",
         "",
         "## 剧情资料",
         "",
@@ -963,7 +1017,7 @@ def _render_markdown(snapshot: dict[str, object]) -> str:
     lines.extend(["", "## 播放列表", "", playlist["local_name"] if playlist else "未指定"])
     lines.extend(["", "## 社群", ""])
     for post in snapshot["community_posts"]:
-        lines.extend([f"### 社群 {post['sequence_number']}", "", post["localized_text"], "", f"中文翻译: {post.get('chinese_translation') or ''}", "", f"配图提示词: {post.get('image_prompt') or ''}", ""])
+        lines.extend([f"### 社群 {post['sequence_number']}", "", f"发布时间: {_appointment_text(post.get('planned_time'), channel.get('timezone'))}", "", post["localized_text"], "", f"中文翻译: {post.get('chinese_translation') or ''}", "", f"配图提示词: {post.get('image_prompt') or ''}", ""])
     return "\n".join(lines).rstrip() + "\n"
 
 

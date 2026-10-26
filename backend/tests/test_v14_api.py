@@ -194,7 +194,7 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
     outputs = {
         "search": {"market_payload": {"final_angles": [{"angle_id": n} for n in ("A", "B", "C")]}, "plot_payload": {}},
         "title": {"results": [{"packaging_brief": {"creative_slot_id": "slot"}, "directions": [{"index": n, "title": f"标题{n}", "translation": f"翻译{n}", "recommendation_score": 100 - n} for n in (1, 2, 3)]}]},
-        "cover": {"results": [{"titles": [{"title_index": n, "prompt_4_5": f"portrait {n}", "prompt_16_9": f"wide {n}"} for n in (1, 2, 3)]}]},
+        "cover": {"results": [{"titles": [{"title_index": n, "core_words": phrase, "prompt_4_5": f"portrait {n}", "prompt_16_9": f"wide {n}"} for n, phrase in ((1, "His Wife"), (2, "Our Son"), (3, "My Husband"))]}]},
         "description": {"results": [{"description": "说明", "translation": "翻译", "url": ""}]},
         "community": {"results": [{"plan_index": 1, "copy": "社群", "copy_translation": "翻译", "image_prompt_1x1": "prompt"}]},
         "merge": {"text_complete": True},
@@ -212,7 +212,8 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
         assert s.get(OperationPackage, "package-a").status == "review_pending"
         for model, count in ((PackageTitle, 3), (PackageCoverVariant, 6), (PackageDescription, 1), (PackageCommunityPost, community_count)):
             assert s.scalar(sa.select(sa.func.count()).select_from(model).where(model.package_id == "package-a")) == count
-        assert len(package_outputs.get_package_outputs(s, "package-a")["titles"]) == 3
+        titles = package_outputs.get_package_outputs(s, "package-a")["titles"]
+        assert {title.variant_number: title.core_phrase for title in titles} == {1: "His Wife", 2: "Our Son", 3: "My Husband"}
     assert len(list(tmp_path.rglob("package.md"))) == 1
     if community_count == 0:
         def upstream_rows(s):
