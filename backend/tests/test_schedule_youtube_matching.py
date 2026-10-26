@@ -76,6 +76,39 @@ def test_unscheduled_upload_before_publish_date_is_normal_but_overdue_still_warn
     assert "publish_overdue" in [w["code"] for w in overdue["warnings"]]
 
 
+@pytest.mark.parametrize("other_public", [False, True])
+def test_bound_public_video_is_normal_and_only_other_public_uploads_warn(fixture, other_public):
+    session, schedule, _ = fixture
+    video = add_video(session, schedule, privacy_status="public", publish_status="published")
+    schedule.source_video_id = video.youtube_video_id
+    session.commit()
+    if other_public:
+        add_video(session, schedule, "other-public", privacy_status="public", publish_status="published")
+    review = schedule_video_reviews(session, [schedule], now=NOW)[schedule.id]
+    assert review["selected"]["state"] == "public"
+    assert review["selected"]["selectable"] is False
+    assert review["public_count"] == (2 if other_public else 1)
+    if other_public:
+        warning = next(w for w in review["warnings"] if w["code"] == "public_history")
+        assert warning["message"] == "该剧在本频道另有 1 个相关视频已公开或曾公开，请核对是否重复安排"
+    else:
+        assert review["warnings"] == []
+        assert review["warning_level"] is None
+
+
+def test_bound_previously_public_video_returned_to_private_still_warns(fixture):
+    from zhiju.models import YoutubeVideoStatusHistory
+    session, schedule, _ = fixture
+    video = add_video(session, schedule)
+    schedule.source_video_id = video.youtube_video_id
+    session.add(YoutubeVideoStatusHistory(video_id=video.id, new_publish_status="published",
+        new_privacy_status="public", reason="以前公开", source="youtube_sync", changed_at=NOW))
+    session.commit()
+    review = schedule_video_reviews(session, [schedule], now=NOW)[schedule.id]
+    assert "previously_public" in [w["code"] for w in review["warnings"]]
+    assert review["selected"]["selectable"] is False
+
+
 def test_explicit_choice_survives_resync_and_cannot_be_used_by_another_schedule(fixture):
     session, schedule, _ = fixture
     add_video(session, schedule, "first-video")

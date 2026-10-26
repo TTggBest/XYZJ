@@ -161,8 +161,9 @@ def schedule_video_reviews(session, schedules, *, now=None):
         candidates.sort(key=lambda v: (utc(v["uploaded_at"]) or datetime.max.replace(tzinfo=timezone.utc), v["video_id"]))
         public_count = sum(v["state"] == "public" or v["previously_public"] for v in candidates)
         eligible = [v for v in candidates if v["selectable"]]
-        if public_count:
-            warnings.append(_warning("public_history", f"该剧在本频道已有 {public_count} 个视频公开过"))
+        other_public_count = sum((v["state"] == "public" or v["previously_public"]) and not v["selected"] for v in candidates)
+        if other_public_count:
+            warnings.append(_warning("public_history", f"该剧在本频道另有 {other_public_count} 个相关视频已公开或曾公开，请核对是否重复安排"))
         if sum(s.drama_id == schedule.drama_id and not s.source_video_id and s.status not in {"cancelled", "replaced", "published"} for s in channel_schedules) > 1:
             warnings.append(_warning("multiple_schedules", "同一剧目有多条待绑定排期，请分别选择视频"))
         if len([v for v in candidates if v["state"] not in {"public", "unavailable"} and not v["previously_public"]]) > 1:
