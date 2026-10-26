@@ -63,6 +63,15 @@ def test_community_count_zero_one_two(count):
     assert stage.schema["properties"]["results"]["maxItems"] == count
 
 
+def test_zero_community_accepts_empty_result_but_nonzero_does_not():
+    from zhiju.v14_runtime.contract import build_stage_input, validate_result
+    assert validate_result(build_stage_input(envelope(0), "community"),
+                           {"section": "community", "results": []}) == []
+    with pytest.raises(ValueError, match="模型结构错误"):
+        validate_result(build_stage_input(envelope(1), "community"),
+                        {"section": "community", "results": []})
+
+
 def test_full_evidence_and_json_are_retained():
     from zhiju.v14_runtime.contract import build_stage_input
     e = envelope()

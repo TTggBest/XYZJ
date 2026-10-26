@@ -223,9 +223,20 @@ def resume_run(session, run_id, stopped_confirmed):
     run = get_run(session, run_id)
     if not stopped_confirmed:
         raise ConflictError("请先确认原执行器进程已停止")
-    if run_read(session, run)["status"] not in {"interrupted", "cancelled"}:
+    rows = attempts(session, run)
+    community_failures = [a for a in rows if a.node_type == "community" and a.outcome == "content_error"]
+    # Repair the old deterministic zero-post validation bug, not real content failures.
+    zero_post_system_failure = (
+        run.status == "needs_user_review" and run.input_snapshot["community_count"] == 0
+        and run.error == "results_missing" and bool(community_failures)
+        and all(a.error == "results_missing" and a.raw_payload == {"section": "community", "results": []}
+                for a in community_failures)
+        and {"search", "title", "cover", "description"}.issubset(
+            {a.node_type for a in rows if a.outcome == "accepted"})
+    )
+    if run_read(session, run)["status"] not in {"interrupted", "cancelled"} and not zero_post_system_failure:
         raise ConflictError("当前状态不能继续；内容重试耗尽需要人工审核")
-    for a in attempts(session, run):
+    for a in rows:
         if a.outcome == "running":
             a.outcome, a.error = "interrupted", "原执行已停止"
     run.claim_id, run.status, run.error = None, "queued", None

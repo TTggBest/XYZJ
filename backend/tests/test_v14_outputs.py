@@ -6,6 +6,44 @@ from zhiju.database import TenantSession
 from zhiju.models.v14 import V14Attempt
 
 
+@pytest.mark.parametrize("count", [0, 1])
+def test_only_zero_community_system_misclassification_can_resume_without_content_reset(store, count):
+    from zhiju.models import WorkOrder, ProductionNodeRun
+    from zhiju.services import v14_runs as runs
+    from zhiju.services.identity import ConflictError
+    from zhiju.schemas.v14 import AttemptSubmission
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        configure(s)
+        s.get(WorkOrder, "work-a").community_count = count
+        s.commit()
+        run = runs.create_run(s, "work-a")
+        run.status, run.error, run.claim_id = "needs_user_review", "results_missing", "old-claim"
+        for node in ("search", "title", "cover", "description"):
+            s.add(V14Attempt(run_id=run.id, claim_id="old-claim", node_type=node,
+                sequence=1, outcome="accepted", payload={}))
+        for n in range(1, 4):
+            s.add(V14Attempt(run_id=run.id, claim_id="old-claim", node_type="community",
+                sequence=n, outcome="content_error", error="results_missing",
+                raw_payload={"section": "community", "results": []}))
+        nodes = {n.node_type: n for n in s.scalars(sa.select(ProductionNodeRun))}
+        for node in ("search", "title", "cover", "description"):
+            nodes[node].status = "completed"
+        nodes["community"].status = "queued"
+        s.commit()
+        if count:
+            with pytest.raises(ConflictError): runs.resume_run(s, run.id, True)
+            return
+        old = [(a.id, a.outcome) for a in runs.attempts(s, run)]
+        assert runs.resume_run(s, run.id, True)["status"] == "queued"
+        assert [(a.id, a.outcome) for a in runs.attempts(s, run)] == old
+        claim = runs.claim_run(s, "device-a")
+        attempt = runs.begin_attempt(s, run.id, claim["claim_id"], "community")
+        result = runs.submit_attempt(s, run.id, attempt.id, AttemptSubmission(
+            claim_id=claim["claim_id"], outcome="accepted", result={"section": "community", "results": []}))
+        assert result["status"] == "running"
+        assert nodes["community"].status == "completed" and nodes["merge"].status == "queued"
+
+
 def test_search_rejects_unverified_replacement_plot(store):
     from zhiju.services.v14_outputs import apply_outputs
     from zhiju.services.v14_runs import create_run

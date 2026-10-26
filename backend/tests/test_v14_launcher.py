@@ -121,7 +121,7 @@ def test_cli_drain_processes_queue_then_exits_without_idle_polling(tmp_path, mon
     monkeypatch.setattr(sys, "argv", ["v14", "--config-stdin", "--drain"])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({**config(), "cache_root": str(tmp_path)})))
     cli.main()
-    assert accepted == ["run-0", "run-1"]
+    assert sorted(accepted) == ["run-0", "run-1"]
 
 
 def test_local_http_origin_and_private_network_preflight(manager):
@@ -148,3 +148,63 @@ def test_local_http_origin_and_private_network_preflight(manager):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_cli_uses_ten_workers_and_drains_each_task_once(tmp_path, monkeypatch):
+    import io
+    from copy import deepcopy
+    from test_v14_contract import envelope
+    from zhiju.v14_executor import __main__ as cli
+    tasks = []
+    for i in range(12):
+        item = {**envelope(), "tenant_id": "tenant-a", "claim_id": "claim", "account_profile": "current"}
+        item["run_id"] = f"run-{i}"
+        item["accepted_results"] = dict.fromkeys(["search", "title", "cover", "description", "community"], {})
+        tasks.append(item)
+    lock, barrier = threading.Lock(), threading.Barrier(10, timeout=5)
+    accepted, threads = [], set()
+    class Cloud:
+        def __init__(self, *args): pass
+        def claim(self):
+            with lock:
+                return deepcopy(tasks.pop(0)) if tasks else None
+        def begin(self, item, node):
+            with lock: threads.add(threading.get_ident())
+            if int(item["run_id"].split("-")[1]) < 10:
+                barrier.wait()
+            return "attempt"
+        def submit(self, item, attempt, body):
+            with lock: accepted.append(item["run_id"])
+            return {"status": "text_ready"}
+    monkeypatch.setattr(cli, "CloudClient", Cloud)
+    monkeypatch.setattr(cli.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(sys, "argv", ["v14", "--config-stdin", "--drain"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({**config(), "cache_root": str(tmp_path)})))
+    cli.main()
+    assert len(threads) == 10
+    assert sorted(accepted) == sorted(f"run-{i}" for i in range(12))
+
+
+def test_pool_auth_failure_preserves_outbound_result_and_stops(tmp_path, monkeypatch):
+    import io
+    from copy import deepcopy
+    from test_v14_contract import envelope
+    from zhiju.v14_executor import __main__ as cli
+    item = {**envelope(), "tenant_id": "tenant-a", "claim_id": "claim", "account_profile": "current"}
+    item["accepted_results"] = dict.fromkeys(["search", "title", "cover", "description", "community"], {})
+    pending, lock = [item], threading.Lock()
+    class Cloud:
+        def __init__(self, *args): pass
+        def claim(self):
+            with lock: return deepcopy(pending.pop()) if pending else None
+        def begin(self, *args): return "attempt"
+        def submit(self, *args): raise PermissionError("expired authorization")
+    monkeypatch.setattr(cli, "CloudClient", Cloud)
+    monkeypatch.setattr(cli.signal, "signal", lambda *_: None)
+    monkeypatch.setattr(sys, "argv", ["v14", "--config-stdin", "--drain"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({**config(), "cache_root": str(tmp_path)})))
+    with pytest.raises(PermissionError, match="expired authorization"):
+        cli.main()
+    cached = list(tmp_path.rglob("pending.json"))
+    assert len(cached) == 1
+    assert json.loads(cached[0].read_text())["body"]["result"] == {"text_complete": True}

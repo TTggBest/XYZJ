@@ -149,6 +149,8 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
         schema_issues = c.validate_model_output_schema(STAGES[stage.node_type], result, stage.item, stage.context)
         if schema_issues:
             raise ValueError("模型结构错误: " + "; ".join(schema_issues))
+        if stage.node_type == "community" and stage.item["community_count"] == 0:
+            return []  # The schema above requires exactly zero posts for this work order.
         c.normalize_identity(result, stage.item)
         if stage.node_type == "title":
             c.normalize_title_recommendation_order(result, stage.context)

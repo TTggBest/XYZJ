@@ -172,16 +172,18 @@ def test_three_content_errors_require_review(client):
     assert client.post(f"/api/v3/v14/runs/{claim['run_id']}/resume", json={"stopped_confirmed": True}).status_code == 409
 
 
-def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_path):
+@pytest.mark.parametrize("community_count", [0, 1])
+def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_path, community_count):
     """Exercise real orchestration/projection; creative acceptance has separate contract tests."""
     from copy import deepcopy
     from types import SimpleNamespace
     from test_v14_contract import envelope
     from zhiju.services import v14_runs, v14_outputs, package_outputs
-    from zhiju.models import OperationPackage, PackageTitle, PackageCoverVariant, PackageDescription, PackageCommunityPost
+    from zhiju.models import OperationPackage, PackageTitle, PackageCoverVariant, PackageDescription, PackageCommunityPost, WorkOrder
     import sqlalchemy as sa
     sample = envelope()
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.get(WorkOrder, "work-a").community_count = community_count
         config = deepcopy(v14_runs.get_settings(s).payload)
         config["rules"] = sample["rules_snapshot"]
         config["channel_inputs"]["channel-a"] = sample["input_snapshot"]["channel"]
@@ -197,6 +199,8 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
         "community": {"results": [{"plan_index": 1, "copy": "社群", "copy_translation": "翻译", "image_prompt_1x1": "prompt"}]},
         "merge": {"text_complete": True},
     }
+    if not community_count:
+        outputs["community"] = {"section": "community", "results": []}
     for node, output in outputs.items():
         response = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts", json={"node_type": node, "claim_id": claim["claim_id"]})
         assert response.status_code == 200, response.text
@@ -206,7 +210,7 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
     assert response.json()["status"] == "text_ready"
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
         assert s.get(OperationPackage, "package-a").status == "review_pending"
-        for model, count in ((PackageTitle, 3), (PackageCoverVariant, 6), (PackageDescription, 1), (PackageCommunityPost, 1)):
+        for model, count in ((PackageTitle, 3), (PackageCoverVariant, 6), (PackageDescription, 1), (PackageCommunityPost, community_count)):
             assert s.scalar(sa.select(sa.func.count()).select_from(model).where(model.package_id == "package-a")) == count
         assert len(package_outputs.get_package_outputs(s, "package-a")["titles"]) == 3
     assert len(list(tmp_path.rglob("package.md"))) == 1
@@ -231,6 +235,22 @@ def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, s
         assert row.tenant_id == "tenant-a" and row.user_id == "user-a"
         assert row.expires_at <= s.get(AuthSession, "parent-a").expires_at
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_nearly_expired_browser_session_cannot_start_a_model_job(client, store):
+    from zhiju.models import Device, AuthSession
+    now = datetime.now(timezone.utc)
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        s.add(Device(id="device-a", device_key="local-a", name="Mac", hostname="mac.local",
+            os_type="macos", device_role="worker", trust_level="normal", status="active"))
+        s.add(AuthSession(id="parent-short", user_id="user-a", tenant_id="tenant-a",
+            token_digest="short-session", status="active", expires_at=now + timedelta(minutes=2),
+            last_seen_at=now, created_at=now))
+        s.commit()
+    client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, session_id="parent-short")
+    response = client.post("/api/v3/v14/executor-session", headers={"Origin": "http://testserver"})
+    assert response.status_code == 409, response.text
+    assert "重新登录" in response.json()["detail"]
 
 
 def test_executor_authorization_never_creates_a_device_binding(client):

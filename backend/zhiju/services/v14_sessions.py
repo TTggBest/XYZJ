@@ -21,6 +21,10 @@ def authorize_executor(session, principal):
     parent = session.get(AuthSession, principal.session_id) if principal.session_id else None
     if not parent or parent.user_id != principal.user_id or parent.tenant_id != principal.tenant_id or parent.status != "active" or _utc(parent.expires_at) <= now:
         raise ConflictError("当前登录会话已失效，请重新登录")
+    # A single supported Codex call can take 900 seconds, plus its HTTP return.
+    # Never launch one on the two-minute remainder of an old browser session.
+    if _utc(parent.expires_at) - now <= timedelta(seconds=960):
+        raise ConflictError("当前登录授权即将到期，不足以完成一次模型调用；请重新登录网页后再开始或继续 V14")
     expires = min(_utc(parent.expires_at), now + timedelta(hours=8))
     token = new_opaque_token()
     row = AuthSession(user_id=principal.user_id, tenant_id=principal.tenant_id, device_id=host,

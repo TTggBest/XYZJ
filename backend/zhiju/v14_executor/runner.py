@@ -27,8 +27,8 @@ def send_cached(client, envelope, attempt_id, body, path, retry_delay):
             time.sleep(retry_delay)
 
 
-def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/zhiju-v14", evidence_provider=collect_agent_reach_evidence, retry_delay=2):
-    root = Path(cache_root)
+def replay_pending(client, root, retry_delay=2):
+    root = Path(root)
     # A lost response cannot trigger regeneration, even after restarting this process.
     for cached in sorted(root.glob("*/pending.json")):
         entry = json.loads(cached.read_text())
@@ -48,6 +48,15 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
             continue
         # The original cloud run must be resumed explicitly, never guessed from disk.
         return True
+    return False
+
+
+def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/zhiju-v14", evidence_provider=collect_agent_reach_evidence, retry_delay=2, recover=True, stop_event=None):
+    root = Path(cache_root)
+    if recover and replay_pending(client, root, retry_delay):
+        return True
+    if stop_event and stop_event.is_set():
+        return False
     envelope = client.claim()
     if not envelope:
         return False
@@ -68,7 +77,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                 pass
     thread = Thread(target=keepalive, daemon=True)
     thread.start()
-    model_client.cancelled = cancelled.is_set
+    model_client.cancelled = lambda: cancelled.is_set() or bool(stop_event and stop_event.is_set())
     try:
         for node in NODES:
             if node in envelope["accepted_results"]:
