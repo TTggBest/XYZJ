@@ -517,6 +517,32 @@ def test_template_calibration_finds_left_and_right_logo_regions(tmp_path: Path) 
     assert config["right_logo"]["width"] > 0.2
 
 
+def test_tenant_workspace_supports_logo_upload_and_batch_import(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(image_processing, "get_settings", lambda: SimpleNamespace(shared_root=tmp_path))
+    with TenantSession(bind=database_router.get_active_engine(), info={"tenant_id": "upload-tenant"}) as session:
+        channel = models.Channel(youtube_channel_id="UC-UPLOAD", original_name="上传测试", default_language="en", timezone="UTC", status="active")
+        batch = models.ProductionBatch(batch_number="UPLOAD-TEST", production_date=date(2026, 10, 27), source="native", status="active")
+        session.add_all([channel, batch])
+        session.commit()
+        workspace = image_processing.save_workspace(session, "tenants/upload-tenant/images")
+        assert image_processing.get_workspace(session).root_path == "tenants/upload-tenant/images"
+        template = Image.new("RGB", (1280, 720), "white")
+        draw = ImageDraw.Draw(template)
+        draw.rectangle((40, 610, 310, 680), fill="black")
+        draw.rectangle((890, 610, 1240, 680), fill="black")
+        buffer = BytesIO()
+        template.save(buffer, format="PNG")
+        data = buffer.getvalue()
+        profile = image_processing.save_channel_logo_profile(session, channel.id, "left.png", data, "right.png", data, "template.png", data)
+        assert profile.status == "calibrated"
+        assert (Path(workspace.resolved_root) / profile.left_logo_path).is_file()
+        imported = image_processing.import_images(session, batch.id, [("upload-test.png", data)])
+        assert imported.total_files == 1
+        assert (Path(workspace.resolved_root) / imported.items[0].stored_path).read_bytes() == data
+
+
 def test_generated_logo_is_registered_as_media_asset(tmp_path: Path) -> None:
     output_path = tmp_path / "02_标题1_16x9_logo.png"
     Image.new("RGB", (1280, 720), "green").save(output_path)
