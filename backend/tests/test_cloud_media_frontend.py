@@ -28,13 +28,13 @@ for(let i=0;i<4;i++)await page.tick();
 const html=page.nodes.get('viewRoot').innerHTML;
 assert.match(html,/src="\/api\/v3\/media-assets\/asset-1\/thumbnail"/);
 assert.doesNotMatch(html,/<img[^>]*src="[^"]*\/content"/);
-assert.match(html,DEPLOYMENT==='cloud'?/查看大图/:/打开文件夹/);
+assert.match(html,DEPLOYMENT==='cloud'?/下载原图/:/打开文件夹/);
 const button={dataset:{action:'reveal-media-asset',id:'asset-1'},closest:()=>null};
 await page.document.emit('click',{target:{closest:s=>s==='[data-action]'?button:null}});
 for(let i=0;i<2;i++)await page.tick();
 if(DEPLOYMENT==='cloud'){
  assert.equal(calls.filter(([p])=>p.endsWith('/reveal')).length,0);
- assert.deepEqual(opened,[['/api/v3/media-assets/asset-1/content','_blank','noopener,noreferrer']]);
+ assert.deepEqual(opened,[['/api/v3/media-assets/asset-1/content?download=true','_blank','noopener,noreferrer']]);
 }else{
  assert.equal(opened.length,0);
  assert.equal(calls.filter(([p])=>p.endsWith('/reveal')).length,1);

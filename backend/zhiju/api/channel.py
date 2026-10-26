@@ -341,13 +341,14 @@ def get_media_asset_detail(
 
 @router.get("/media-assets/{asset_id}/content", response_class=FileResponse)
 def get_media_asset_content(
-    asset_id: str, session: Session = Depends(get_tenant_db)
+    asset_id: str, session: Session = Depends(get_tenant_db), download: bool = False,
 ) -> FileResponse:
     try:
         asset, path = resolve_media_asset_file(session, asset_id)
         return FileResponse(
             path,
             media_type=asset.mime_type or "application/octet-stream",
+            filename=(asset.original_filename or path.name) if download else None,
             headers={"Cache-Control": "private, no-cache"},
         )
     except FileNotFoundError as exc:

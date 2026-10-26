@@ -896,7 +896,7 @@
     return `<div class="read-cell ${className}"><span class="read-cell-label">${esc(labelText)}</span><div class="read-cell-value">${esc(value || "暂无内容")}</div></div>`;
   }
   function mediaLocationLabel() {
-    return state.deployment === "cloud" ? "查看大图" : "打开文件夹";
+    return state.deployment === "cloud" ? "下载原图" : "打开文件夹";
   }
   function packageAssetTile(asset, labelText) {
     if (!asset) return `<div class="package-asset-missing"><span>${esc(labelText)}</span><strong>待出图</strong></div>`;
@@ -2062,7 +2062,7 @@
       }
       else if (action === "reveal-media-asset") {
         if (state.deployment === "cloud") {
-          window.open(`/api/v3/media-assets/${encodeURIComponent(id)}/content`, "_blank", "noopener,noreferrer");
+          window.open(`/api/v3/media-assets/${encodeURIComponent(id)}/content?download=true`, "_blank", "noopener,noreferrer");
           return;
         }
         const result = await api(`/media-assets/${id}/reveal`, { method: "POST" });

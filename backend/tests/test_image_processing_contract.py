@@ -644,6 +644,22 @@ def test_cloud_reveal_does_not_launch_a_desktop_command():
         popen.assert_not_called()
 
 
+def test_image_download_returns_original_file_as_attachment(tmp_path):
+    from zhiju.api.channel import get_media_asset_content
+    from types import SimpleNamespace
+
+    path = tmp_path / "cover-logo.png"
+    content = b"original-full-resolution-image"
+    path.write_bytes(content)
+    asset = SimpleNamespace(mime_type="image/png", original_filename="video-cover1.png")
+    with patch("zhiju.api.channel.resolve_media_asset_file", return_value=(asset, path)):
+        response = get_media_asset_content("asset-id", Mock(), download=True)
+        assert response.path.read_bytes() == content
+        assert response.headers["content-disposition"] == 'attachment; filename="video-cover1.png"'
+        preview = get_media_asset_content("asset-id", Mock())
+        assert "content-disposition" not in preview.headers
+
+
 def test_media_page_shows_busy_states_and_prevents_duplicate_actions() -> None:
     source = (Path(__file__).resolve().parents[2] / "assets" / "app.js").read_text(encoding="utf-8")
 
