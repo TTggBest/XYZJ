@@ -622,7 +622,8 @@
   function scheduleVideoStatusTag(item, field) {
     const review = item.video_sync;
     if (review && (!review.sync_complete || (item.source_video_id && (!review.selected || review.selected.state === "unavailable")))) return '<span class="tag">待核实</span>';
-    const yes = item[field];
+    if (field === "is_published" && review?.selected?.state === "scheduled") return '<span class="tag is-blue">已预约</span>';
+    const yes = field === "is_published" && review?.selected ? review.selected.state === "public" : item[field];
     const text = field === "is_uploaded" ? (yes ? "已上传" : "未上传") : (yes ? "已上线" : "未上线");
     return `<span class="tag ${yes ? "is-green" : ""}">${text}</span>`;
   }
@@ -683,7 +684,7 @@
       const pages = Math.max(1, Math.ceil(full.total / full.page_size));
       const pager = full.total > full.page_size ? `<div class="pagination"><button class="button button-secondary button-small" data-action="schedule-full-page" data-page="${full.page - 1}" ${full.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${full.page} / ${pages} 页 · ${full.total} 条</span><button class="button button-secondary button-small" data-action="schedule-full-page" data-page="${full.page + 1}" ${full.page >= pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
       const tools = `<div class="toolbar schedule-toolbar">${viewSwitch}<div class="field"><label>频道</label><select class="select" id="scheduleChannelFilter" ${channels.length ? "" : "disabled"}>${channelOptions || `<option>暂无频道</option>`}</select></div><div class="field search-field"><label>搜索</label><input class="input" id="scheduleFullSearch" value="${esc(state.scheduleFullSearch)}" placeholder="剧名、剧库 ID 或 Video ID"></div><div class="field"><label>排序</label><select class="select" id="scheduleFullSortOrder"><option value="asc" ${state.scheduleFullSortOrder === "asc" ? "selected" : ""}>正序</option><option value="desc" ${state.scheduleFullSortOrder === "desc" ? "selected" : ""}>倒序</option></select></div><div class="field"><label>每页</label><select class="select" id="scheduleFullPageSize"><option value="50" ${state.scheduleFullPageSize === 50 ? "selected" : ""}>50 条</option><option value="100" ${state.scheduleFullPageSize === 100 ? "selected" : ""}>100 条</option><option value="150" ${state.scheduleFullPageSize === 150 ? "selected" : ""}>150 条</option></select></div><button class="button button-primary" data-action="apply-schedule-full-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div>${commonActions}</div>`;
-      const body = rows.length ? `${table([selectionHeader, "北京时间", "主 / 辅档", "剧目", "Video ID / 链接", "已上传", "已上线", "已写任务", "数据来源", "同步时间", "排期状态", "智矩任务"], rows, 1380, "channel-schedule-table")}${pager}` : empty("该频道暂无完整排期", "先从飞书只读同步现有排期，或在智矩中新建排期。");
+      const body = rows.length ? `${table([selectionHeader, "北京时间", "主 / 辅档", "剧目", "Video ID / 链接", "已上传", "发布状态", "已写任务", "数据来源", "同步时间", "排期状态", "智矩任务"], rows, 1380, "channel-schedule-table")}${pager}` : empty("该频道暂无完整排期", "先从飞书只读同步现有排期，或在智矩中新建排期。");
       root.innerHTML = `<div class="page-stack">${section("频道完整排期", `${esc(selectedChannel?.display_name || "尚未选择频道")} · 共 ${full.total} 条 · 覆盖历史与未来`, body, tools)}</div>`;
       return;
     }

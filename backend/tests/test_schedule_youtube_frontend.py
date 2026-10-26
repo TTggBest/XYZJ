@@ -1,6 +1,43 @@
 from test_auth_frontend_contract import run_node
 
 
+def test_full_schedule_publication_column_distinguishes_scheduled_and_public_videos():
+    run_node(r"""
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const cases=[['public',true,'public',false],['scheduled',true,'scheduled',true],
+ ['private',true,'private',false],['incomplete',false,'scheduled',false],['missing',true,'unavailable',false]];
+const rows=cases.map(([name,complete,state,published])=>({schedule_id:name,chinese_title:name+'-drama',
+ source_video_id:name+'-video',is_uploaded:true,is_published:published,
+ planned_beijing_time:'2026-10-28T01:00:00',
+ video_sync:{sync_complete:complete,selected:{state,video_id:name+'-video'},warnings:[]}}));
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"频道"}]');
+ if(path.startsWith('/api/v3/schedules/channel-view'))return new Response(JSON.stringify({page:1,page_size:50,total:rows.length,items:rows}));
+ return new Response('[]');
+});
+for(let i=0;i<4;i++)await page.tick();
+async function click(action,extra={}){
+ const button={dataset:{action,...extra},closest:()=>null};
+ await page.document.emit('click',{target:{closest:s=>s==='[data-action]'?button:null}});
+}
+await click('go-schedules');
+await click('schedule-view-mode',{mode:'full'});
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/<th[^>]*>发布状态<\/th>/);
+const tableRows=html.match(/<tr>[\s\S]*?<\/tr>/g);
+for(const [name,expected] of [['public','已上线'],['scheduled','已预约'],['private','未上线'],['incomplete','待核实'],['missing','待核实']]){
+ const row=tableRows.find(r=>r.includes(name+'-drama'));
+ const cells=row.match(/<td(?:\s[^>]*)?>[\s\S]*?<\/td>/g);
+ assert.match(cells[6],new RegExp('>'+expected+'<'),name);
+ if(name==='scheduled')assert.match(cells[5],/>已上传</,'scheduled upload stays uploaded');
+}
+""")
+
+
 def test_sync_warning_colors_follow_latest_results_and_clear():
     run_node(r"""
 const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
