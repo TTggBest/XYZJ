@@ -1112,7 +1112,7 @@ def list_channel_schedule_page(
             "source_video_overridden": schedule.source_video_overridden,
             "is_uploaded": schedule.is_uploaded,
             "is_published": schedule.is_published,
-            "is_task_written": schedule.is_task_written,
+            "is_task_written": task is not None,
             "task_id": task.id if task else None,
             "task_status": task.status if task else None,
         })

@@ -8,6 +8,7 @@ const cases=[['public',true,'public',false],['scheduled',true,'scheduled',true],
  ['private',true,'private',false],['incomplete',false,'scheduled',false],['missing',true,'unavailable',false]];
 const rows=cases.map(([name,complete,state,published])=>({schedule_id:name,chinese_title:name+'-drama',
  source_video_id:name+'-video',is_uploaded:true,is_published:published,
+ is_task_written:name==='public',task_id:name==='public'?'existing-task':null,task_status:'completed',
  planned_beijing_time:'2026-10-28T01:00:00',
  video_sync:{sync_complete:complete,selected:{state,video_id:name+'-video'},warnings:[]}}));
 const page=start(process.argv[1],auth,async(path)=>{
@@ -28,11 +29,13 @@ await click('go-schedules');
 await click('schedule-view-mode',{mode:'full'});
 const html=page.nodes.get('viewRoot').innerHTML;
 assert.match(html,/<th[^>]*>发布状态<\/th>/);
+assert.match(html,/<th[^>]*>任务生成<\/th>/);
 const tableRows=html.match(/<tr>[\s\S]*?<\/tr>/g);
 for(const [name,expected] of [['public','已上线'],['scheduled','已预约'],['private','未上线'],['incomplete','待核实'],['missing','待核实']]){
  const row=tableRows.find(r=>r.includes(name+'-drama'));
  const cells=row.match(/<td(?:\s[^>]*)?>[\s\S]*?<\/td>/g);
  assert.match(cells[6],new RegExp('>'+expected+'<'),name);
+ assert.match(cells[7],name==='public'?/>已生成</:/>未生成</,'task generation is distinct from completion');
  if(name==='scheduled')assert.match(cells[5],/>已上传</,'scheduled upload stays uploaded');
 }
 """)
