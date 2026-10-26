@@ -214,6 +214,64 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
             assert s.scalar(sa.select(sa.func.count()).select_from(model).where(model.package_id == "package-a")) == count
         assert len(package_outputs.get_package_outputs(s, "package-a")["titles"]) == 3
     assert len(list(tmp_path.rglob("package.md"))) == 1
+    if community_count == 0:
+        def upstream_rows(s):
+            return {model.__tablename__: [dict((col.name, getattr(row, col.name)) for col in model.__table__.columns)
+                for row in s.scalars(sa.select(model).where(model.package_id == "package-a").order_by(model.id))]
+                for model in (PackageTitle, PackageCoverVariant, PackageDescription)}
+        with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+            before = upstream_rows(s)
+        old_attempts = response.json()["attempts"]
+        changed = client.patch("/api/v3/tasks/task-a/community", json={"community_count": 1})
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["run"]["status"] == "queued"
+        claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"}).json()
+        assert set(claim["accepted_results"]) == {"search", "title", "cover", "description"}
+        for node in ("community", "merge"):
+            output = outputs[node] if node == "merge" else {"results": [{"plan_index": 1, "copy": "社群", "copy_translation": "翻译", "image_prompt_1x1": "prompt"}]}
+            r = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts", json={"node_type": node, "claim_id": claim["claim_id"]})
+            assert r.status_code == 200, r.text
+            r = client.put(f"/api/v3/v14/runs/{claim['run_id']}/attempts/{r.json()['attempt_id']}", json={"claim_id": claim["claim_id"], "outcome": "accepted", "result": output})
+            assert r.status_code == 200, r.text
+        assert r.json()["status"] == "text_ready"
+        assert r.json()["attempts"][:len(old_attempts)] == old_attempts
+        with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+            view = package_outputs.get_package_outputs(s, "package-a")
+            assert upstream_rows(s) == before
+            assert s.scalar(sa.select(sa.func.count()).select_from(PackageCommunityPost)) == 1
+
+
+def test_community_count_edit_preserves_operator_scope_and_running_work(client):
+    url = "/api/v3/tasks/task-a/community"
+    assert client.patch(url, json={"community_count": 2}).status_code == 200
+    assert client.patch("/api/v3/tasks/task-b/community", json={"community_count": 2}).status_code == 404
+    assert client.patch(url, json={"community_count": -1}).status_code == 422
+    start(client)
+    assert client.patch(url, json={"community_count": 1}).status_code == 409
+    client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, membership_role="member")
+    assert client.patch(url, json={"community_count": 1}).status_code == 403
+
+
+@pytest.mark.parametrize("updates,expected", [(1, [2]), (2, [1, 1])])
+def test_synced_schedules_use_v14_daily_community_counts_and_preserve_edits(store, updates, expected):
+    from zhiju.services.feishu_sync import upsert_channel_schedule_rows
+    from zhiju.models import ChannelScheduleEntry
+    day = datetime(2026, 10, 28)
+    rows = [dict(channel_id="channel-a", drama_id="drama-a", publish_slot_id=f"slot-{i}",
+        publish_date=day.date(), planned_local_time=day, planned_beijing_time=day,
+        planned_utc_time=day, source_type="feishu", source_sheet_id="sheet", source_sheet_title="channel",
+        source_row_number=i+2, source_video_id=None, source_video_url=None,
+        is_uploaded=False, is_published=False, is_task_written=False) for i in range(updates)]
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        upsert_channel_schedule_rows(s, rows, now=day)
+        s.commit()
+        schedules = list(s.scalars(sa.select(ChannelScheduleEntry).order_by(ChannelScheduleEntry.publish_slot_id)))
+        assert [r.community_count for r in schedules] == expected
+        schedules[0].community_count = 0
+        s.commit()
+        upsert_channel_schedule_rows(s, rows, now=day)
+        s.commit()
+        assert schedules[0].community_count == 0
 
 
 def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, store):

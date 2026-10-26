@@ -484,6 +484,13 @@ def upsert_channel_schedule_rows(
         (schedule.channel_id, schedule.publish_date, schedule.publish_slot_id): schedule
         for schedule in existing_rows
     }
+    # Count the full channel-local day, including rows already synced by another scope.
+    day_slots = {}
+    for channel_id, publish_date, slot_id in row_keys | {
+        (s.channel_id, s.publish_date, s.publish_slot_id) for s in existing_rows
+        if s.status not in {"cancelled", "replaced"}
+    }:
+        day_slots.setdefault((channel_id, publish_date), set()).add(slot_id)
     inserted = updated = skipped = 0
     synced_fields = (
         "drama_id",
@@ -514,7 +521,7 @@ def upsert_channel_schedule_rows(
                 planned_local_time=row["planned_local_time"],
                 planned_beijing_time=row["planned_beijing_time"],
                 planned_utc_time=row["planned_utc_time"],
-                community_count=0,
+                community_count=2 if len(day_slots[(key[0], key[1])]) == 1 else 1,
                 status=status,
                 priority=100,
                 idempotency_key=f"feishu-schedule:{key[0]}:{key[1].isoformat()}:{key[2]}",

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,10 @@ from zhiju.services.v14_sessions import authorize_executor
 router = APIRouter(prefix="/v3", tags=["v14"])
 
 
+class CommunityRequirement(BaseModel):
+    community_count: int = Field(ge=0, le=20)
+
+
 @router.post("/v14/executor-session", dependencies=[Depends(require_same_origin)])
 def executor_session(response: Response, s: Session = Depends(get_tenant_db), p=Depends(get_current_principal)):
     operator(p)
@@ -30,6 +35,18 @@ def operator(principal: Principal = Depends(get_current_principal)):
     if principal.platform_role != "super_admin" and principal.membership_role not in {"owner", "admin"}:
         raise HTTPException(403, "需要当前公司管理权限")
     return principal
+
+
+@router.patch("/tasks/{entity_id}/community")
+def task_community(entity_id: str, body: CommunityRequirement, s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    from zhiju.services.community_requirements import update_community
+    return call(update_community, s, "tasks", entity_id, body.community_count)
+
+
+@router.patch("/schedules/{entity_id}/community")
+def schedule_community(entity_id: str, body: CommunityRequirement, s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    from zhiju.services.community_requirements import update_community
+    return call(update_community, s, "schedules", entity_id, body.community_count)
 
 
 def bound_host(session, principal, host_id):

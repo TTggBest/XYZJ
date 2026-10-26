@@ -110,6 +110,11 @@ def attempts(session, run):
     return list(session.scalars(select(V14Attempt).where(V14Attempt.run_id == run.id).order_by(V14Attempt.created_at, V14Attempt.sequence)))
 
 
+def active_attempts(session, run):
+    floors = run.input_snapshot.get("community_revision_after", {})
+    return [a for a in attempts(session, run) if a.sequence > floors.get(a.node_type, 0)]
+
+
 def run_read(session, run):
     rows = attempts(session, run)
     status = run.status
@@ -125,12 +130,12 @@ def run_read(session, run):
 
 
 def envelope(session, run):
-    rows = attempts(session, run)
+    rows = active_attempts(session, run)
     # Serialize accepts across the tenant using the same settings row lock used by submit.
     history = list(session.scalars(select(V14Run).where(V14Run.tenant_id == run.tenant_id, V14Run.id != run.id)))
     history_rows = []
     for old in history:
-        for a in attempts(session, old):
+        for a in active_attempts(session, old):
             if a.outcome == "accepted":
                 history_rows.append({"run_id": old.id, "input_snapshot": old.input_snapshot,
                                      "node_type": a.node_type, "payload": a.payload})
@@ -161,12 +166,12 @@ def check_claim(run, claim_id):
 def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
     run = get_run(session, run_id)
     check_claim(run, claim_id)
-    rows = attempts(session, run)
+    rows = active_attempts(session, run)
     done = {a.node_type for a in rows if a.outcome == "accepted"}
     expected = next((n for n in NODE_SEQUENCE if n not in done), None)
     if node_type != expected or any(a.outcome == "running" for a in rows):
         raise ConflictError("节点顺序不正确或已有运行中的尝试")
-    sequence = 1 + max((a.sequence for a in rows if a.node_type == node_type), default=0)
+    sequence = 1 + max((a.sequence for a in attempts(session, run) if a.node_type == node_type), default=0)
     attempt = V14Attempt(run_id=run.id, claim_id=claim_id, node_type=node_type, sequence=sequence)
     session.add(attempt)
     session.commit()
@@ -198,9 +203,8 @@ def submit_attempt(session, run_id: str, attempt_id: str, payload):
     if payload.outcome == "system_error":
         run.status = "interrupted"
     elif payload.outcome == "content_error":
-        failures = session.scalar(select(func.count()).select_from(V14Attempt).where(
-            V14Attempt.run_id == run.id, V14Attempt.node_type == attempt.node_type,
-            V14Attempt.outcome == "content_error"))
+        failures = sum(a.outcome == "content_error" and a.node_type == attempt.node_type
+                       for a in active_attempts(session, run))
         if failures >= 3:
             run.status = "needs_user_review"
     elif attempt.node_type == "merge":
