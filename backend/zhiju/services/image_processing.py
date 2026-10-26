@@ -256,6 +256,8 @@ def list_media_asset_contexts(session: Session) -> list[dict[str, object]]:
 
 
 def reveal_media_asset_folder(session: Session, asset_id: str) -> Path:
+    if getattr(get_settings(), "deployment", "local") == "cloud":
+        raise HTTPException(status_code=501, detail="云端不支持打开服务器文件夹，请查看或下载图片")
     _, path = resolve_media_asset_file(session, asset_id)
     subprocess.Popen(
         ["/usr/bin/open", str(path.parent)],

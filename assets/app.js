@@ -895,9 +895,12 @@
   function readCell(labelText, value, className = "") {
     return `<div class="read-cell ${className}"><span class="read-cell-label">${esc(labelText)}</span><div class="read-cell-value">${esc(value || "暂无内容")}</div></div>`;
   }
+  function mediaLocationLabel() {
+    return state.deployment === "cloud" ? "查看大图" : "打开文件夹";
+  }
   function packageAssetTile(asset, labelText) {
     if (!asset) return `<div class="package-asset-missing"><span>${esc(labelText)}</span><strong>待出图</strong></div>`;
-    return `<button class="package-asset-link" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="打开图片所在文件夹"><img src="/api/v3/media-assets/${encodeURIComponent(asset.id)}/content" alt="${esc(labelText)}" loading="lazy"><span>${icon("folder-open")} ${esc(labelText)} · 打开文件夹</span></button>`;
+    return `<button class="package-asset-link" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="${mediaLocationLabel()}"><img src="/api/v3/media-assets/${encodeURIComponent(asset.id)}/thumbnail" alt="${esc(labelText)}" loading="lazy"><span>${icon(state.deployment === "cloud" ? "image" : "folder-open")} ${esc(labelText)} · ${mediaLocationLabel()}</span></button>`;
   }
   function applyCopyProgress(progress) {
     const item = state.packageItems.find(row => row.package_id === progress.package_id);
@@ -1164,7 +1167,7 @@
 
   function mediaAssetCard(asset, groupIndex, assetIndex) {
     const thumbnailUrl = `/api/v3/media-assets/${encodeURIComponent(asset.id)}/thumbnail`;
-    return `<article class="media-gallery-item"><button class="media-gallery-thumb" type="button" data-action="open-media-viewer" data-group-index="${groupIndex}" data-asset-index="${assetIndex}" aria-label="查看${esc(asset.label)}大图"><img src="${thumbnailUrl}" alt="${esc(asset.label)}" loading="lazy"></button><button class="media-gallery-name" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="打开图片所在文件夹">${icon("folder-open")}<span>${esc(asset.label)}</span></button></article>`;
+    return `<article class="media-gallery-item"><button class="media-gallery-thumb" type="button" data-action="open-media-viewer" data-group-index="${groupIndex}" data-asset-index="${assetIndex}" aria-label="查看${esc(asset.label)}大图"><img src="${thumbnailUrl}" alt="${esc(asset.label)}" loading="lazy"></button><button class="media-gallery-name" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="${mediaLocationLabel()}">${icon("folder-open")}<span>${esc(asset.label)}</span></button></article>`;
   }
 
   function mediaGroupCard(group, groupIndex) {
@@ -1181,7 +1184,7 @@
       : `<div class="media-gallery-empty">尚未导入图片 · 缺少 ${esc(group.missingRoles.join("、") || "全部图片")}</div>`;
     const lookupId = meta.video_id || meta.drama_code || meta.drama_id || "未登记";
     const lookupLabel = meta.video_id ? "Video ID" : "剧 ID";
-    return `<article class="media-gallery-group${coverageClass}" data-media-package-id="${esc(meta.package_id || "")}"><div class="media-gallery-meta"><div><span>剧名 · 剧 ID</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong><small class="media-video-id">${lookupLabel} · ${esc(lookupId)}</small></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${coverageStatus}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><div class="row-actions">${meta.package_id ? `<button class="button button-secondary button-small" type="button" data-action="view-media-package" data-id="${esc(meta.package_id)}">查看运营包</button>` : ""}${group.assets[0] ? `<button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} 打开文件夹</button>` : ""}</div></div><div class="media-gallery-assets">${assetsMarkup}</div></article>`;
+    return `<article class="media-gallery-group${coverageClass}" data-media-package-id="${esc(meta.package_id || "")}"><div class="media-gallery-meta"><div><span>剧名 · 剧 ID</span><strong>${esc(meta.chinese_title || "未命名素材")}</strong><small class="media-video-id">${lookupLabel} · ${esc(lookupId)}</small></div><div><span>频道</span><strong>${esc(meta.channel_name || "未关联频道")}</strong></div><div><span>批次·档期</span><strong>${esc(meta.batch_number || "未分批")} · ${fmt(schedule)}</strong></div><div><span>状态</span>${coverageStatus}</div><div><span>时间</span><strong>${fmtUtc(group.createdAt)}</strong></div><div class="row-actions">${meta.package_id ? `<button class="button button-secondary button-small" type="button" data-action="view-media-package" data-id="${esc(meta.package_id)}">查看运营包</button>` : ""}${group.assets[0] ? `<button class="button button-secondary button-small" type="button" data-action="reveal-media-asset" data-id="${esc(group.assets[0].id)}">${icon("folder-open")} ${mediaLocationLabel()}</button>` : ""}</div></div><div class="media-gallery-assets">${assetsMarkup}</div></article>`;
   }
 
   function renderMediaBatchProgress() {
@@ -1339,7 +1342,7 @@
     const asset = group?.assets[viewer.assetIndex];
     if (!asset) return closeMediaViewer();
     document.getElementById("mediaViewer")?.remove();
-    document.body.insertAdjacentHTML("beforeend", `<div class="media-viewer ${viewer.stripOpen ? "is-strip-open" : ""}" id="mediaViewer" role="dialog" aria-modal="true" aria-label="图片大图预览"><header><div><strong>${esc(group.meta.chinese_title || "素材预览")}</strong><span>${viewer.assetIndex + 1} / ${group.assets.length} · ${esc(asset.label)}</span></div><button class="media-viewer-close" type="button" data-action="close-media-viewer" aria-label="关闭">${icon("x")}</button></header><div class="media-viewer-stage"><button class="media-viewer-arrow is-left" type="button" data-action="step-media-viewer" data-step="-1" aria-label="上一张">${icon("chevron-left")}</button><img src="${asset.contentUrl}" alt="${esc(asset.label)}原始图"><button class="media-viewer-arrow is-right" type="button" data-action="step-media-viewer" data-step="1" aria-label="下一张">${icon("chevron-right")}</button></div><footer class="media-viewer-strip"><button class="media-viewer-strip-handle" type="button" data-action="toggle-media-strip" aria-label="展开或收起缩略图">${icon("chevron-up")}<span>移至底部查看缩略图</span></button><div class="media-viewer-strip-content">${group.assets.map((item, index) => `<article class="${index === viewer.assetIndex ? "is-active" : ""}"><button class="media-viewer-mini" type="button" data-action="select-media-viewer" data-asset-index="${index}"><img src="${item.contentUrl}" alt="${esc(item.label)}"></button><button class="media-viewer-filename" type="button" data-action="reveal-media-asset" data-id="${esc(item.id)}" title="打开所在文件夹">${esc(item.label)}</button></article>`).join("")}</div></footer></div>`);
+    document.body.insertAdjacentHTML("beforeend", `<div class="media-viewer ${viewer.stripOpen ? "is-strip-open" : ""}" id="mediaViewer" role="dialog" aria-modal="true" aria-label="图片大图预览"><header><div><strong>${esc(group.meta.chinese_title || "素材预览")}</strong><span>${viewer.assetIndex + 1} / ${group.assets.length} · ${esc(asset.label)}</span></div><button class="media-viewer-close" type="button" data-action="close-media-viewer" aria-label="关闭">${icon("x")}</button></header><div class="media-viewer-stage"><button class="media-viewer-arrow is-left" type="button" data-action="step-media-viewer" data-step="-1" aria-label="上一张">${icon("chevron-left")}</button><img src="${asset.contentUrl}" alt="${esc(asset.label)}原始图"><button class="media-viewer-arrow is-right" type="button" data-action="step-media-viewer" data-step="1" aria-label="下一张">${icon("chevron-right")}</button></div><footer class="media-viewer-strip"><button class="media-viewer-strip-handle" type="button" data-action="toggle-media-strip" aria-label="展开或收起缩略图">${icon("chevron-up")}<span>移至底部查看缩略图</span></button><div class="media-viewer-strip-content">${group.assets.map((item, index) => `<article class="${index === viewer.assetIndex ? "is-active" : ""}"><button class="media-viewer-mini" type="button" data-action="select-media-viewer" data-asset-index="${index}"><img src="/api/v3/media-assets/${encodeURIComponent(item.id)}/thumbnail" alt="${esc(item.label)}" loading="lazy"></button><button class="media-viewer-filename" type="button" data-action="reveal-media-asset" data-id="${esc(item.id)}" title="${mediaLocationLabel()}">${esc(item.label)}</button></article>`).join("")}</div></footer></div>`);
     renderIcons();
     bindMediaViewerStrip();
   }
@@ -2058,6 +2061,10 @@
         }
       }
       else if (action === "reveal-media-asset") {
+        if (state.deployment === "cloud") {
+          window.open(`/api/v3/media-assets/${encodeURIComponent(id)}/content`, "_blank", "noopener,noreferrer");
+          return;
+        }
         const result = await api(`/media-assets/${id}/reveal`, { method: "POST" });
         notify(`已打开文件夹：${result.folder}`);
       }

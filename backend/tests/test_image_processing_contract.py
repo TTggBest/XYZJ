@@ -614,6 +614,7 @@ def test_reveal_media_asset_opens_its_parent_folder(tmp_path: Path) -> None:
     image_path.write_bytes(b"image")
 
     with (
+        patch("zhiju.services.image_processing.get_settings", return_value=Mock(deployment="local")),
         patch(
             "zhiju.services.image_processing.resolve_media_asset_file",
             return_value=(Mock(), image_path),
@@ -625,6 +626,22 @@ def test_reveal_media_asset_opens_its_parent_folder(tmp_path: Path) -> None:
     assert folder == image_path.parent
     popen.assert_called_once()
     assert popen.call_args.args[0] == ["/usr/bin/open", str(image_path.parent)]
+
+
+def test_cloud_reveal_does_not_launch_a_desktop_command():
+    from fastapi import HTTPException
+    from types import SimpleNamespace
+
+    with (
+        patch("zhiju.services.image_processing.get_settings", return_value=SimpleNamespace(deployment="cloud")),
+        patch("zhiju.services.image_processing.resolve_media_asset_file", return_value=(Mock(), Path("/tmp/image.png"))),
+        patch("zhiju.services.image_processing.subprocess.Popen") as popen,
+    ):
+        with pytest.raises(HTTPException) as error:
+            reveal_media_asset_folder(Mock(), "asset-id")
+        assert error.value.status_code == 501
+        assert "云端" in error.value.detail
+        popen.assert_not_called()
 
 
 def test_media_page_shows_busy_states_and_prevents_duplicate_actions() -> None:
