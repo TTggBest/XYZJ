@@ -258,7 +258,7 @@ def test_synced_schedules_use_v14_daily_community_counts_and_preserve_edits(stor
     from zhiju.models import ChannelScheduleEntry
     day = datetime(2026, 10, 28)
     rows = [dict(channel_id="channel-a", drama_id="drama-a", publish_slot_id=f"slot-{i}",
-        publish_date=day.date(), planned_local_time=day, planned_beijing_time=day,
+        publish_date=(day - timedelta(days=i)).date(), planned_local_time=day, planned_beijing_time=day,
         planned_utc_time=day, source_type="feishu", source_sheet_id="sheet", source_sheet_title="channel",
         source_row_number=i+2, source_video_id=None, source_video_url=None,
         is_uploaded=False, is_published=False, is_task_written=False) for i in range(updates)]
@@ -272,6 +272,38 @@ def test_synced_schedules_use_v14_daily_community_counts_and_preserve_edits(stor
         upsert_channel_schedule_rows(s, rows, now=day)
         s.commit()
         assert schedules[0].community_count == 0
+
+
+@pytest.mark.parametrize("updates,expected", [(1, 2), (2, 1)])
+@pytest.mark.parametrize("manual_zero", [False, True])
+def test_legacy_zero_schedule_is_resolved_before_new_task_and_v14_snapshot(client, store, updates, expected, manual_zero):
+    from zhiju.models import ChannelScheduleEntry, OperationTask
+    from zhiju.schemas.production import TaskCreate
+    from zhiju.services import production, v14_runs
+    from zhiju.services.community_requirements import update_community
+    day = datetime(2026, 10, 29)
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        for number in range(updates):
+            s.add(ChannelScheduleEntry(id=f"legacy-{number}", channel_id="channel-a", drama_id="drama-a",
+                publish_slot_id=f"legacy-slot-{number}", publish_date=(day - timedelta(days=number)).date(), planned_local_time=day,
+                planned_beijing_time=day, planned_utc_time=day, source_type="feishu", community_count=0,
+                status="planned", idempotency_key=f"legacy-schedule-{number}"))
+        s.commit()
+        if manual_zero:
+            # A genuine user override must remain distinguishable from the old default.
+            update_community(s, "schedules", "legacy-0", 0)
+        task = production.create_task(s, TaskCreate(schedule_id="legacy-0", task_date=day.date(), idempotency_key="legacy-new-task"))
+        assert task.community_count == (0 if manual_zero else expected)
+        # Simulate an old pending task produced before the fix as well.
+        task.community_count = 0
+        s.get(ChannelScheduleEntry, "legacy-0").community_count = 0
+        s.commit()
+        task_id = task.id
+    response = client.post(f"/api/v3/tasks/{task_id}/start-v14")
+    assert response.status_code == 200, response.text
+    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+    assert claim.status_code == 200, claim.text
+    assert claim.json()["input_snapshot"]["community_count"] == (0 if manual_zero else expected)
 
 
 def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, store):

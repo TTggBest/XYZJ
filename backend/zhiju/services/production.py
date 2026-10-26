@@ -102,6 +102,8 @@ def create_task(session: Session, payload: TaskCreate) -> OperationTask:
     if schedule.status not in {"planned", "reserved", "confirmed"}:
         raise ConflictError("取消、替换或已发布排期不能生成任务")
     _require_productive_channel(session, schedule.channel_id)
+    from zhiju.services.community_requirements import initialize_schedule_community
+    initialize_schedule_community(session, schedule)
     batch = _native_batch(session, payload.task_date)
     task = OperationTask(
         schedule_id=schedule.id,
