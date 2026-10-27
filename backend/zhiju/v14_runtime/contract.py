@@ -68,9 +68,16 @@ class StageInput:
     item: dict
     context: dict
     rules: dict
+    skill_bundle: dict | None = None
 
 
 def build_stage_input(envelope: dict, node_type: str) -> StageInput:
+    bundle = envelope['rules_snapshot'].get('skill_bundle')
+    if bundle:
+        from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot
+        clean = {k: v for k, v in envelope.items() if k != 'rules_snapshot'}
+        prepared = invoke_bundle(archive_from_snapshot(bundle), 'prepare', {'envelope': clean, 'node': node_type})
+        return StageInput(**prepared, skill_bundle=bundle)
     data = deepcopy(envelope["input_snapshot"])
     rules = deepcopy(envelope["rules_snapshot"])
     channel = data["channel"]
@@ -134,6 +141,15 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
 
 
 def validate_result(stage: StageInput, result: dict, history: list[dict] | None = None) -> list[str]:
+    if stage.skill_bundle:
+        from dataclasses import asdict
+        from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot
+        data = asdict(stage)
+        data.pop('skill_bundle')
+        checked = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'validate', {'stage': data, 'result': result})
+        result.clear()
+        result.update(checked['result'])
+        return checked['issues']
     with using_rules(stage.rules):
         if stage.node_type == "search":
             if result.get("plot_payload") != stage.context["plot_payload"]:

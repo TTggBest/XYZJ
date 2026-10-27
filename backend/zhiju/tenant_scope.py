@@ -57,6 +57,13 @@ INTERNAL_ROUTES: frozenset[RouteKey] = frozenset()
 
 # Tenant routes operate on the active tenant's business or membership context.
 TENANT_ROUTES: frozenset[RouteKey] = frozenset({
+    ('GET', '/api/v3/workflow-versions'),
+    ('POST', '/api/v3/workflow-versions'),
+    ('GET', '/api/v3/workflow-versions/{version_id}'),
+    ('PUT', '/api/v3/workflow-versions/{version_id}'),
+    ('GET', '/api/v3/workflow-versions/{version_id}/download'),
+    ('POST', '/api/v3/workflow-versions/{version_id}/publish'),
+    ('POST', '/api/v3/workflow-versions/default'),
     ("PATCH", "/api/v3/tasks/{entity_id}/community"),
     ("PATCH", "/api/v3/schedules/{entity_id}/community"),
     ("POST", "/api/v3/tasks/{task_id}/start-v14"),

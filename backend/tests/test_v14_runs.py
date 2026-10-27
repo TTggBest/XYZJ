@@ -55,7 +55,8 @@ def test_create_run_freezes_inputs(store):
         s.expire_all()
         assert run.model == "test-model"
         assert run.input_snapshot["drama"]["content_summary"] == "真剧情"
-        assert run.rules_snapshot["title"]["rule"] == "original"
+        assert run.rules_snapshot['skill_bundle']['label'] == 'V14'
+        assert run.rules_snapshot['skill_bundle']['archive']
         assert create_run(s, "work-a").id == run_id
 
 

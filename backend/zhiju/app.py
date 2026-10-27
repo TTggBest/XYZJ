@@ -68,6 +68,8 @@ def create_app() -> FastAPI:
     app.include_router(drama_library_router, prefix="/api")
     app.include_router(production_router, prefix="/api")
     app.include_router(v14_router, prefix="/api")
+    from zhiju.api.workflow_versions import router as workflow_versions_router
+    app.include_router(workflow_versions_router, prefix="/api")
     app.include_router(youtube_router, prefix="/api")
     app.include_router(skill_router, prefix="/api")
     app.include_router(demo_router, prefix="/api")

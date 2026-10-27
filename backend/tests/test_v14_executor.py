@@ -18,6 +18,10 @@ model=args[args.index('--model')+1]
 if model=='missing': sys.exit(17)
 if model=='slow': time.sleep(30)
 schema=json.loads(pathlib.Path(args[args.index('--output-schema')+1]).read_text())
+skill_file=pathlib.Path(args[args.index('--cd')+1])/'skills/xy-title-v14/SKILL.md'
+if model=='skill-reader':
+ pathlib.Path(args[args.index('--output-last-message')+1]).write_text(json.dumps({'skill_body':skill_file.read_text()}))
+ sys.exit(0)
 pathlib.Path(args[args.index('--output-last-message')+1]).write_text(json.dumps({'model':model,'schema':schema,'sandbox':args[args.index('--sandbox')+1], 'reasoning_config':next((a for a in args if a.startswith('model_reasoning_effort=')), None)}))
 ''')
     executable.chmod(0o700)
@@ -32,6 +36,16 @@ def test_explicit_model_and_schema_passed(fake_cli):
     assert result["model"] == "selected-model"
     assert result["sandbox"] == "read-only"
     assert result["schema"]["properties"]["results"]["maxItems"] == 1
+
+
+def test_selected_bundle_files_are_available_to_codex(fake_cli):
+    from zhiju.workflow_bundles import BASELINE, snapshot, read_file
+    from zhiju.v14_runtime.contract import build_stage_input
+    from zhiju.v14_executor.codex import CodexClient
+    data = envelope()
+    data['rules_snapshot'] = {'skill_bundle': snapshot(BASELINE.read_bytes(), version_id='builtin-v14', label='V14', revision=1)}
+    result = CodexClient(binary=fake_cli).generate(build_stage_input(data, 'title'), 'skill-reader')
+    assert result['skill_body'] == read_file(BASELINE.read_bytes(), 'xy-title-v14/SKILL.md')
 
 
 def test_unavailable_model_has_no_fallback(fake_cli):

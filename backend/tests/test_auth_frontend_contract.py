@@ -532,6 +532,7 @@ const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
 const companyB={...superUser,tenant_id:'t2',current_tenant:superUser.switchable_tenants[1]};
 const paths=[];let serverUser=superUser;
 function defaultResponse(path) {
+ if(path==='/api/v3/workflow-versions')return new Response(JSON.stringify({default_id:'builtin-v14',versions:[{id:'builtin-v14',label:'V14',revision:1,status:'published'}]}));
  if(path==='/api/v3/v14/executor-session')return new Response('{"host_id":"d1","tenant_id":"t1","account_profile":"current","session_token":"fixture-only"}');
  if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"host_id":"d1","tenant_id":"t1"}');
  if(path==='http://127.0.0.1:19733/start')return new Response('{"running":true,"pid":123}');

@@ -1,10 +1,25 @@
 """Fixed V14 execution state. Existing Feishu models are deliberately unchanged."""
 from datetime import datetime
 
-from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKeyConstraint, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, CheckConstraint, DateTime, ForeignKeyConstraint, ForeignKey, Integer, String, Text, UniqueConstraint, LargeBinary
+from sqlalchemy.dialects.mysql import LONGBLOB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from zhiju.models.base import Base, IdMixin, TenantOwnedMixin, TimestampMixin
+
+
+class WorkflowSkillVersion(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
+    __tablename__ = 'workflow_skill_versions'
+    __table_args__ = (
+        UniqueConstraint('tenant_id', 'label', 'revision', name='uq_workflow_skill_revision'),
+        CheckConstraint("status IN ('draft','published')", name='workflow_skill_status'),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default='draft')
+    change_summary: Mapped[str] = mapped_column(Text, nullable=False, default='')
+    archive: Mapped[bytes] = mapped_column(LargeBinary().with_variant(LONGBLOB(), 'mysql'), nullable=False)
 
 
 class V14Setting(TenantOwnedMixin, IdMixin, TimestampMixin, Base):

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,6 +21,10 @@ router = APIRouter(prefix="/v3", tags=["v14"])
 
 class CommunityRequirement(BaseModel):
     community_count: int = Field(ge=0, le=20)
+
+
+class ProductionVersion(BaseModel):
+    workflow_version_id: str | None = None
 
 
 @router.post("/v14/executor-session", dependencies=[Depends(require_same_origin)])
@@ -72,17 +76,17 @@ def read_settings(s: Session = Depends(get_tenant_db), p=Depends(operator)):
 
 @router.put("/v14/settings")
 def put_settings(body: V14SettingsWrite, s: Session = Depends(get_tenant_db), p=Depends(operator)):
-    return service.save_settings(s, body.model_dump()).payload
+    return service.save_settings(s, body.model_dump(exclude_unset=True)).payload
 
 
 @router.post("/work-orders/{work_order_id}/v14-runs")
-def create(work_order_id: str, s: Session = Depends(get_tenant_db), p=Depends(operator)):
-    return service.run_read(s, call(service.create_run, s, work_order_id))
+def create(work_order_id: str, body: ProductionVersion | None = None, s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    return service.run_read(s, call(service.create_run, s, work_order_id, workflow_version_id=body.workflow_version_id if body else None))
 
 
 @router.post("/tasks/{task_id}/start-v14")
-def start_task(task_id: str, s: Session = Depends(get_tenant_db), p=Depends(operator)):
-    return service.run_read(s, call(service.start_task, s, task_id))
+def start_task(task_id: str, body: ProductionVersion | None = None, s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    return service.run_read(s, call(service.start_task, s, task_id, workflow_version_id=body.workflow_version_id if body else None))
 
 
 @router.get("/work-orders/{work_order_id}/v14-runs/current")
@@ -95,7 +99,7 @@ def current(work_order_id: str, s: Session = Depends(get_tenant_db), p=Depends(o
 @router.post("/v14/claims")
 def claim(body: ClaimRequest, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     bound_host(s, p, body.host_id)
-    result = call(service.claim_run, s, body.host_id)
+    result = call(service.claim_run, s, body.host_id, executor_protocol=body.executor_protocol)
     return result if result else Response(status_code=204)
 
 

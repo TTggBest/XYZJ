@@ -13,6 +13,7 @@ let launcherOffline=false;
 let wakeOffline=false;
 const page=start(process.argv[1],auth,async(path,opts={})=>{
  requests.push([path,opts]);
+ if(path==='/api/v3/workflow-versions')return new Response(JSON.stringify({default_id:'builtin-v14',versions:[{id:'builtin-v14',label:'V14',revision:1,status:'published'}]}));
  if(path.startsWith('http://127.0.0.1:19733/')){
   if(launcherOffline)throw new TypeError('offline');
   if(wakeOffline&&path.endsWith('/start'))throw new TypeError('offline');
@@ -45,7 +46,7 @@ async function click(action,id,extra={}){
 def test_run_button_posts_current_work_order_id():
     run_node(BOOT + r"""
 await click('work-detail','work-a');
-assert.match(page.nodes.get('drawerBody').innerHTML,/运行 V14/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/生成运营包/);
 await click('v14-start','work-a');
 assert.equal(requests.filter(([p,o])=>p==='/api/v3/work-orders/work-a/v14-runs'&&o.method==='POST').length,1);
 assert.match(page.nodes.get('drawerBody').innerHTML,/selected-model/);
@@ -153,7 +154,7 @@ assert.equal(requests.filter(([p])=>p.endsWith('/start-v14')).length,1);
 release();await first;
 assert.equal(requests.filter(([p])=>p.endsWith('/start-v14')).length,2);
 assert.match(toasts.join('\n'),/缺少当前频道 V14 材料/);
-assert.match(toasts.join('\n'),/V14 已排队 1 条工单，失败 1 条/);
+assert.match(toasts.join('\n'),/运营包已排队 1 条工单，失败 1 条/);
 assert.doesNotMatch(toasts.join('\n'),/已开始生产/);
 """)
 

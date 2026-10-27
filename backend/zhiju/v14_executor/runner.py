@@ -94,10 +94,17 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                     elif node == "community" and stage.item["community_count"] == 0:
                         result = {"section": "community", "results": []}
                     elif node == "search":
-                        evidence = evidence_provider(stage.item)
+                        if stage.skill_bundle and evidence_provider is collect_agent_reach_evidence:
+                            from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot
+                            evidence = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'evidence', {'item': stage.item})
+                        else:
+                            evidence = evidence_provider(stage.item)
                         if evidence.get("status") not in {"completed", "partial"}:
                             raise RuntimeError("市场检索失败: " + str(evidence.get("reason", "缺少检索结果")))
-                        stage.prompt = build_market_packaging_prompt(stage.item, stage.context["plot_payload"], stage.rules["prompts"]["search"], evidence)
+                        if stage.skill_bundle:
+                            stage = build_stage_input({**envelope, 'external_evidence': evidence}, node)
+                        else:
+                            stage.prompt = build_market_packaging_prompt(stage.item, stage.context["plot_payload"], stage.rules["prompts"]["search"], evidence)
                         result = {"plot_payload": stage.context["plot_payload"], "market_payload": model_client.generate(stage, envelope["model"]), "external_evidence": evidence}
                     else:
                         result = model_client.generate(stage, envelope["model"])

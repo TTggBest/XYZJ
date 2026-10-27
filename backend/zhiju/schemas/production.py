@@ -477,6 +477,7 @@ class PackageOperationOverview(BaseModel):
     package_id: str
     work_order_id: str
     package_version: int
+    workflow_version: dict | None = None
     package_status: str
     source_complete: bool
     source_incomplete_reason: str | None

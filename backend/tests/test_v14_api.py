@@ -32,7 +32,7 @@ def start(client):
     response = client.post("/api/v3/work-orders/work-a/v14-runs")
     assert response.status_code == 200, response.text
     run = response.json()
-    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2})
     assert claim.status_code == 200, claim.text
     return run, claim.json()
 
@@ -45,7 +45,7 @@ def test_task_start_dispatches_and_enqueues_v14_idempotently(client):
     assert run["package_id"] == "package-a"
     assert run["status"] == "queued"
     assert client.post("/api/v3/tasks/task-a/start-v14").json()["run_id"] == run["run_id"]
-    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2})
     assert claim.status_code == 200, claim.text
     assert claim.json()["run_id"] == run["run_id"]
 
@@ -121,7 +121,7 @@ def test_claim_requires_bound_device(client):
 
 def test_company_switch_cannot_claim(client):
     client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, tenant_id="tenant-b")
-    assert client.post("/api/v3/v14/claims", json={"host_id": "device-a"}).status_code == 403
+    assert client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2}).status_code == 403
 
 
 def test_duplicate_submission_is_idempotent(client):
@@ -151,7 +151,7 @@ def test_disconnect_never_reassigns_automatically(client, store):
         s.get(V14Run, claim["run_id"]).heartbeat_at = datetime.now(timezone.utc) - timedelta(seconds=100)
         s.commit()
     assert client.get("/api/v3/work-orders/work-a/v14-runs/current").json()["status"] == "interrupted"
-    assert client.post("/api/v3/v14/claims", json={"host_id": "device-a"}).status_code == 204
+    assert client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2}).status_code == 204
 
 
 def test_cancel_blocks_late_results(client):
@@ -226,7 +226,7 @@ def test_six_stages_reach_existing_package_view(client, store, monkeypatch, tmp_
         changed = client.patch("/api/v3/tasks/task-a/community", json={"community_count": 1})
         assert changed.status_code == 200, changed.text
         assert changed.json()["run"]["status"] == "queued"
-        claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"}).json()
+        claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2}).json()
         assert set(claim["accepted_results"]) == {"search", "title", "cover", "description"}
         for node in ("community", "merge"):
             output = outputs[node] if node == "merge" else {"results": [{"plan_index": 1, "copy": "社群", "copy_translation": "翻译", "image_prompt_1x1": "prompt"}]}
@@ -330,7 +330,7 @@ def test_legacy_zero_schedule_is_resolved_before_new_task_and_v14_snapshot(clien
         task_id = task.id
     response = client.post(f"/api/v3/tasks/{task_id}/start-v14")
     assert response.status_code == 200, response.text
-    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+    claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2})
     assert claim.status_code == 200, claim.text
     assert claim.json()["input_snapshot"]["community_count"] == (0 if manual_zero else expected)
 
@@ -432,7 +432,7 @@ def test_expired_cached_claim_does_not_block_resumed_run(client, tmp_path, monke
             return r.json()
         def current(self, e): return client.get("/api/v3/work-orders/work-a/v14-runs/current").json()
         def claim(self):
-            r = client.post("/api/v3/v14/claims", json={"host_id": "device-a"})
+            r = client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2})
             assert r.status_code == 200, r.text
             assert r.json()["claim_id"] != old["claim_id"]
             raise StopIteration("reached new claim")

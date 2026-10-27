@@ -32,7 +32,9 @@
       channel_title: hasDistinctOriginal
         ? `运营昵称：${primaryName}\n${channelSecondary}`
         : `频道：${primaryName}`,
-      version_label: `运营包版本 V${version}`,
+      version_label: item.workflow_version
+        ? `生产流程 ${item.workflow_version.label} · 修订 ${item.workflow_version.revision} / 产物 V${version}`
+        : `运营包版本 V${version}`,
       playlist_name: textOr(item.playlist_name, "暂无播放列表"),
       playlists,
       localized_description: textOr(description.localized_text, "暂无频道语言说明"),

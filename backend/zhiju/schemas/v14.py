@@ -11,10 +11,12 @@ class V14SettingsWrite(BaseModel):
     available_models: list[str] = Field(default_factory=list)
     rules: dict = Field(default_factory=dict)
     channel_inputs: dict[str, dict] = Field(default_factory=dict)
+    workflow_version_id: str = 'builtin-v14'
 
 
 class ClaimRequest(BaseModel):
     host_id: str
+    executor_protocol: int = 1
 
 
 class AttemptStart(BaseModel):

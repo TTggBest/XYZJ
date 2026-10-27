@@ -21,6 +21,8 @@ def get_settings(session: Session) -> V14Setting | None:
 def save_settings(session: Session, payload: dict) -> V14Setting:
     data = V14SettingsWrite.model_validate(payload).model_dump()
     setting = get_settings(session)
+    if setting is not None and 'workflow_version_id' not in payload:
+        data['workflow_version_id'] = setting.payload.get('workflow_version_id', 'builtin-v14')
     if setting is None:
         setting = V14Setting(tenant_id=session.info["tenant_id"], payload=data)
         session.add(setting)
@@ -34,11 +36,11 @@ def get_run(session: Session, run_id: str) -> V14Run:
     return require_tenant_entity(session, V14Run, run_id, lock=True)
 
 
-def start_task(session: Session, task_id: str) -> V14Run:
+def start_task(session: Session, task_id: str, *, workflow_version_id: str | None = None) -> V14Run:
     """Dispatch and enqueue the existing V14 workflow as one transaction."""
     try:
         detail = dispatch_task(session, task_id, commit=False)
-        run = create_run(session, detail["work_order"].id, commit=False)
+        run = create_run(session, detail["work_order"].id, commit=False, workflow_version_id=workflow_version_id)
         session.commit()
         return run
     except Exception:
@@ -46,7 +48,7 @@ def start_task(session: Session, task_id: str) -> V14Run:
         raise
 
 
-def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> V14Run:
+def create_run(session: Session, work_order_id: str, *, commit: bool = True, workflow_version_id: str | None = None) -> V14Run:
     work = require_tenant_entity(session, WorkOrder, work_order_id, lock=True)
     existing = session.scalar(select(V14Run).where(V14Run.work_order_id == work.id,
                                                   V14Run.tenant_id == session.info["tenant_id"]))
@@ -65,6 +67,11 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> 
     if setting is None:
         raise ConflictError("请先配置 V14 执行主机、模型和规则")
     config = setting.payload
+    selected = workflow_version_id or config.get('workflow_version_id') or 'builtin-v14'
+    bundle = None
+    if selected:
+        from zhiju.services.workflow_versions import resolve
+        bundle = resolve(session, selected)
     task = require_tenant_entity(session, OperationTask, work.task_id)
     if task.schedule_id:
         from zhiju.models import ChannelScheduleEntry
@@ -75,7 +82,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> 
     channel = _require_productive_channel(session, work.channel_id)
     drama = require_tenant_entity(session, Drama, work.drama_id)
     channel_input = config["channel_inputs"].get(channel.id)
-    if not channel_input or not config["rules"]:
+    if not channel_input or (not bundle and not config["rules"]):
         raise ConflictError("缺少当前频道 V14 材料或固定规则")
     if channel.default_language:
         from zhiju.services.schedule_youtube import LANGUAGES
@@ -90,7 +97,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> 
             raise ConflictError("V14 材料语言与当前频道语言不一致，请修正后再启动")
     run = V14Run(tenant_id=session.info["tenant_id"], work_order_id=work.id, package_id=package.id,
         host_id=config["host_id"], account_profile=config["account_profile"], model=config["default_model"],
-        rules_snapshot=deepcopy(config["rules"]), input_snapshot={
+        rules_snapshot={'skill_bundle': bundle} if bundle else deepcopy(config["rules"]), input_snapshot={
             "channel_id": channel.id, "channel_name": channel.original_name,
             "drama_id": drama.id, "drama_name": drama.chinese_title,
             "drama": {key: getattr(drama, key) for key in ("content_summary", "plot_archive", "plot_pattern", "core_personas", "source_language")},
@@ -98,6 +105,8 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> 
             "target_publish_date": str(work.target_publish_date),
             "video_id": task.source_video_id or f"pending_{work.id}", "video_url": task.source_video_url,
         })
+    if bundle:
+        run.input_snapshot['workflow_version'] = {k: bundle[k] for k in ('id', 'label', 'revision')}
     from zhiju.v14_runtime.contract import build_stage_input
     try:
         build_stage_input({"run_id": work.id, "input_snapshot": run.input_snapshot,
@@ -130,6 +139,7 @@ def run_read(session, run):
     if status == "running" and heartbeat and datetime.now(timezone.utc) - heartbeat > timedelta(seconds=90):
         status = "interrupted"
     return {"run_id": run.id, "work_order_id": run.work_order_id, "package_id": run.package_id,
+        "workflow_version": run.input_snapshot.get('workflow_version'),
         "status": status, "claim_id": run.claim_id, "model": run.model, "host_id": run.host_id, "error": run.error,
         "attempts": [{"attempt_id": a.id, "node_type": a.node_type, "outcome": a.outcome,
                       "sequence": a.sequence, "error": a.error} for a in rows]}
@@ -152,12 +162,14 @@ def envelope(session, run):
         "retry_state": [{"node_type": a.node_type, "outcome": a.outcome, "error": a.error} for a in rows]}
 
 
-def claim_run(session, host_id: str):
+def claim_run(session, host_id: str, *, executor_protocol: int = 2):
     session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info["tenant_id"]).with_for_update())
     run = session.scalar(select(V14Run).where(V14Run.tenant_id == session.info["tenant_id"],
         V14Run.host_id == host_id, V14Run.status == "queued").order_by(V14Run.created_at).with_for_update().limit(1))
     if run is None:
         return None
+    if run.rules_snapshot.get('skill_bundle') and executor_protocol < 2:
+        raise ConflictError('当前执行器不支持成套 Skills，请更新本机执行器；任务仍保持待执行')
     run.status, run.claim_id = "running", str(uuid4())
     run.heartbeat_at = datetime.now(timezone.utc)
     session.commit()

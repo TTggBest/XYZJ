@@ -802,6 +802,19 @@
     root.innerHTML = `<div class="page-stack">${section("数据库任务列表", `${tasks.length} 条任务 · 默认只下发状态为“待下发”的任务`, rows.length ? table(["", "剧目", "频道", "计划发布", "社群", "状态", "生产进度", ""], rows, 980) : empty("当天没有任务", "请先在排期页面为当天排期生成任务。", "go-schedules", "进入排期"), tools)}</div>`;
   }
   let taskStartingV14 = false;
+  function workflowLabel(version) {
+    return version ? `${version.label} · 修订 ${version.revision}` : "旧版运行（未登记 Skills 版本）";
+  }
+  async function workflowPicker() {
+    const registry = await api('/workflow-versions');
+    state.workflowRegistry = registry;
+    const versions = registry.versions.filter(v => v.status === 'published');
+    if (!versions.some(v => v.id === state.workflowVersionId)) state.workflowVersionId = registry.default_id;
+    return `<div class="field"><label>本次生产流程版本（完整 Skills）</label><select class="select" data-workflow-selector>${versions.map(v => `<option value="${esc(v.id)}" ${state.workflowVersionId === v.id ? 'selected' : ''}>${esc(workflowLabel(v))}${v.id === registry.default_id ? '（默认）' : ''}</option>`).join('')}</select></div>`;
+  }
+  function productionVersionBody() {
+    return JSON.stringify({workflow_version_id: state.workflowVersionId || 'builtin-v14'});
+  }
   async function localV14Request(path, config) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
@@ -844,6 +857,7 @@
     if (taskStartingV14) return;
     if (!ids.length) return notify("没有待生产的工单", true);
     const expectedRevision = auth.capture();
+    const versionBody = productionVersionBody();
     const startDate = state.date;
     let done = 0;
     let failed = 0;
@@ -854,7 +868,7 @@
         if (!auth.isCurrent(expectedRevision)) return;
         if (state.date !== startDate) break;
         try {
-          await api(`/tasks/${id}/start-v14`, { method: "POST", expectedRevision });
+          await api(`/tasks/${id}/start-v14`, { method: "POST", body: versionBody, expectedRevision });
           if (!auth.isCurrent(expectedRevision)) return;
           done += 1;
         } catch (error) {
@@ -864,7 +878,7 @@
         }
       }
       if (done) await wakeV14Executor(config, expectedRevision);
-      notify(`V14 已排队 ${done} 条工单${failed ? `，失败 ${failed} 条` : ""}${done ? "；已唤起本机执行器，处理完队列后自动退出" : ""}`, !!failed);
+      notify(`运营包已排队 ${done} 条工单${failed ? `，失败 ${failed} 条` : ""}${done ? "；已唤起本机执行器，处理完队列后自动退出" : ""}`, !!failed);
       if (state.date === startDate) await loadView("workorders");
     } finally {
       taskStartingV14 = false;
@@ -872,11 +886,12 @@
   }
 
   async function showWorkorders() {
+    const versionPicker = canRunV14() ? await workflowPicker() : '';
     const tasks = await api(`/tasks/overview${query({ task_date: state.date })}`); state.tasks = tasks;
     const rows = tasks.map((item, index) => `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${tag(item.work_order_status || item.task_status)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${item.task_status === "pending_dispatch" ? `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${item.task_id}">${icon("play")} 开始生产</button>` : item.work_order_id ? `<button class="button button-secondary button-small" data-action="work-detail" data-id="${item.work_order_id}">查看进度</button>` : ""}</div></td></tr>`);
     const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button></div>`;
     const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks);
-    root.innerHTML = `<div class="page-stack">${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
+    root.innerHTML = `<div class="page-stack">${versionPicker ? `<section class="section"><div class="toolbar">${versionPicker}${auth.canView("settings", state.deviceRole) ? '<button class="button button-secondary" data-action="workflow-settings">管理运营包流程版本</button>' : ""}<span class="settings-muted">生成运营包时使用所选版本；已有成品不变。</span></div></section>` : ''}${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
   function canRunV14() {
     const actor = auth.current();
@@ -886,11 +901,12 @@
     const detail = await api(`/work-orders/${id}`);
     const w = detail.work_order, p = detail.package;
     const run = canRunV14() ? await api(`/work-orders/${id}/v14-runs/current`) : null;
-    const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">运行 V14</button>`
+    const versionPicker = !run && canRunV14() ? await workflowPicker() : '';
+    const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">生成运营包</button>`
       : ["queued", "running"].includes(run.status) ? `${run.status === "queued" ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
       : ["interrupted", "cancelled"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">继续运行</button>` : "";
-    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>V14 本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">V14 设置</button></div></div>` : "";
-    openDrawer("工单详情", `<div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${tag(p.status)}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`);
+    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
+    openDrawer("工单详情", `<div class="detail-block">${versionPicker || `<span>生产流程版本：${esc(workflowLabel(run?.workflow_version))}</span>`}</div><div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${tag(p.status)}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`);
   }
 
   function copyKey(packageId, field, value) {
@@ -1446,7 +1462,21 @@
     return items.length ? table(type === "status" ? ["时间", "实体", "实体 ID", "新状态", "原因", "执行者"] : ["时间", "动作", "实体", "实体 ID", "变更摘要", "执行者"], rows, 900) : empty("暂无日志", "数据库中尚无对应记录。");
   }
 
-  const SETTINGS_TABS = [["v14", "V14 执行", "bot"], ["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["channelInitialization", "初始化规则", "wand-sparkles"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+  const SETTINGS_TABS = [["workflowVersions", "运营包流程版本", "git-branch"], ["v14", "执行主机", "bot"], ["cadence", "档期配置", "clock-3"], ["dramaTypes", "短剧类型", "list-tree"], ["channelInitialization", "初始化规则", "wand-sparkles"], ["images", "图片目录", "folder-cog"], ["runtime", "运行环境", "server-cog"], ["devices", "设备管理", "monitor-cog"], ["packages", "运行包打包", "package-plus"], ["credentials", "第三方凭证", "key-round"]];
+
+  async function workflowVersionsPanel() {
+    const registry = await api('/workflow-versions');
+    state.workflowRegistry = registry;
+    const admin = auth.current()?.platform_role === 'super_admin';
+    const rows = registry.versions.map(v => `<tr><td>${esc(workflowLabel(v))}${v.id === registry.default_id ? ' · 默认' : ''}</td><td>${tag(v.status)}</td><td>${esc(v.change_summary)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="workflow-files" data-id="${esc(v.id)}">查看文件 / 差异</button><a class="button button-secondary button-small" href="/api/v3/workflow-versions/${encodeURIComponent(v.id)}/download" download>下载整套 Skills</a>${v.status === 'published' ? `<button class="button button-secondary button-small" data-action="workflow-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-secondary button-small" data-action="workflow-replace" data-id="${esc(v.id)}">替换草稿 ZIP</button><button class="button button-primary button-small" data-action="workflow-publish" data-id="${esc(v.id)}">发布</button>` : ''}</div></td></tr>`);
+    return `<header class="settings-content-head"><div><h2>运营包流程版本</h2><p>每版是一整套 Skills 文件。发布不自动切换默认；已启动任务与已有成品不变。修复已发布版本请上传同名的新修订。</p></div></header>${table(['流程版本', '状态', '变更说明', '操作'], rows, 850)}${admin ? `<form class="form-grid section-body" id="workflowUploadForm"><div class="field"><label>版本名称（例如 V14 / V15）</label><input class="input" name="label" required maxlength="80"></div><div class="field"><label>完整 Skills ZIP</label><input class="input" type="file" name="file" accept=".zip" required></div><div class="field field-wide"><label>变更说明</label><textarea class="textarea" name="change_summary" required></textarea></div><p class="settings-muted field-wide">从现有版本下载整套文件，修改后整体上传。保留根目录 zhiju-workflow.json 及智矩接入入口；提示词、规则、校验脚本均从包内加载。</p><div class="form-actions"><button class="button button-primary" type="submit">上传为新草稿 / 修订</button></div></form>` : ''}`;
+  }
+  async function workflowFiles(id, path = '') {
+    const compare = state.workflowCompareId || '';
+    const data = await api(`/workflow-versions/${encodeURIComponent(id)}${query({path: path || null, compare_to: compare || null})}`);
+    const versions = state.workflowRegistry?.versions || [];
+    openDrawer('完整 Skills 文件与版本差异', `<div class="field"><label>对照版本</label><select class="select" data-workflow-compare data-id="${esc(id)}"><option value="">不对照</option>${versions.filter(v => v.id !== id).map(v => `<option value="${esc(v.id)}" ${v.id === compare ? 'selected' : ''}>${esc(workflowLabel(v))}</option>`).join('')}</select></div><div class="field"><label>版本文件（${data.files.length}）</label><select class="select" data-workflow-file data-id="${esc(id)}"><option value="">选择文件</option>${data.files.map(f => `<option value="${esc(f)}" ${f === path ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></div>${path ? `<h3>${esc(path)}</h3><pre class="code-preview">${esc(compare ? data.diff || '该文件无差异' : data.content)}</pre>` : '<p>选择文件查看 Skill 正文、提示词、JSON 或脚本；下载可取得完整文件包。</p>'}`);
+  }
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
     return `<div class="settings-layout"><aside class="settings-tabs">${tabs}</aside><div class="settings-content">${body}</div></div>`;
@@ -1455,11 +1485,11 @@
     return `<div class="setting-value"><span>${esc(name)}</span><strong class="${mono ? "mono" : ""}">${esc(value ?? "—")}</strong></div>`;
   }
   function v14SettingsForm(config = {}) {
-    return `<header class="settings-content-head"><div><h2>V14 本机执行设置</h2><p>配置保存在当前公司云端；Codex 凭据只留在本机。现有飞书同步全部保留。</p></div></header><form id="v14SettingsForm" class="form-grid"><div class="field"><label>执行主机设备 ID</label><input class="input mono" name="host_id" value="${esc(config.host_id || auth.current()?.device?.id || "")}" required maxlength="36"></div><div class="field"><label>本机账号配置名</label><input class="input" name="account_profile" value="${esc(config.account_profile || "current")}" required></div><div class="field field-wide"><label>模型（账号必须有使用权限，不自动回退）</label><input class="input mono" name="default_model" value="${esc(config.default_model || "")}" required list="v14ModelOptions"><datalist id="v14ModelOptions">${(config.available_models || []).map(model => `<option value="${esc(model)}"></option>`).join("")}</datalist></div><div class="field"><label>固定 V14 规则 JSON${config.rules ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="rules_file" accept="application/json,.json" ${config.rules ? "" : "required"}></div><div class="field"><label>频道材料 JSON${config.channel_inputs ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="channels_file" accept="application/json,.json" ${config.channel_inputs ? "" : "required"}></div><p class="field-wide settings-muted">材料按频道内部 ID 对应。新设置仅影响新运行，已运行工单保留原快照。此处不填写登录密码或令牌。</p><div class="form-actions"><button class="button button-primary" type="submit">保存 V14 配置</button><button class="button button-secondary" type="button" data-action="v14-authorize">授权本机执行并下载配置</button></div></form>`;
+    return `<header class="settings-content-head"><div><h2>运营包执行主机设置</h2><p>配置保存在当前公司云端；Codex 凭据只留在本机。现有飞书同步全部保留。</p></div></header><form id="v14SettingsForm" class="form-grid"><div class="field"><label>执行主机设备 ID</label><input class="input mono" name="host_id" value="${esc(config.host_id || auth.current()?.device?.id || "")}" required maxlength="36"></div><div class="field"><label>本机账号配置名</label><input class="input" name="account_profile" value="${esc(config.account_profile || "current")}" required></div><div class="field field-wide"><label>模型（账号必须有使用权限，不自动回退）</label><input class="input mono" name="default_model" value="${esc(config.default_model || "")}" required list="v14ModelOptions"><datalist id="v14ModelOptions">${(config.available_models || []).map(model => `<option value="${esc(model)}"></option>`).join("")}</datalist></div><p class="field-wide settings-muted">生产规则来自所选完整 Skills 版本，请在“运营包流程版本”管理；此处只配置主机、模型和频道数据。</p><div class="field"><label>频道材料 JSON${config.channel_inputs ? "（已配置，不选文件则保留）" : ""}</label><input class="input" type="file" name="channels_file" accept="application/json,.json" ${config.channel_inputs ? "" : "required"}></div><p class="field-wide settings-muted">材料按频道内部 ID 对应。新设置仅影响新运行，已运行工单保留原快照。此处不填写登录密码或令牌。</p><div class="form-actions"><button class="button button-primary" type="submit">保存执行配置</button><button class="button button-secondary" type="button" data-action="v14-authorize">授权本机执行并下载配置</button></div></form>`;
   }
   async function showV14Settings() {
     state.v14Config = await api("/v14/settings");
-    openModal("V14 设置", v14SettingsForm(state.v14Config || {}));
+    openModal("执行主机设置", v14SettingsForm(state.v14Config || {}));
   }
   function deviceForm(device = {}) {
     const value = (key, fallback = "") => esc(device[key] ?? fallback);
@@ -1480,7 +1510,9 @@
       return;
     }
     let body;
-    if (state.settingsTab === "v14") {
+    if (state.settingsTab === "workflowVersions") {
+      body = await workflowVersionsPanel();
+    } else if (state.settingsTab === "v14") {
       state.v14Config = await api("/v14/settings");
       body = v14SettingsForm(state.v14Config || {});
     } else if (state.settingsTab === "cadence") {
@@ -1916,11 +1948,24 @@
         renderPackageListResults();
       }
       else if (action === "work-detail") await workDetail(id);
+      else if (action === 'workflow-settings') { state.settingsTab = 'workflowVersions'; await loadView('settings'); }
+      else if (action === 'workflow-files') await workflowFiles(id);
+      else if (action === 'workflow-default') {
+        await api('/workflow-versions/default', {method: 'POST', body: JSON.stringify({workflow_version_id: id})});
+        state.workflowVersionId = id; notify('默认生产版本已更新；已有任务不变'); await loadView('settings');
+      }
+      else if (action === 'workflow-publish') {
+        await api(`/workflow-versions/${id}/publish`, {method: 'POST'});
+        notify('版本已发布，未自动切换默认版本'); await loadView('settings');
+      }
+      else if (action === 'workflow-replace') {
+        openModal('替换未发布草稿', `<form id="workflowReplaceForm" class="form-grid"><input type="hidden" name="version_id" value="${esc(id)}"><div class="field field-wide"><label>完整 Skills ZIP</label><input class="input" type="file" name="file" accept=".zip" required></div><div class="form-actions"><button class="button button-primary" type="submit">保存草稿文件</button></div></form>`);
+      }
       else if (action === "v14-start") {
         button.disabled = true;
         const revision = auth.capture();
         const config = await prepareV14Executor(revision);
-        await api(`/work-orders/${id}/v14-runs`, { method: "POST", expectedRevision: revision });
+        await api(`/work-orders/${id}/v14-runs`, { method: "POST", body: productionVersionBody(), expectedRevision: revision });
         await wakeV14Executor(config, revision);
         notify("已唤起本机 V14 执行器，处理完队列后自动退出"); await workDetail(id);
       }
@@ -1946,7 +1991,7 @@
         notify("已取消，既有结果保留"); await workDetail(button.dataset.workId);
       }
       else if (action === "v14-resume") {
-        openModal("继续 V14", `<form class="form-grid" id="v14ResumeForm"><input type="hidden" name="run_id" value="${esc(id)}"><input type="hidden" name="work_id" value="${esc(button.dataset.workId)}"><p class="field-wide">继续会保留已完成阶段，不重置内容重试次数。</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认继续</button></div></form>`);
+        openModal("继续运营包生产", `<form class="form-grid" id="v14ResumeForm"><input type="hidden" name="run_id" value="${esc(id)}"><input type="hidden" name="work_id" value="${esc(button.dataset.workId)}"><p class="field-wide">继续会保留已完成阶段，不重置内容重试次数。</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认继续</button></div></form>`);
       }
       else if (action === "package-detail" || action === "package-page-detail") {
         state.packageDetailOrigin = null;
@@ -2226,6 +2271,9 @@
   });
 
   document.addEventListener("change", async event => {
+    if (event.target.matches('[data-workflow-selector]')) state.workflowVersionId = event.target.value;
+    if (event.target.matches('[data-workflow-file]')) await workflowFiles(event.target.dataset.id, event.target.value);
+    if (event.target.matches('[data-workflow-compare]')) { state.workflowCompareId = event.target.value; await workflowFiles(event.target.dataset.id); }
     if (event.target.id === "scheduleTaskSelectAll") {
       document.querySelectorAll(".schedule-task-check").forEach(item => { if (!item.disabled) item.checked = event.target.checked; });
     }
@@ -2295,6 +2343,17 @@
       return;
     }
     try {
+      if (form.id === 'workflowUploadForm' || form.id === 'workflowReplaceForm') {
+        const body = new FormData(form);
+        if (form.dataset.busy) return;
+        form.dataset.busy = 'true';
+        try {
+          const replacing = form.id === 'workflowReplaceForm';
+          await api(replacing ? `/workflow-versions/${data.version_id}` : '/workflow-versions', {method: replacing ? 'PUT' : 'POST', body, expectedRevision});
+          notify('整套 Skills 已保存为草稿'); closeModal(); await loadView('settings');
+        } finally { delete form.dataset.busy; }
+        return;
+      }
       if (form.id === "v14SettingsForm") {
         const previous = state.v14Config || {};
         async function readJsonFile(name, fallback) {
@@ -2303,7 +2362,7 @@
           if (file.size > 5 * 1024 * 1024) throw new Error("配置 JSON 不能超过 5 MB");
           return JSON.parse(await file.text());
         }
-        const rules = await readJsonFile("rules_file", previous.rules);
+        const rules = previous.rules || {}; // Only existing legacy snapshots use these rules.
         const channelInputs = await readJsonFile("channels_file", previous.channel_inputs);
         const payload = {host_id: data.host_id.trim(), account_profile: data.account_profile.trim(), default_model: data.default_model.trim(), available_models: [...new Set([...(previous.available_models || []), data.default_model.trim()])], rules, channel_inputs: channelInputs};
         await api("/v14/settings", {method: "PUT", body: JSON.stringify(payload), expectedRevision});

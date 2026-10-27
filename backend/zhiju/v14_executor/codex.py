@@ -21,6 +21,12 @@ class CodexClient:
             env["CODEX_HOME"] = str(Path(self.codex_home).expanduser().resolve())
         with tempfile.TemporaryDirectory(prefix="zhiju-v14-") as temp:
             root = Path(temp)
+            prompt = stage.prompt
+            if stage.skill_bundle:
+                from zhiju.workflow_bundles import archive_from_snapshot, extract_bundle
+                extract_bundle(archive_from_snapshot(stage.skill_bundle), root / 'skills')
+                prompt = ('本次选定版本的完整 Skills 文件位于 ./skills/；按其中 Skill 的引用读取配套文件。'
+                    '智矩控制器负责源数据、状态和输出存储；不要另行操作飞书或 YouTube，也不要启动旧批次。\n\n' + prompt)
             schema, output = root / "schema.json", root / "result.json"
             schema.write_text(json.dumps(stage.schema, ensure_ascii=False), encoding="utf-8")
             args = [self.binary, "--ask-for-approval", "never", "exec", "--ignore-user-config", "--ignore-rules",
@@ -31,7 +37,7 @@ class CodexClient:
                 args += ["--enable", "standalone_web_search"]
             args += ["-"]
             with tempfile.TemporaryFile() as stdin, tempfile.TemporaryFile() as logs:
-                stdin.write(stage.prompt.encode("utf-8"))
+                stdin.write(prompt.encode("utf-8"))
                 stdin.seek(0)
                 process = subprocess.Popen(args, stdin=stdin, stdout=logs, stderr=logs, env=env, start_new_session=True)
                 deadline = time.monotonic() + self.timeout
