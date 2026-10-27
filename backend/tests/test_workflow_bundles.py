@@ -33,6 +33,12 @@ def test_bundle_rejects_paths_outside_archive():
         inspect_bundle(archive({'../oops': 'bad'}))
 
 
+def test_distributed_baseline_excludes_runtime_caches():
+    from zhiju.workflow_bundles import BASELINE, inspect_bundle
+    assert not [name for name in inspect_bundle(BASELINE.read_bytes())['files']
+                if any(part in {'.pytest_cache', '__pycache__', '.DS_Store'} for part in name.split('/'))]
+
+
 def test_baseline_uses_original_skill_files_for_generation():
     from zhiju.workflow_bundles import BASELINE, invoke_bundle, read_file
     from test_v14_contract import envelope

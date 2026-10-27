@@ -18,7 +18,7 @@ def build(skills_root, workspace, output):
             if not (source / 'SKILL.md').is_file():
                 raise ValueError('Missing Skill: ' + name)
             for p in sorted(source.rglob('*')):
-                if p.is_file() and '__pycache__' not in p.parts and p.suffix != '.pyc':
+                if p.is_file() and not {'.pytest_cache', '__pycache__', '.DS_Store'}.intersection(p.parts) and p.suffix != '.pyc':
                     z.write(p, name + '/' + p.relative_to(source).as_posix())
         adapter = Path(__file__).resolve().parents[1] / 'backend/zhiju/workflow_baseline/bridge.py'
         z.write(adapter, 'zhiju/bridge.py')
