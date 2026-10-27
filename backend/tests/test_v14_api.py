@@ -119,6 +119,27 @@ def test_claim_requires_bound_device(client):
     assert response.status_code == 403
 
 
+def test_claim_sorts_only_ids_before_loading_large_skill_snapshots(client, store):
+    created = client.post('/api/v3/work-orders/work-a/v14-runs')
+    assert created.status_code == 200
+    statements = []
+    def capture(connection, cursor, statement, parameters, context, executemany):
+        statements.append(statement.lower())
+    sa.event.listen(store, 'before_cursor_execute', capture)
+    try:
+        response = client.post('/api/v3/v14/claims', json={'host_id': 'device-a', 'executor_protocol': 2})
+    finally:
+        sa.event.remove(store, 'before_cursor_execute', capture)
+    assert response.status_code == 200, response.text
+    assert response.json()['run_id'] == created.json()['run_id']
+    assert response.json()['rules_snapshot']['skill_bundle']['archive']
+    queue_sorts = [sql for sql in statements if 'from v14_runs' in sql and 'order by v14_runs.created_at' in sql]
+    assert queue_sorts
+    # MySQL sorts selected JSON values too: an embedded Skills archive exceeds
+    # its default sort buffer even when the queue has only ten entries.
+    assert all('rules_snapshot' not in sql and 'input_snapshot' not in sql for sql in queue_sorts)
+
+
 def test_company_switch_cannot_claim(client):
     client.app.dependency_overrides[auth_context.get_current_principal] = lambda: replace(PRINCIPAL, tenant_id="tenant-b")
     assert client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2}).status_code == 403

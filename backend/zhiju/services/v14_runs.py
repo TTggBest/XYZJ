@@ -164,10 +164,12 @@ def envelope(session, run):
 
 def claim_run(session, host_id: str, *, executor_protocol: int = 2):
     session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info["tenant_id"]).with_for_update())
-    run = session.scalar(select(V14Run).where(V14Run.tenant_id == session.info["tenant_id"],
+    # Sort only IDs: full Skills JSON snapshots can exceed MySQL's sort buffer.
+    run_id = session.scalar(select(V14Run.id).where(V14Run.tenant_id == session.info["tenant_id"],
         V14Run.host_id == host_id, V14Run.status == "queued").order_by(V14Run.created_at).with_for_update().limit(1))
-    if run is None:
+    if run_id is None:
         return None
+    run = session.scalar(select(V14Run).where(V14Run.id == run_id).with_for_update())
     if run.rules_snapshot.get('skill_bundle') and executor_protocol < 2:
         raise ConflictError('当前执行器不支持成套 Skills，请更新本机执行器；任务仍保持待执行')
     run.status, run.claim_id = "running", str(uuid4())
