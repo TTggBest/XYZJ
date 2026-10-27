@@ -65,9 +65,8 @@ Community-copy validation rules file:
 - The community copy must use the channel language.
 - The community copy body must be pure channel language. Do not leave Chinese names, Chinese tags, copied Chinese notes, or mixed Chinese sentences inside the final copy body.
 - The image must show a strong reversal, direct emotion, and a visually readable conflict moment.
-- All visible people in the community image must have Chinese facial features and a contemporary Chinese short-drama cast appearance.
-- Even for non-Chinese channels, this remains mandatory because the source content is a Chinese short drama.
-- Unless the user explicitly overrides it for the specific drama, do not generate South Asian, Bengali, Western, or mixed-ethnicity faces.
+- Use only the drama's original `source_language` for all visible adults and children: `zh` means Chinese facial features and a Chinese short-drama cast; `en` means European and North American facial features and a Western short-drama cast.
+- Missing or unavailable original language defaults to Chinese faces. Never determine faces from channel language, dubbing language, title language, or filename.
 - Match both the current channel language and the current channel's winning identity model.
 - Treat the fixed channel theme as existing context that guides angle selection and expression. Do not force its wording to appear verbatim in the public copy or image hook, and do not create a new planning or output field for this purpose.
 - If the current channel already has a stable high-performing structure in its report or synced brief, keep that recognizable structure when the current plot supports it.
@@ -151,8 +150,7 @@ Scene:
 
 Main characters:
 [Describe the main people, identity relationship, expression, and action in English.]
-- Explicitly state that all visible people must have Chinese facial features and a contemporary Chinese short-drama cast appearance.
-- Unless the user explicitly overrides it for this drama, explicitly forbid South Asian, Bengali, Western, or mixed-ethnicity faces.
+- Explicitly state the facial features and cast appearance selected by the controller's source-language cast requirement; apply it to all visible adults and children.
 
 Conflict:
 [Describe the visible conflict in English: humiliation, betrayal, hidden identity reveal, revenge, CEO shock, family shock, comeback, or sweet reversal.]

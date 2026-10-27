@@ -4,7 +4,7 @@ import copy
 import json
 import re
 from typing import Any
-from .canonical import first_result, title_rows, cover_rows, title_format_from_snapshot, public_playlist_urls_in_text, title_row_requires_minor_child, cover_group_child_requirements
+from .canonical import first_result, title_rows, cover_rows, title_format_from_snapshot, public_playlist_urls_in_text, title_row_requires_minor_child, cover_group_child_requirements, visual_cast_contract
 from .rules import load_description_rule_bundle
 from .channel import title_channel_context
 
@@ -112,7 +112,7 @@ STAGE_DIRECTIVES = {
         "An explicitly adult or grown daughter, son, or offspring is not a child angle: set child_angle=false and do not create child-safety staging for adult offspring. "
         "A direction whose only child fact is not yet born is valid and does not require a visible born child: set child_angle=false unless that same Find direction also contains a born child. Never add a later baby scene merely because the channel or drama is child/cute-child themed. "
         "For every direction, provide one short visual_thesis stating the title's main visible conflict, discovery, reveal, reunion, or emotional reversal. "
-        "A deceased, absent, or earlier-life child does not require child_angle=true for a later adult-only consequence. Channel type, drama name, and child wording must never force all three directions to add children. For every child-angle direction, provide safe_cover_scene and child_role before cover generation. safe_cover_scene must be one executable single moment in one physical location; never use a split screen, inset memory, separate memory region, collage, or temporal montage. It is a reference safety implementation, not a mandatory replacement for the title event. Visibly include the relevant Chinese "
+        "A deceased, absent, or earlier-life child does not require child_angle=true for a later adult-only consequence. Channel type, drama name, and child wording must never force all three directions to add children. For every child-angle direction, provide safe_cover_scene and child_role before cover generation. safe_cover_scene must be one executable single moment in one physical location; never use a split screen, inset memory, separate memory region, collage, or temporal montage. It is a reference safety implementation, not a mandatory replacement for the title event. Visibly include the relevant "
         "child or children, fully clothed, healthy, safe, and supervised. A child may appear safely in a hospital, clinic, ward, waiting area, rehabilitation area, or normal examination setting, but must not undergo a painful, invasive, dangerous, or harmful medical procedure. "
         "Keep the public A+B title explosive, but make visual_thesis, child_role, and safe_cover_scene image-provider-safe. These downstream visual fields must not make a minor the visible target of abandonment, humiliation, hostile surveillance, coercive parenting, police restraint or control, adult confrontation, or bedroom/bedside intimacy. Move the visible wrongdoing, confrontation, or consequence onto adults, and keep the required child as a calm, protected relationship, identity, reunion, or family anchor. Do not delete the child and do not weaken the public title. "
         "Use the complete plot_payload.results[0].plot_fields as marketing raw material, not as a synopsis to translate and not as a verbatim-evidence gate. "
@@ -142,7 +142,7 @@ STAGE_DIRECTIVES = {
         "If a location detail does not improve story comprehension, emotional intensity, or visual realism, omit it during generation. Do not invent decorative architecture, luxury dressing, lighting spectacle, or art-direction detail merely to sound professional. "
         "Use camera_angle only from: eye-level, slightly low-angle, slightly high-angle, over-the-shoulder, three-quarter view. These are technical vocabulary, not composition templates. "
         "Choose core_words by this priority: specific relationship > shocking identity > concrete number > concrete consequence > abnormal action > abstract theme. Use abstract_theme only when no concise package-specific phrase is available. Never select core words from a reusable multilingual candidate library. "
-        "The three scenes must visibly express the current channel direction when supported by plot facts, while remaining distinct from one another. Return the full pre-generation plan plus story_hook, scene_family, scene, main_action, key_prop, composition, palette, and lighting. Design one believable high-emotion frame from a real Chinese television drama. "
+        "The three scenes must visibly express the current channel direction when supported by plot facts, while remaining distinct from one another. Return the full pre-generation plan plus story_hook, scene_family, scene, main_action, key_prop, composition, palette, and lighting. Design one believable high-emotion frame from a real television drama. "
         "Stage the provocative unresolved moment promised by each title, not the later explanation or ending. One minimum plot anchor is enough. Do not use doors or vehicle doors as primary scene devices. Never build the scene, main action, actor interaction, or camera blocking around opening or closing a door, blocking, standing, waiting, or leaning at a doorway, entering or exiting through a vehicle door, gripping a car door, or confronting across a door. Create a fresh title-specific non-door scene and action rather than selecting a replacement from a location or action list. A distant closed door may remain incidental background architecture only when nobody interacts with it. This is a hard generation and validation requirement. "
         "The three groups inside this package must use different scene moments, main actions, and camera blocking. Palette, lighting, and props "
         "must follow the chosen real location and must never be varied merely to look novel. Across videos, partial reuse of "
@@ -157,7 +157,7 @@ STAGE_DIRECTIVES = {
         "Return scene_prompt_4_5 as a concise English scene description containing only the title-linked people, relationship, physical action, emotion, believable location, camera blocking, and location-specific light/color. Do not include global style boilerplate, actor-ethnicity boilerplate, core-word rendering, typography, canvas-width, font, outline, or shadow instructions; the controller owns and appends those exactly once. "
         "For female-frequency channels, ban all visual special effects: no magic, aura, energy, lightning, particles, fire, explosion, "
         "holograms, fake glowing props, glowing eyes, lasers, or supernatural glow; natural sun, practical lights, headlights, and stage lights are allowed. "
-        "If the channel/title uses a child or cute-child angle, visibly include the relevant Chinese child or children, safe, healthy, "
+        "If the channel/title uses a child or cute-child angle, visibly include the relevant child or children, safe, healthy, "
         "fully clothed, supervised, and never distressed, harmed, kidnapped, restrained, sick, bullied, humiliated, or surrounded by hostile adults. "
         "For each title, copy visual_thesis exactly and make scene_prompt_4_5 visibly express it. For each title row with child_angle=true, use child_role and safe_cover_scene as safety references, not as a mandatory scene script. When a required minor is visible, do not combine that minor in the same image prompt with abandonment or humiliation directed at the child, hidden surveillance, coercive parenting, bedroom or bedside intimacy, police restraint, escort, or control, paternity-evidence confrontation, or adult physical/coercive conflict. Keep the click-driving reversal visible through adult status, posture, relationship, or consequence while the child remains calm, protected, and clearly supervised. Do not remove a required child and do not replace the title event with unrelated peaceful activity. "
         "All covers forbid hitting and threatened hitting: no slap, punch, kick, choke, drag, push-down, stomp, raised fist about to strike, weapons, blood, or wounds. Create a fresh nonviolent title-specific action without selecting from a stock alternative-action list. "
@@ -251,6 +251,8 @@ def stage_context(stage: str, context: dict[str, Any]) -> dict[str, Any]:
     not the model, owns dependency selection.
     """
     scoped = {key: context[key] for key in STAGE_CONTEXT_KEYS.get(stage, ()) if key in context}
+    if stage in {"xy-title", "xy-cover", "xy-post"}:
+        scoped["source_language"] = context.get("source_language")
     if stage == "xy-title" and isinstance(scoped.get("channel_snapshot"), str):
         scoped["channel_snapshot"] = title_channel_context(scoped["channel_snapshot"])
     elif stage == "xy-place":
@@ -499,7 +501,7 @@ def build_prompt(
             correction_lines.append(
                 "Correct only the failed cover groups whose accepted upstream Find/title direction actually contains a born minor. "
                 "Do not use the channel direction or drama name to add children to groups whose only child fact is not yet born, or to adult-only groups. "
-                "For a genuine child-angle group, visibly show the relevant safe Chinese child or children; keep them fully clothed, healthy, safe, and supervised without replacing visual_thesis with an unrelated peaceful activity."
+                "For a genuine child-angle group, visibly show the relevant safe child or children; keep them fully clothed, healthy, safe, and supervised without replacing visual_thesis with an unrelated peaceful activity."
             )
         if any("core_words_diegetic_placement" in issue for issue in previous_issues):
             correction_lines.append(
@@ -661,7 +663,7 @@ def build_prompt(
             "Keep the public A+B title explosive, but make visual_thesis, child_role, and safe_cover_scene image-provider-safe. They must not make a minor the visible target of abandonment, humiliation, hostile surveillance, coercive parenting, police restraint or control, adult confrontation, or bedroom/bedside intimacy. Move the visible wrongdoing, confrontation, or consequence onto adults; keep the child calm, protected, and supervised. Do not delete the child or weaken the title."
         )
         persistent_lines.append(
-            "Resolve child presence independently for each supplied Find final angle. child_angle is a cover-execution flag, not a keyword detector. An angle whose only child fact is not yet born is valid and uses child_angle=false unless that same angle also contains a born minor. A deceased, absent, or earlier-life child does not require child_angle=true for a later adult-only consequence. Channel direction, drama name, and child wording must never force all three directions to add children. Set child_angle=true only when the child can truthfully appear in the selected cover event's one continuous moment and physical location. In that case provide visual_thesis, child_role, and a safe_cover_scene with the relevant Chinese child visibly safe, healthy, fully clothed, and supervised; never use split screen, inset memory, separate memory regions, collage, or temporal montage."
+            "Resolve child presence independently for each supplied Find final angle. child_angle is a cover-execution flag, not a keyword detector. An angle whose only child fact is not yet born is valid and uses child_angle=false unless that same angle also contains a born minor. A deceased, absent, or earlier-life child does not require child_angle=true for a later adult-only consequence. Channel direction, drama name, and child wording must never force all three directions to add children. Set child_angle=true only when the child can truthfully appear in the selected cover event's one continuous moment and physical location. In that case provide visual_thesis, child_role, and a safe_cover_scene with the relevant child visibly safe, healthy, fully clothed, and supervised; never use split screen, inset memory, separate memory regions, collage, or temporal montage."
         )
     elif stage == "xy-cover":
         persistent_lines.append(TITLE_COVER_GENERATION_BLACKLIST_DIRECTIVE)
@@ -682,7 +684,7 @@ def build_prompt(
             )
             if len(child_requirements) >= position and child_requirements[position - 1]:
                 persistent_lines.append(
-                    f"GROUP {title_index}: a real visible safe Chinese child or children are mandatory in scene_prompt_4_5. "
+                    f"GROUP {title_index}: a real visible safe child or children are mandatory in scene_prompt_4_5. "
                     f"Required child_role={json.dumps(str(row.get('child_role') or ''), ensure_ascii=False)}; "
                     f"reference-only safe_cover_scene={json.dumps(str(row.get('safe_cover_scene') or ''), ensure_ascii=False)}. "
                     "Keep them fully clothed, healthy, safe, and supervised; a photo, toy, bag, silhouette, or adult-only implication does not count. "
@@ -714,6 +716,20 @@ def build_prompt(
         )
     actionable_feedback = "\n".join(correction_lines)
     persistent_requirements = "\n".join(persistent_lines)
+    cast_requirement = ""
+    if stage in {"xy-title", "xy-cover", "xy-post"}:
+        cast = visual_cast_contract(context)
+        cast_requirement = (
+            "Source-language cast requirement: This controller requirement overrides any unconditional Chinese-cast "
+            "or Western-cast instruction in the Skill, channel material, upstream visual prose, or earlier retry guidance. "
+            "Read only source_language from the drama's original-language database field: zh means Chinese faces; "
+            "en means European and North American faces; missing or unavailable means Chinese faces. "
+            "Never infer original language or faces from the target channel, dubbing language, title language, or filename. "
+            f"For this drama, all visible adults and children must use {cast['identity']}. "
+            f"Use {cast['style']} as the visual style. "
+            "The cover controller owns and appends the identity/style block; do not duplicate it in scene_prompt_4_5. "
+            f"Every community image_prompt_1x1 must explicitly contain {cast['community_face']} and {cast['community_cast']}."
+        )
     return "\n\n".join(
         [
             "You are a pure content-generation function inside a deterministic production pipeline.",
@@ -729,6 +745,7 @@ def build_prompt(
             "Controller-owned actionable correction instructions:\n" + actionable_feedback,
             "Persistent generation requirements (must remain true on the initial attempt and every retry, even when correcting a different error):\n"
             + persistent_requirements,
+            cast_requirement,
             "Identity fields in the response must exactly equal input.identity. Do not add fields outside the schema.",
         ]
     )

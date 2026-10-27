@@ -83,8 +83,8 @@ Read:
 - If a location detail does not improve story comprehension, emotional intensity, or visual realism, omit it. Do not invent decorative architecture, luxury dressing, lighting spectacle, or art-direction detail merely to sound professional.
 - Use half-body framing by default so the image reads clearly on mobile.
 - Main characters should be as large and readable as possible.
-- Every visible person must be depicted as a Chinese person with clearly Chinese facial features and appearance, regardless of the target channel language or market. Do not use Indian, Southeast Asian, Middle Eastern, Western, or ambiguous facial features.
-- Every actual image prompt must explicitly include: `Chinese actors, Chinese facial features, East Asian appearance`.
+- Use only the drama's original `source_language` for all visible adults and children: `zh` means Chinese faces; `en` means European and North American faces. Missing or unavailable original language defaults to Chinese faces. Never use channel or dubbing language to decide faces.
+- The controller appends the matching actor identity and live-action style once in the final image prompt. Do not duplicate those blocks in `scene_prompt_4_5`.
 - The image must have strong conflict, be eye-catching, have a clear explosive point, and improve click-through.
 - The image must clearly reflect the title content.
 - Do not use doors or vehicle doors as primary scene devices. Never build the scene, main action, actor interaction, or camera blocking around opening or closing a door, blocking, standing, waiting, or leaning at a doorway, entering or exiting through a vehicle door, gripping a car door, or confronting across a door. Freely create a fresh title-specific non-door scene and action without selecting from a replacement list. A distant closed door may remain incidental background architecture only when nobody interacts with it. This is a hard generation and validation requirement.
@@ -106,7 +106,7 @@ Read:
 - `camera_angle` must be exactly one of `eye-level`, `slightly low-angle`, `slightly high-angle`, `over-the-shoulder`, or `three-quarter view`; these are technical values, not composition templates.
 - Select core words by priority: specific relationship > shocking identity > concrete number > concrete consequence > abnormal action > abstract theme. Use `abstract_theme` only when no concise package-specific phrase is available. Never select core words from a reusable multilingual candidate library.
 - Prompts must describe photographic spatial logic: who is where, who acts on whom, what physical evidence proves the hook, and what background reaction or environment confirms the location.
-- Use a natural live-action TV drama still with realistic lens rendering, natural Chinese skin texture, ordinary clothing wrinkles, believable location lighting, and slightly softer environmental detail. Keep faces readable through framing and real light, not through artificial sharpening.
+- Use a natural live-action TV drama still with realistic lens rendering, natural skin texture, ordinary clothing wrinkles, believable location lighting, and slightly softer environmental detail. Keep faces readable through framing and real light, not through artificial sharpening.
 - Do not use `ultra sharp focus`, `crisp facial detail`, `crisp faces`, `strong/high micro-contrast`, `clean edges`, `sharp facial highlights`, or `mobile readability` as image-rendering instructions.
 - Vary time of day, color temperature, dominant hue, light direction, and environmental materials. Do not make every cover dark, amber, red, brown, gold, smoky, glossy, or mansion-like.
 - Avoid waxy skin, plastic beauty-filter faces, generic AI glamour, muddy shadows, orange/brown color casts, heavy haze, excessive bokeh, empty luxury decoration, and motionless poster posing.

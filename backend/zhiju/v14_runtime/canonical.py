@@ -361,6 +361,28 @@ CORE_WORDS_TYPOGRAPHY_MARKER = "non-diegetic cover typography"
 CORE_WORDS_SALIENCE_MARKER = "visually prominent, highly legible"
 
 
+def visual_cast_contract(context: dict[str, Any] | None = None) -> dict[str, str]:
+    """Use only the drama's original language, never its channel/dub language."""
+    if str((context or {}).get("source_language") or "").strip().lower() == "en":
+        return {
+            "identity": "Western actors, European and North American facial features, Western appearance",
+            "style": "Natural live-action Western television drama still",
+            "community_face": "European and North American facial features",
+            "community_cast": "Western short-drama",
+        }
+    return {
+        "identity": COVER_IDENTITY_MARKER,
+        "style": COVER_STYLE_MARKER,
+        "community_face": "Chinese facial features",
+        "community_cast": "Chinese short-drama",
+    }
+
+
+def cover_style_block(context: dict[str, Any] | None = None) -> str:
+    cast = visual_cast_contract(context)
+    return COVER_STYLE_BLOCK.replace(COVER_STYLE_MARKER, cast["style"]).replace(COVER_IDENTITY_MARKER, cast["identity"])
+
+
 def core_words_typography_clause(
     core_words: str,
     cover_rule_contract: dict[str, Any] | None = None,
@@ -399,16 +421,17 @@ def canonical_outpaint_prompt(environment: str) -> str:
     )
 
 
-def cover_prompt_structure_issues(row: dict[str, Any], index: int) -> list[str]:
+def cover_prompt_structure_issues(row: dict[str, Any], index: int, context: dict[str, Any] | None = None) -> list[str]:
     """Detect assembly ownership violations without rewriting creative prose."""
     issues: list[str] = []
     scene = str(row.get("scene_prompt_4_5") or "")
     scene_lower = scene.lower()
+    cast = visual_cast_contract(context)
     controller_markers = {
         "typography": CORE_WORDS_TYPOGRAPHY_MARKER,
         "salience": CORE_WORDS_SALIENCE_MARKER,
-        "style": COVER_STYLE_MARKER.lower(),
-        "identity": COVER_IDENTITY_MARKER.lower(),
+        "style": cast["style"].lower(),
+        "identity": cast["identity"].lower(),
     }
     for label, marker in controller_markers.items():
         if marker.lower() in scene_lower:
@@ -1204,6 +1227,7 @@ def has_blanket_background_text_ban(prompt: str) -> bool:
 def normalize_cover_prompt_contract(
     payload: dict[str, Any],
     cover_rule_contract: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> None:
     """Assemble controller-owned style, typography, and outpaint blocks once."""
     rules = cover_rule_contract if isinstance(cover_rule_contract, dict) else load_cover_rule_bundle()
@@ -1214,7 +1238,7 @@ def normalize_cover_prompt_contract(
         row["prompt_4_5"] = " ".join(
             part for part in (
                 scene_prompt,
-                COVER_STYLE_BLOCK,
+                cover_style_block(context),
                 core_words_typography_clause(core, rules),
             )
             if part
@@ -2200,7 +2224,7 @@ def validate_cover(payload: dict[str, Any], item: dict[str, Any], context: dict[
         ))
     if len(rows) != 3:
         return issues + [f"cover_count={len(rows)}_expected=3"]
-    required_face = ("Chinese actors", "Chinese facial features", "East Asian appearance")
+    required_face = visual_cast_contract(context)["identity"].split(", ")
     fingerprint_keys = ("scene_family", "main_action", "key_prop", "composition", "palette", "lighting")
     fingerprints: list[dict[str, str]] = []
     core_word_keys: list[str] = []
@@ -2262,7 +2286,7 @@ def validate_cover(payload: dict[str, Any], item: dict[str, Any], context: dict[
             issues.append(f"cover_{expected}_prompt_4_5_core_words_not_non_diegetic_typography")
         if core and CORE_WORDS_SALIENCE_MARKER not in str(row.get("prompt_4_5") or "").lower():
             issues.append(f"cover_{expected}_prompt_4_5_core_words_not_visually_salient")
-        issues.extend(cover_prompt_structure_issues(row, expected))
+        issues.extend(cover_prompt_structure_issues(row, expected, context))
         issues.extend(cover_prompt_quality_issues(prompt_4_5, expected, cover_contract))
         issues.extend(cover_primary_door_device_issues(row, expected, cover_contract))
         issues.extend(cover_official_uniform_issues(row, expected, cover_contract))
@@ -2419,7 +2443,8 @@ def validate_post(payload: dict[str, Any], item: dict[str, Any], context: dict[s
         style_contract = context.get("community_rule_contract")
         if isinstance(style_contract, dict) and style_contract.get("image_style"):
             issues.extend(image_prompt_style_issues(prompt, prefix, style_contract["image_style"]))
-        for phrase in ("Chinese facial features", "Chinese short-drama"):
+        cast = visual_cast_contract(context)
+        for phrase in (cast["community_face"], cast["community_cast"]):
             if phrase not in prompt:
                 issues.append(f"{prefix}_prompt_missing_{phrase.replace(' ', '_')}")
         if not copy:

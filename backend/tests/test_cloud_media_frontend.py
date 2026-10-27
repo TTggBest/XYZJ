@@ -27,9 +27,10 @@ for(let i=0;i<6;i++)await page.tick();
 await page.document.emit('click',{target:{closest:s=>s==='[data-view]'?{dataset:{view:'packages'}}:null}});
 for(let i=0;i<4;i++)await page.tick();
 const html=page.nodes.get('viewRoot').innerHTML;
-assert.match(html,/北京时间[^<]*2026\/10\/27[^<]*01:00/);
-assert.match(html,/当地时间[^<]*2026\/10\/26[^<]*13:00/);
-assert.match(html,/北京时间[^<]*2026\/10\/27[^<]*03:00/);
+assert.match(html,/class="schedule-zone schedule-zone-beijing">北京时间 2026\/10\/27 <strong class="schedule-clock">01:00<\/strong>/);
+assert.match(html,/class="schedule-zone schedule-zone-local">当地时间 2026\/10\/26 <strong class="schedule-clock">13:00<\/strong>/);
+assert.match(html,/class="schedule-zone schedule-zone-beijing">北京时间 2026\/10\/27 <strong class="schedule-clock">03:00<\/strong>/);
+assert.match(html,/class="schedule-zone schedule-zone-local">当地时间 2026\/10\/26 <strong class="schedule-clock">15:00<\/strong>/);
 assert.doesNotMatch(html,/GMT|UTC|America\/New_York/);
 assert.match(html,/src="\/api\/v3\/media-assets\/asset-1\/thumbnail"/);
 assert.doesNotMatch(html,/<img[^>]*src="[^"]*\/content"/);
@@ -44,4 +45,10 @@ if(DEPLOYMENT==='cloud'){
  assert.equal(opened.length,0);
  assert.equal(calls.filter(([p])=>p.endsWith('/reveal')).length,1);
 }
+const detailButton={dataset:{action:'package-page-detail',id:'p1'},closest:()=>null};
+await page.document.emit('click',{target:{closest:s=>s==='[data-action]'?detailButton:null}});
+for(let i=0;i<2;i++)await page.tick();
+const detailHtml=page.nodes.get('viewRoot').innerHTML;
+assert.match(detailHtml,/class="schedule-zone schedule-zone-beijing">北京时间 2026\/10\/27 <strong class="schedule-clock">01:00<\/strong>/);
+assert.match(detailHtml,/class="schedule-zone schedule-zone-local">当地时间 2026\/10\/26 <strong class="schedule-clock">13:00<\/strong>/);
 '''.replace("DEPLOYMENT", repr(deployment)))

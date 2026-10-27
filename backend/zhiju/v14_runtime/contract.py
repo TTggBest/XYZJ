@@ -90,6 +90,7 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     search = accepted.get("search", {})
     identity = {k: c.first_result(plot)[k] for k in c.IDENTITY_PROPERTIES}
     context = {"task": item, "identity": identity, "plot_payload": plot,
+        "source_language": data["drama"].get("source_language"),
         "semantic_contract": rules["semantic_contract"],
         "channel_snapshot": channel["generation_spec"], "channel_theme_contract": channel_theme_contract(item, plot),
         "playlists": channel.get("playlists", []), "creative_slot": {"creative_slot_id": envelope["run_id"]},
@@ -156,7 +157,7 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
             c.normalize_title_recommendation_order(result, stage.context)
             c.normalize_title_translation_format(result, stage.context)
         elif stage.node_type == "cover":
-            c.normalize_cover_prompt_contract(result, stage.context["cover_rule_contract"])
+            c.normalize_cover_prompt_contract(result, stage.context["cover_rule_contract"], stage.context)
         elif stage.node_type == "description":
             c.normalize_place_fixed_footer(result, stage.context, stage.item)
         return c.validate_payload(STAGES[stage.node_type], result, stage.item, stage.context, validate_schema=False)

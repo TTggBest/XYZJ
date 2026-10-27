@@ -635,9 +635,13 @@
   function packageScheduleTime(value, timeZone) {
     if (!value) return "未设置发布时间（请先核实排期，勿据此预约）";
     const date = new Date(/[Zz]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
-    const format = zone => esc(date.toLocaleString("zh-CN", { timeZone: zone, hour12: false,
-      year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }));
-    return `北京时间 ${format("Asia/Shanghai")}${timeZone ? ` ／ 当地时间 ${format(timeZone)}` : ""}`;
+    const format = (zone, label, kind) => {
+      const parts = Object.fromEntries(new Intl.DateTimeFormat("zh-CN", { timeZone: zone, hourCycle: "h23",
+        year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+        .formatToParts(date).map(part => [part.type, part.value]));
+      return `<span class="schedule-zone schedule-zone-${kind}">${label} ${esc(`${parts.year}/${parts.month}/${parts.day}`)} <strong class="schedule-clock">${esc(`${parts.hour}:${parts.minute}`)}</strong></span>`;
+    };
+    return `<span class="schedule-times">${format("Asia/Shanghai", "北京时间", "beijing")}${timeZone ? ` ／ ${format(timeZone, "当地时间", "local")}` : ""}</span>`;
   }
   async function showScheduleVideoReview(scheduleId) {
     const review = await api(`/schedules/${scheduleId}/youtube-review`);

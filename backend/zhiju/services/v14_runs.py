@@ -93,7 +93,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True) -> 
         rules_snapshot=deepcopy(config["rules"]), input_snapshot={
             "channel_id": channel.id, "channel_name": channel.original_name,
             "drama_id": drama.id, "drama_name": drama.chinese_title,
-            "drama": {key: getattr(drama, key) for key in ("content_summary", "plot_archive", "plot_pattern", "core_personas")},
+            "drama": {key: getattr(drama, key) for key in ("content_summary", "plot_archive", "plot_pattern", "core_personas", "source_language")},
             "channel": deepcopy(channel_input), "community_count": work.community_count,
             "target_publish_date": str(work.target_publish_date),
             "video_id": task.source_video_id or f"pending_{work.id}", "video_url": task.source_video_url,
