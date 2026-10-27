@@ -827,3 +827,12 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 }
 .v14-panel .row-actions { flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .v14-error { color: var(--danger, #b42318); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Original language is independent of channel/dubbing language. */
+.source-language-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-inline-start: 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-weight: 500;
+}

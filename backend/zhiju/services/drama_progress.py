@@ -238,6 +238,7 @@ def list_drama_progress(
             "drama_number": drama.drama_number,
             "drama_code": drama.drama_code,
             "chinese_title": drama.chinese_title,
+            "source_language": drama.source_language,
             "batch_name": drama.batch_name,
         }
         overall_matches = (

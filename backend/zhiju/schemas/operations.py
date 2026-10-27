@@ -369,6 +369,7 @@ class ScheduleVideoSelect(BaseModel):
 
 
 class ScheduleOverview(BaseModel):
+    source_language: str | None = None
     video_sync: dict | None = None
     schedule_id: str
     publish_date: date
@@ -411,6 +412,7 @@ class ScheduleOverview(BaseModel):
 
 
 class ChannelScheduleRow(BaseModel):
+    source_language: str | None = None
     video_sync: dict | None = None
     schedule_id: str
     channel_id: str

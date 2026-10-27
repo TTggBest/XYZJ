@@ -812,6 +812,7 @@ def list_package_operation_overview(
             "source_row_number": task.source_row_number,
             "drama_code": drama.drama_code,
             "chinese_title": drama.chinese_title,
+            "source_language": drama.source_language,
             "drama_resource_url": drama.baidu_cloud_url,
             "youtube_video_id": task.source_video_id or (video.youtube_video_id if video else None),
             "video_url": task.source_video_url or (video.url if video else None),

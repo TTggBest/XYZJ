@@ -83,6 +83,7 @@ class DramaLibrarySummary(BaseModel):
 
 
 class DramaLibraryRow(BaseModel):
+    source_language: str | None = None
     id: str
     drama_number: int
     drama_code: str

@@ -37,6 +37,7 @@ class TaskRead(BaseModel):
 
 
 class TaskOverview(BaseModel):
+    source_language: str | None = None
     task_id: str
     schedule_id: str | None
     task_date: date
@@ -167,6 +168,7 @@ class WorkOrderNodeProgress(BaseModel):
 
 
 class WorkOrderOverview(BaseModel):
+    source_language: str | None = None
     work_order_id: str
     task_id: str
     package_id: str
@@ -474,6 +476,7 @@ class PackageCopyProgress(BaseModel):
 
 
 class PackageOperationOverview(BaseModel):
+    source_language: str | None = None
     package_id: str
     work_order_id: str
     package_version: int

@@ -41,6 +41,7 @@ class DramaProductionExclusionWrite(BaseModel):
 
 
 class DramaProgressRow(DramaProductionStateRead):
+    source_language: str | None = None
     drama_number: int
     drama_code: str
     chinese_title: str
