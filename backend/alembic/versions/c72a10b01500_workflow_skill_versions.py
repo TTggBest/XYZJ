@@ -21,7 +21,7 @@ def upgrade():
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(), server_default=sa.func.now(), nullable=False),
         sa.UniqueConstraint('tenant_id', 'label', 'revision', name='uq_workflow_skill_revision'),
-        sa.CheckConstraint("status IN ('draft','published')", name='ck_workflow_skill_versions_workflow_skill_status'),
+        sa.CheckConstraint("status IN ('draft','published')", name='workflow_skill_status'),
     )
     op.create_index('ix_workflow_skill_versions_tenant_id', 'workflow_skill_versions', ['tenant_id'])
 

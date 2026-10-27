@@ -72,6 +72,7 @@ def test_bundle_migration_adds_only_version_storage():
     import importlib.util
     from pathlib import Path
     import sqlalchemy as sa
+    from zhiju.models import Base
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     path = Path(__file__).parents[1] / 'alembic/versions/c72a10b01500_workflow_skill_versions.py'
@@ -83,11 +84,12 @@ def test_bundle_migration_adds_only_version_storage():
         connection.exec_driver_sql('CREATE TABLE tenants (id VARCHAR(36) PRIMARY KEY)')
         connection.exec_driver_sql('CREATE TABLE packages (id VARCHAR(36) PRIMARY KEY, status TEXT)')
         connection.exec_driver_sql("INSERT INTO packages VALUES ('existing', 'complete')")
-        with Operations.context(MigrationContext.configure(connection)):
+        with Operations.context(MigrationContext.configure(connection, opts={'target_metadata': Base.metadata})):
             migration.upgrade()
         assert set(sa.inspect(connection).get_table_names()) == {'tenants', 'packages', 'workflow_skill_versions'}
         assert connection.exec_driver_sql('SELECT * FROM packages').one() == ('existing', 'complete')
         assert sa.inspect(connection).get_foreign_keys('workflow_skill_versions')[0]['referred_table'] == 'tenants'
+        assert sa.inspect(connection).get_check_constraints('workflow_skill_versions')[0]['name'] == 'ck_workflow_skill_versions_workflow_skill_status'
     engine.dispose()
 
 
