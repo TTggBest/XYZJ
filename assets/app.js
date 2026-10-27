@@ -39,6 +39,8 @@
   const root = el("viewRoot");
   const emptyPageState = structuredClone(state);
   const youtubeReauthorizationChannels = new Set();
+  let realtimeRetryTimer = null;
+  let realtimeGeneration = 0;
 
   function renderYouTubeReauthorizationNotice() {
     const notice = el("youtubeReauthorizationNotice");
@@ -1656,13 +1658,28 @@
   }
 
   function scheduleRealtimeRefresh() {
-    if (!auth.current()?.tenant_id || state.view === "accounts") return;
-    clearTimeout(state.realtimeRefreshTimer);
-    state.realtimeRefreshTimer = setTimeout(() => loadView(state.view, { preservePosition: true }), 250);
+    if (!auth.current()?.tenant_id || document.visibilityState !== "visible" || state.view === "accounts" || state.realtimeRefreshTimer) return;
+    state.realtimeRefreshTimer = setTimeout(() => {
+      state.realtimeRefreshTimer = null;
+      return loadView(state.view, { preservePosition: true });
+    }, 250);
   }
   function closeRealtime() {
+    realtimeGeneration += 1;
+    clearTimeout(realtimeRetryTimer);
+    realtimeRetryTimer = null;
+    clearTimeout(state.realtimeRefreshTimer);
+    state.realtimeRefreshTimer = null;
+    state.realtimeConnecting = false;
     if (state.realtimeSource) state.realtimeSource.close();
     state.realtimeSource = null;
+  }
+  function retryRealtime() {
+    if (!auth.current() || document.visibilityState !== "visible" || realtimeRetryTimer) return;
+    realtimeRetryTimer = setTimeout(() => {
+      realtimeRetryTimer = null;
+      return connectRealtime();
+    }, 3000);
   }
   function applyDeviceRole(deviceRole) {
     state.deviceRole = deviceRole || "worker";
@@ -1670,11 +1687,14 @@
   }
   async function connectRealtime() {
     if (!auth.current() || document.visibilityState !== "visible" || state.realtimeConnecting || state.realtimeSource) return;
+    clearTimeout(realtimeRetryTimer);
+    realtimeRetryTimer = null;
+    const generation = realtimeGeneration;
+    const actor = auth.current();
     state.realtimeConnecting = true;
     try {
-      const actor = auth.current();
       const config = await api("/realtime/config");
-      if (actor !== auth.current() || document.visibilityState !== "visible") return;
+      if (generation !== realtimeGeneration || actor !== auth.current() || document.visibilityState !== "visible") return;
       state.runtimeConfigFailed = false;
       state.deployment = config.deployment || "local";
       auth.setDeployment(config.deployment);
@@ -1683,24 +1703,35 @@
       if (!auth.current()?.tenant_id) return;
       if (!config.enabled || !config.stream_url) return;
       if (BUILDER_ONLY_VIEWS.has(state.view) && !auth.canView(state.view, state.deviceRole)) await loadView("dashboard");
-      closeRealtime();
+      if (generation !== realtimeGeneration || actor !== auth.current() || document.visibilityState !== "visible") return;
       const source = new EventSource(config.stream_url);
-      let reconnecting = false;
-      source.addEventListener("data.changed", scheduleRealtimeRefresh);
-      source.addEventListener("open", () => {
-        if (reconnecting) scheduleRealtimeRefresh();
-        reconnecting = false;
-      });
-      source.addEventListener("error", () => { reconnecting = true; });
       state.realtimeSource = source;
+      const current = () => state.realtimeSource === source && generation === realtimeGeneration && actor === auth.current();
+      source.addEventListener("data.changed", () => { if (current()) scheduleRealtimeRefresh(); });
+      source.addEventListener("open", () => {
+        // Also read on the first open: writes may occur before subscription.
+        if (current()) scheduleRealtimeRefresh();
+      });
+      source.addEventListener("error", () => {
+        if (!current()) return;
+        // EventSource retries transient errors itself; a CLOSED source cannot.
+        if (source.readyState === 2) { closeRealtime(); retryRealtime(); }
+      });
     } catch (error) {
-      if (auth.current() && error.name !== "AbortError") {
+      if (generation === realtimeGeneration && actor === auth.current() && error.name !== "AbortError") {
         state.runtimeConfigFailed = true;
         console.warn("实时状态连接失败", error);
+        retryRealtime();
       }
     } finally {
-      state.realtimeConnecting = false;
+      if (generation === realtimeGeneration) state.realtimeConnecting = false;
     }
+  }
+  function restoreRealtime() {
+    if (!auth.current() || document.visibilityState !== "visible") return;
+    checkHealth();
+    connectRealtime();
+    scheduleRealtimeRefresh();
   }
 
   document.addEventListener("change", event => {
@@ -2618,10 +2649,11 @@
   document.addEventListener("visibilitychange", () => {
     if (!auth.current()) return;
     if (document.visibilityState !== "visible") return closeRealtime();
-    checkHealth();
-    connectRealtime().then(() => loadView(state.view, { preservePosition: true }));
+    restoreRealtime();
   });
   window.addEventListener("pagehide", closeRealtime);
+  window.addEventListener("pageshow", event => { if (event.persisted) restoreRealtime(); });
+  window.addEventListener("online", restoreRealtime);
   window.addEventListener("message", async event => {
     if (!auth.current()) return;
     const oauthEvent = event.data?.type;
