@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from zhiju import permissions
 from zhiju.app import app
+from zhiju.auth_context import get_current_principal
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,8 +49,10 @@ def test_skills_page_can_manage_draft_versions_and_publish() -> None:
 
 def test_non_builder_devices_cannot_read_skills(monkeypatch) -> None:
     monkeypatch.setattr(
-        permissions, "get_settings", lambda: SimpleNamespace(device_role="worker")
+        permissions, "get_settings", lambda: SimpleNamespace(device_role="worker", deployment="cloud")
     )
+    monkeypatch.setitem(app.dependency_overrides, get_current_principal,
+                        lambda: SimpleNamespace(platform_role=None))
 
     response = TestClient(app).get("/api/v3/skills")
 

@@ -40,7 +40,7 @@
     if (!principal) return false;
     if (view === "accounts") { const rights = access(); return rights.users || rights.tenants || rights.devices; }
     const permission = { settings: "platform.environment.manage", skills: "platform.environment.manage", logs: "audit.read" }[view];
-    const platformRuntime = (deployment === "cloud" && view === "settings") || deviceRole === "builder";
+    const platformRuntime = deployment === "cloud" || deviceRole === "builder";
     return permission ? platformRuntime && access().platform && can(permission) : Boolean(principal.tenant_id);
   }
   function usersPath(tenantId) {

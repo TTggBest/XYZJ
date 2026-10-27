@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from zhiju import permissions
 from zhiju.app import app
+from zhiju.auth_context import get_current_principal
 from zhiju.models import (
     AuditEvent,
     AuthorizationEvent,
@@ -37,8 +38,10 @@ def test_history_timestamps_keep_microsecond_ordering() -> None:
 
 def test_non_builder_devices_cannot_read_system_logs(monkeypatch) -> None:
     monkeypatch.setattr(
-        permissions, "get_settings", lambda: SimpleNamespace(device_role="studio")
+        permissions, "get_settings", lambda: SimpleNamespace(device_role="studio", deployment="cloud")
     )
+    monkeypatch.setitem(app.dependency_overrides, get_current_principal,
+                        lambda: SimpleNamespace(platform_role=None))
 
     client = TestClient(app)
 

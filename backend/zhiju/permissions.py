@@ -6,8 +6,14 @@ from zhiju.auth_context import Principal, get_current_principal
 from zhiju.config import get_settings
 
 
-def require_builder_device() -> None:
-    if get_settings().device_role != "builder":
+def require_builder_device(
+    principal: Principal = Depends(get_current_principal),
+) -> None:
+    settings = get_settings()
+    cloud_super_admin = (
+        settings.deployment == "cloud" and principal.platform_role == "super_admin"
+    )
+    if settings.device_role != "builder" and not cloud_super_admin:
         raise HTTPException(status_code=403, detail="仅代码机可以查看 Skills 和系统日志")
 
 

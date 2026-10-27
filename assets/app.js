@@ -1645,7 +1645,7 @@
       renderAccount();
       if (!auth.current()?.tenant_id) return;
       if (!config.enabled || !config.stream_url) return;
-      if (config.device_role !== "builder" && BUILDER_ONLY_VIEWS.has(state.view)) await loadView("dashboard");
+      if (BUILDER_ONLY_VIEWS.has(state.view) && !auth.canView(state.view, state.deviceRole)) await loadView("dashboard");
       closeRealtime();
       const source = new EventSource(config.stream_url);
       let reconnecting = false;
