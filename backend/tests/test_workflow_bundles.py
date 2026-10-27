@@ -60,7 +60,12 @@ def test_baseline_preserves_original_v14_files_and_cast_rule():
     with ZipFile(BytesIO(data)) as z:
         for name in inspect_bundle(data)['files']:
             if name.split('/')[0].startswith('xy-'):
-                assert z.read(name) == (source / name).read_bytes(), name
+                original = (source / name).read_bytes()
+                if name == 'xy-batch-v14/scripts/market_packaging.py':
+                    original = original.replace(
+                        b"Path('/Users/ttggmac-mini/.agent-reach/venv/bin/yt-dlp')",
+                        b"Path(shutil.which('yt-dlp') or (Path.home() / '.agent-reach/venv/bin/yt-dlp'))")
+                assert z.read(name) == original, name
     e = envelope()
     e['input_snapshot']['drama']['source_language'] = 'en'
     stage = invoke_bundle(data, 'prepare', {'envelope': e, 'node': 'cover'})
@@ -114,6 +119,26 @@ def test_native_cover_validation_assembles_original_cast_without_adapter_error()
     assert response['issues']
     for row in response['result']['results'][0]['titles']:
         assert 'Chinese actors, Chinese facial features, East Asian appearance' in row['prompt_4_5']
+
+
+@pytest.mark.parametrize('in_path', [True, False])
+def test_bundle_evidence_uses_current_machine_tool_path(tmp_path, monkeypatch, in_path):
+    import runpy
+    from pathlib import Path
+    from types import SimpleNamespace
+    from zhiju.workflow_bundles import BASELINE, extract_bundle
+    extract_bundle(BASELINE.read_bytes(), tmp_path)
+    module = runpy.run_path(str(tmp_path / 'xy-batch-v14/scripts/market_packaging.py'))
+    binary = '/opt/tools/yt-dlp' if in_path else str(tmp_path / '.agent-reach/venv/bin/yt-dlp')
+    monkeypatch.setattr(module['shutil'], 'which', lambda name: binary if in_path and name == 'yt-dlp' else None)
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: tmp_path))
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(stdout='', returncode=0)
+    monkeypatch.setattr(module['subprocess'], 'run', fake_run)
+    module['collect_agent_reach_evidence']({'drama_name': 'fixture'})
+    assert calls[0][0] == binary
 
 
 def test_published_bundle_is_immutable_and_revision_can_be_selected():

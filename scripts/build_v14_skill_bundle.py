@@ -19,7 +19,18 @@ def build(skills_root, workspace, output):
                 raise ValueError('Missing Skill: ' + name)
             for p in sorted(source.rglob('*')):
                 if p.is_file() and not {'.pytest_cache', '__pycache__', '.DS_Store'}.intersection(p.parts) and p.suffix != '.pyc':
-                    z.write(p, name + '/' + p.relative_to(source).as_posix())
+                    relative = name + '/' + p.relative_to(source).as_posix()
+                    if relative == 'xy-batch-v14/scripts/market_packaging.py':
+                        # Runtime dependency location only; source Skills and
+                        # evidence/creative behavior remain unchanged.
+                        content = p.read_text()
+                        old = "Path('/Users/ttggmac-mini/.agent-reach/venv/bin/yt-dlp')"
+                        if old not in content:
+                            raise ValueError('V14 tool locator changed; review the baseline adapter')
+                        z.writestr(relative, content.replace(old,
+                            "Path(shutil.which('yt-dlp') or (Path.home() / '.agent-reach/venv/bin/yt-dlp'))"))
+                    else:
+                        z.write(p, relative)
         adapter = Path(__file__).resolve().parents[1] / 'backend/zhiju/workflow_baseline/bridge.py'
         z.write(adapter, 'zhiju/bridge.py')
         # Original batch imports this module; its Feishu functions are never invoked.

@@ -6,7 +6,7 @@ from zhiju.tenant_repository import require_tenant_entity
 from zhiju.workflow_bundles import BASELINE, inspect_bundle, snapshot
 
 BUILTIN = {'id': 'builtin-v14', 'label': 'V14', 'revision': 1,
-           'status': 'published', 'change_summary': '完整原版 V14 Skills；仅附加智矩数据接入入口。'}
+           'status': 'published', 'change_summary': '完整 V14 Skills；附智矩数据接入与本机检索工具路径适配，创意规则不变。'}
 
 
 def describe(row):
