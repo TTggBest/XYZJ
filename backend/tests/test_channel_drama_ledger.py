@@ -166,6 +166,19 @@ def test_unknown_inventory_warns_even_when_whole_drama_is_still_in_progress(ledg
     assert data["inventory_warning"]
 
 
+def test_active_drama_without_any_production_state_is_reported_as_unknown_inventory(ledger):
+    client, session = ledger
+    from sqlalchemy import update
+    session.execute(update(DramaProductionState).values(finished_languages=[]))
+    session.add(Drama(id="without-progress", drama_number=6, drama_code="DRM-20261015-00000006",
+                      chinese_title="尚未同步进度", normalized_title="尚未同步进度", source_type="manual", status="active"))
+    session.commit()
+    data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
+    assert data["inventory_warning"] is not None
+    assert "1 部剧" in data["inventory_warning"]
+    assert not any(row["drama_id"] == "without-progress" for row in data["items"])
+
+
 def test_upload_missing_from_latest_complete_sync_keeps_history_but_not_public_check(ledger):
     client, session = ledger
     session.add(SyncWatermark(channel_id="channel-a", data_type="videos", status="completed",

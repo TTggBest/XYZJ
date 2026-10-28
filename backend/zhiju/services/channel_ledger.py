@@ -39,9 +39,7 @@ def list_channel_ledger(
     production = list(session.scalars(select(DramaProductionState)))
     completed_ids = {p.drama_id for p in production if p.production_completion_status == "completed"}
     inventoried_ids = {p.drama_id for p in production if p.finished_languages is not None}
-    missing_inventory_count = len({p.drama_id for p in production
-                                   if p.drama_id in dramas and dramas[p.drama_id].status == "active"}
-                                  - inventoried_ids)
+    missing_inventory_count = len({d.id for d in dramas.values() if d.status == "active"} - inventoried_ids)
     inventory_warning = None
     if missing_inventory_count:
         inventory_warning = f"有 {missing_inventory_count} 部剧尚未同步逐语言成片清单；请同步成片库存，当前列表不能代表全部可用库存。"
