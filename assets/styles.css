@@ -347,6 +347,24 @@ span.schedule-times { display: inline; color: inherit; font-size: inherit; font-
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .72fr); gap: 14px; }
 
 .table-wrap { overflow-x: auto; }
+.channel-ledger-entry { margin-top: 6px; }
+.ledger-toolbar { padding: 16px; flex-wrap: wrap; align-items: flex-end; }
+.ledger-toolbar .field { min-width: 140px; flex: 1; }
+.ledger-toolbar .ledger-search { flex: 2; min-width: 220px; }
+.ledger-toolbar #ledgerChannel { max-width: 360px; }
+.ledger-sync-note { padding: 0 16px 12px; margin: 0; color: var(--muted); font-size: 12px; }
+.ledger-sync-note.is-incomplete { color: var(--amber); }
+.ledger-table { min-width: 1150px; }
+.ledger-table td:first-child { min-width: 260px; max-width: 420px; white-space: normal; }
+.ledger-sort { border: 0; background: transparent; color: inherit; font: inherit; font-weight: 650; cursor: pointer; padding: 4px 0; }
+.ledger-table .ledger-group-start td { border-top: 2px solid var(--line-strong); }
+.ledger-table .ledger-row-failed td { background: #fff0f0; }
+.ledger-table .ledger-row-failed:hover td { background: #ffe5e5; }
+.ledger-table .ledger-row-failed td:first-child { border-left: 3px solid var(--red); }
+.ledger-failure { display: flex; gap: 5px; align-items: center; color: var(--red); font-size: 12px; margin-top: 6px; }
+.ledger-failure svg { width: 15px; height: 15px; }
+.ledger-public-check { color: var(--green); font-size: 22px; font-weight: 750; }
+.ledger-pagination { padding: 16px; flex-wrap: wrap; }
 .channel-schedule-table { overflow-x: auto; overflow-y: visible; overscroll-behavior-x: contain; }
 .schedule-batch-select { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: var(--muted); }
 .schedule-toolbar .search-field { min-width: 230px; flex: 1 1 280px; }

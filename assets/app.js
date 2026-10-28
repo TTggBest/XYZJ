@@ -29,6 +29,7 @@
     ["production_completion_status", "制作完成"]
   ];
   const VIEW_META = {
+    channelLedger: ["频道", "剧目台账"],
     dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
@@ -36,6 +37,8 @@
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
   const state = { view: "dashboard", deviceRole: "", deployment: "local", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelSortOrder: "desc", channelAudience: "", channelLanguage: "", channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], v14Config: null, settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
+  Object.assign(state, { ledgerChannelId: "", ledgerSearch: "", ledgerVisibility: "", ledgerScheduled: "",
+    ledgerSortBy: "drama_code", ledgerSortOrder: "asc", ledgerPage: 1, ledgerPageSize: 50, ledgerReturnY: 0 });
   const root = el("viewRoot");
   const emptyPageState = structuredClone(state);
   const youtubeReauthorizationChannels = new Set();
@@ -312,7 +315,7 @@
     const nickname = item.operational_name && item.operational_name !== item.original_name
       ? `<span class="cell-sub">${esc(item.operational_name)}</span>`
       : "";
-    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}</div></div>`;
+    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}<button class="button button-secondary button-small channel-ledger-entry" data-action="channel-ledger" data-id="${esc(item.channel_id)}">${icon("list-checks")} 剧目台账</button></div></div>`;
   }
 
   function channelAudience(item) {
@@ -372,6 +375,51 @@
     ]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
     renderChannels();
+  }
+
+  async function showChannelLedger() {
+    const channelId = state.ledgerChannelId;
+    if (!channelId) return loadView("channels");
+    const actor = auth.current();
+    const [data, channels] = await Promise.all([
+      api(`/channels/${encodeURIComponent(channelId)}/drama-ledger${query({ query: state.ledgerSearch,
+        visibility: state.ledgerVisibility, scheduled: state.ledgerScheduled, sort_by: state.ledgerSortBy,
+        sort_order: state.ledgerSortOrder, page: state.ledgerPage, page_size: state.ledgerPageSize })}`),
+      api("/channels/overview")
+    ]);
+    if (actor !== auth.current() || state.view !== "channelLedger" || channelId !== state.ledgerChannelId) return;
+    state.channels = channels;
+    el("pageTitle").textContent = `${data.channel_name} · 剧目台账`;
+    const channel = channels.find(c => c.channel_id === channelId);
+    const canSync = (state.deployment === "cloud" || state.deviceRole === "builder") && channel?.authorized_account_count > 0;
+    const options = (choices, selected) => choices.map(([value, text]) => `<option value="${esc(value)}" ${String(selected) === String(value) ? "selected" : ""}>${esc(text)}</option>`).join("");
+    const controls = `<div class="toolbar ledger-toolbar">
+      <label class="field"><span>频道</span><select class="select" id="ledgerChannel">${options(channels.map(c => [c.channel_id, c.display_name || c.original_name]), channelId)}</select></label>
+      <label class="field ledger-search"><span>搜索</span><input class="input" id="ledgerSearch" value="${esc(state.ledgerSearch)}" placeholder="剧名、我们的ID、videoId"></label>
+      <label class="field"><span>公开范围</span><select class="select" id="ledgerVisibility">${options([["", "全部"], ["public", "公开"], ["private", "私享"], ["unlisted", "未列出"], ["scheduled", "预约"], ["not_uploaded", "未上传"], ["failed", "上传/处理失败"], ["deleted", "已删除"], ["unavailable", "最近同步未发现"]], state.ledgerVisibility)}</select></label>
+      <label class="field"><span>是否排期</span><select class="select" id="ledgerScheduled">${options([["", "全部"], ["true", "已排期"], ["false", "未排期"]], state.ledgerScheduled)}</select></label>
+      <button class="button button-primary" data-action="apply-ledger-filters">查询</button>
+      <button class="button button-secondary" data-action="reset-ledger-filters">重置</button>
+      <button class="button button-secondary" data-action="sync-ledger-videos" ${canSync ? "" : "disabled"} title="${canSync ? "读取 YouTube 最新视频状态，不上传或发布视频" : "需要已授权频道及代码机或云端同步环境"}">${icon("refresh-cw")} 同步频道视频</button>
+    </div>`;
+    const heading = (key, text) => `<button class="ledger-sort" data-action="sort-ledger" data-sort="${key}">${text} ${state.ledgerSortBy === key ? state.ledgerSortOrder === "asc" ? "↑" : "↓" : "↕"}</button>`;
+    let previousGroup = null;
+    const rows = data.items.map(row => {
+      const groupStart = previousGroup !== row.group_id;
+      previousGroup = row.group_id;
+      const visibility = row.visibility === "scheduled" ? fmtUtc(row.scheduled_publish_at)
+        : ({ public: "公开", private: "私享", unlisted: "未列出", failed: "上传/处理失败", deleted: "已删除", unavailable: "最近同步未发现" }[row.visibility] || "—");
+      const processing = row.upload_status === "uploaded" ? `<span class="cell-sub">视频处理中</span>` : "";
+      const schedule = row.is_public ? `<span class="ledger-public-check" title="已公开" aria-label="已公开">✓</span>` : fmtUtc(row.planned_at);
+      return `<tr class="${groupStart ? "ledger-group-start" : ""} ${row.failed ? "ledger-row-failed" : ""}" data-ledger-group="${esc(row.group_id)}">
+        <td><span class="cell-main">${esc(row.drama_title)}</span>${row.needs_matching ? `<span class="tag is-amber">待匹配剧库</span>` : ""}${row.failed ? `<span class="ledger-failure">${icon("triangle-alert")} ${esc(row.failure_message || "视频处理异常")}</span>` : ""}</td>
+        <td class="mono">${esc(row.drama_code || "—")}</td>
+        <td class="mono">${row.youtube_video_id ? `<a class="cell-link" href="https://www.youtube.com/watch?v=${encodeURIComponent(row.youtube_video_id)}" target="_blank" rel="noreferrer">${esc(row.youtube_video_id)}</a>` : "—"}</td>
+        <td>${visibility}${processing}</td><td>${fmtUtc(row.uploaded_at)}</td><td>${schedule}</td></tr>`;
+    });
+    const tableBody = `<div class="table-wrap ledger-table-wrap"><table class="data-table ledger-table"><thead><tr>${[["drama_title", "剧名"], ["drama_code", "我们的ID"], ["youtube_video_id", "剧ID"], ["visibility", "公开范围"], ["uploaded_at", "上传日期"], ["planned_at", "排期"]].map(([key, text]) => `<th>${heading(key, text)}</th>`).join("")}</tr></thead><tbody>${rows.join("") || `<tr><td colspan="6">暂无符合条件的记录</td></tr>`}</tbody></table></div>`;
+    const footer = `<div class="toolbar ledger-pagination"><span>共 ${data.total} 条记录 · ${data.drama_count} 个分组 · 第 ${data.page} / ${Math.max(1, data.pages)} 页（同剧不拆页）</span><button class="button button-secondary button-small" data-action="ledger-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>上一页</button><button class="button button-secondary button-small" data-action="ledger-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页</button></div>`;
+    root.innerHTML = `<div class="page-stack channel-ledger-page"><div class="toolbar"><button class="button button-secondary" data-action="back-ledger-channels">${icon("arrow-left")} 返回频道</button><span>${esc(languageLabel(data.language))} · 时间均为北京时间</span></div>${section("剧目台账", data.inventory_basis, controls + `${data.inventory_warning ? `<p class="ledger-sync-note is-incomplete" role="status">${esc(data.inventory_warning)}</p>` : ""}<p class="ledger-sync-note ${data.sync_complete ? "" : "is-incomplete"}">最近同步：${fmtUtc(data.last_synced_at)}${data.sync_complete ? "" : " · 同步尚未完整，未上传仅表示当前本地没有上传记录"}</p>` + tableBody + footer)}</div>`;
   }
   function channelLogoForm(channel) {
     return `<form class="form-grid" id="channelLogoForm"><input type="hidden" name="channel_id" value="${esc(channel.channel_id)}"><div class="field field-wide"><label>频道</label><input class="input" value="${esc(channel.display_name)}" disabled></div><div class="field"><label>左 Logo</label><input class="input" type="file" name="left_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field"><label>右 Logo</label><input class="input" type="file" name="right_logo" accept="image/png,image/jpeg,image/webp" required></div><div class="field field-wide"><label>tem 模板图</label><input class="input" type="file" name="template" accept="image/png,image/jpeg,image/webp" required></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("wand-sparkles")} 上传并自动校准</button></div></form>`;
@@ -472,7 +520,7 @@
       const keywordCards = type => detail.keywords.filter(item => item.keyword_type === type).map(item => `<article class="hub-record"><header><strong>${esc(item.keyword)}</strong><button class="button button-quiet button-small" data-action="delete-channel-keyword" data-id="${item.id}" data-channel-id="${detail.channel.id}">移除</button></header><span class="cell-sub">${esc(item.language)} · ${esc(item.source)}</span></article>`).join("");
       body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><header class="settings-content-head"><h3>关键词</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("keyword") || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>标签</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("tag") || `<p class="settings-muted">待完善</p>`}</section></div>`;
     }
-    return `<div class="channel-hub">${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
+    return `<div class="channel-hub"><button class="button button-secondary" data-action="channel-ledger" data-id="${esc(detail.channel.id)}">${icon("list-checks")} 剧目台账</button>${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
   }
   async function showChannelDetail(id, tab = "basic") {
     const detail = state.channelDetailId === id && state.channelDetail ? state.channelDetail : await api(`/channels/${id}`);
@@ -1604,6 +1652,7 @@
   }
 
   const renderers = { dashboard: showDashboard, channels: showChannels, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
+  renderers.channelLedger = showChannelLedger;
   function captureViewPosition() {
     const topbarBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom || 0;
     const anchor = [...document.querySelectorAll(".package-card")].find(card => card.getBoundingClientRect().bottom > topbarBottom);
@@ -1640,7 +1689,7 @@
     el("breadcrumbText").textContent = meta[0]; el("pageTitle").textContent = meta[1];
     el("appShell").classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
     root.classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
-    document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("is-active", item.dataset.view === view));
+    document.querySelectorAll(".nav-item").forEach(item => item.classList.toggle("is-active", item.dataset.view === (view === "channelLedger" ? "channels" : view)));
     el("appShell").classList.remove("mobile-nav-open");
     if (!preservePosition) { loading(); renderIcons(); }
     try {
@@ -2086,6 +2135,36 @@
         notify("频道已从智矩列表删除，历史数据已保留");
         await loadView("channels");
       }
+      else if (action === "channel-ledger") {
+        if (state.view === "channels") state.ledgerReturnY = window.scrollY;
+        state.ledgerChannelId = id; state.ledgerPage = 1;
+        closeDrawer(); await loadView("channelLedger");
+      }
+      else if (action === "back-ledger-channels") { await loadView("channels"); window.scrollTo({ top: state.ledgerReturnY, behavior: "auto" }); }
+      else if (action === "apply-ledger-filters") {
+        state.ledgerSearch = el("ledgerSearch")?.value.trim() || "";
+        state.ledgerVisibility = el("ledgerVisibility")?.value || "";
+        state.ledgerScheduled = el("ledgerScheduled")?.value || "";
+        state.ledgerPage = 1; await loadView("channelLedger", { preservePosition: true });
+      }
+      else if (action === "reset-ledger-filters") {
+        state.ledgerSearch = ""; state.ledgerVisibility = ""; state.ledgerScheduled = "";
+        state.ledgerPage = 1; await loadView("channelLedger", { preservePosition: true });
+      }
+      else if (action === "sort-ledger") {
+        state.ledgerSortOrder = state.ledgerSortBy === button.dataset.sort && state.ledgerSortOrder === "asc" ? "desc" : "asc";
+        state.ledgerSortBy = button.dataset.sort; state.ledgerPage = 1; await loadView("channelLedger", { preservePosition: true });
+      }
+      else if (action === "ledger-page") { state.ledgerPage = Number(button.dataset.page); await loadView("channelLedger"); }
+      else if (action === "sync-ledger-videos") {
+        button.disabled = true;
+        const channelId = state.ledgerChannelId;
+        try {
+          const result = await api(`/channels/${encodeURIComponent(channelId)}/youtube-videos/sync`, { method: "POST" });
+          notify(`频道视频同步完成：读取 ${result.fetched} 条`);
+          if (state.view === "channelLedger" && state.ledgerChannelId === channelId) await loadView("channelLedger", { preservePosition: true });
+        } finally { button.disabled = false; }
+      }
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "channel-detail-tab") await showChannelDetail(id, button.dataset.channelDetailTab);
       else if (action === "edit-channel-initialization") {
@@ -2307,6 +2386,7 @@
   });
 
   document.addEventListener("change", async event => {
+    if (event.target.id === "ledgerChannel") { state.ledgerChannelId = event.target.value; state.ledgerPage = 1; await loadView("channelLedger"); }
     if (event.target.matches('[data-workflow-selector]')) state.workflowVersionId = event.target.value;
     if (event.target.matches('[data-workflow-file]')) await workflowFiles(event.target.dataset.id, event.target.value);
     if (event.target.matches('[data-workflow-compare]')) { state.workflowCompareId = event.target.value; await workflowFiles(event.target.dataset.id); }

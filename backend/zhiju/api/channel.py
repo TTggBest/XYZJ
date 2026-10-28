@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
+from typing import Literal
 from sqlalchemy.orm import Session
 
 from zhiju.auth_context import get_tenant_db
@@ -53,9 +54,28 @@ from zhiju.services.channel import (
 )
 from zhiju.services.identity import ConflictError
 from zhiju.services.image_processing import resolve_media_asset_file
+from zhiju.schemas.channel_ledger import ChannelLedgerPage
+from zhiju.services.channel_ledger import list_channel_ledger
 
 
 router = APIRouter(prefix="/v3", tags=["channel-center"])
+
+
+@router.get("/channels/{channel_id}/drama-ledger", response_model=ChannelLedgerPage)
+def get_channel_drama_ledger(
+    channel_id: str,
+    query: str | None = None,
+    visibility: Literal["public", "private", "unlisted", "scheduled", "not_uploaded", "failed", "deleted", "unavailable"] | None = None,
+    scheduled: bool | None = None,
+    sort_by: Literal["drama_title", "drama_code", "youtube_video_id", "visibility", "uploaded_at", "planned_at"] = "drama_code",
+    sort_order: Literal["asc", "desc"] = "asc",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=150),
+    session: Session = Depends(get_tenant_db),
+) -> ChannelLedgerPage:
+    return list_channel_ledger(session, channel_id, query=query, visibility=visibility,
+                               scheduled=scheduled, sort_by=sort_by, sort_order=sort_order,
+                               page=page, page_size=page_size)
 
 
 def _http_error(exc: Exception) -> HTTPException:

@@ -92,6 +92,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ("GET", "/api/v3/cadence-templates"),
     ("GET", "/api/v3/channels"),
     ("GET", "/api/v3/channels/{channel_id}"),
+    ("GET", "/api/v3/channels/{channel_id}/drama-ledger"),
     ("GET", "/api/v3/channels/{channel_id}/analysis-reports"),
     ("GET", "/api/v3/channels/{channel_id}/analysis-reports/{report_id}"),
     ("GET", "/api/v3/channels/{channel_id}/authorizations"),
