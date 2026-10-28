@@ -72,13 +72,12 @@ assert.ok(calls.some(([p])=>p.startsWith('/api/v3/channels/c2/drama-ledger')));
 """)
 
 
-def test_user_can_sync_finished_inventory_and_directly_view_unuploaded_dramas():
+def test_user_views_unuploaded_without_any_zhihe_sync_or_inventory_dependency():
     run_node(BOOT + r"""
 await click('channel-ledger',{id:'c1'});
-assert.match(page.nodes.get('viewRoot').innerHTML,/同步成片库存/);
+assert.doesNotMatch(page.nodes.get('viewRoot').innerHTML,/同步成片库存/);
 assert.match(page.nodes.get('viewRoot').innerHTML,/查看未上传/);
-await click('sync-ledger-inventory');
-assert.ok(calls.some(([p,m])=>p==='/api/v3/integrations/zhihe/drama-progress/sync'&&m==='POST'));
 await click('ledger-show-unuploaded');
 assert.match(calls.filter(([p])=>p.includes('/drama-ledger')).at(-1)[0],/visibility=not_uploaded/);
+assert.ok(!calls.some(([p])=>p.includes('/integrations/zhihe/')));
 """)

@@ -401,7 +401,6 @@
       <button class="button button-primary" data-action="apply-ledger-filters">查询</button>
       <button class="button button-secondary" data-action="ledger-show-unuploaded">查看未上传</button>
       <button class="button button-secondary" data-action="reset-ledger-filters">重置</button>
-      <button class="button button-secondary" data-action="sync-ledger-inventory" title="读取智核逐语言最终成片清单，不启动制作">${icon("refresh-cw")} 同步成片库存</button>
       <button class="button button-secondary" data-action="sync-ledger-videos" ${canSync ? "" : "disabled"} title="${canSync ? "读取 YouTube 最新视频状态，不上传或发布视频" : "需要已授权频道及代码机或云端同步环境"}">${icon("refresh-cw")} 同步频道视频</button>
     </div>`;
     const heading = (key, text) => `<button class="ledger-sort" data-action="sort-ledger" data-sort="${key}">${text} ${state.ledgerSortBy === key ? state.ledgerSortOrder === "asc" ? "↑" : "↓" : "↕"}</button>`;
@@ -2152,15 +2151,6 @@
       else if (action === "ledger-show-unuploaded") {
         state.ledgerSearch = ""; state.ledgerVisibility = "not_uploaded"; state.ledgerScheduled = "";
         state.ledgerPage = 1; await loadView("channelLedger", { preservePosition: true });
-      }
-      else if (action === "sync-ledger-inventory") {
-        button.disabled = true;
-        const channelId = state.ledgerChannelId;
-        try {
-          const result = await api("/integrations/zhihe/drama-progress/sync", { method: "POST" });
-          notify(`智核数据同步完成：读取 ${result.fetched} 部，更新 ${result.updated} 部`);
-          if (state.view === "channelLedger" && state.ledgerChannelId === channelId) await loadView("channelLedger", { preservePosition: true });
-        } finally { button.disabled = false; }
       }
       else if (action === "reset-ledger-filters") {
         state.ledgerSearch = ""; state.ledgerVisibility = ""; state.ledgerScheduled = "";

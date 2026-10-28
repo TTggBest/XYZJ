@@ -62,7 +62,7 @@ def ledger(monkeypatch):
     engine.dispose()
 
 
-def test_channel_ledger_keeps_each_upload_and_only_ready_language_inventory(ledger):
+def test_channel_ledger_keeps_each_upload_and_all_locally_completed_dramas(ledger):
     client, _ = ledger
     response = client.get("/api/v3/channels/channel-a/drama-ledger")
     assert response.status_code == 200, response.text
@@ -70,8 +70,9 @@ def test_channel_ledger_keeps_each_upload_and_only_ready_language_inventory(ledg
     assert data["channel_name"] == "法语频道"
     assert [(r["drama_title"], r["youtube_video_id"]) for r in data["items"]] == [
         ("甲剧", "public00001"), ("甲剧", "failed00001"), ("乙剧", None),
+        ("只有英语", None), ("有翻译没素材", None),
     ]
-    public, failed, unused = data["items"]
+    public, failed, unused = data["items"][:3]
     assert public["uploaded_at"].startswith("2026-10-01")
     assert public["is_public"] is True
     assert failed["failed"] is True and failed["failure_message"]
@@ -85,15 +86,38 @@ def test_filters_sorting_and_group_pagination_keep_repeated_drama_together(ledge
     scheduled = client.get(path, params={"scheduled": "true"}).json()
     assert [r["youtube_video_id"] for r in scheduled["items"]] == ["failed00001"]
     unused = client.get(path, params={"visibility": "not_uploaded", "scheduled": "false"}).json()
-    assert [r["drama_title"] for r in unused["items"]] == ["乙剧"]
+    assert [r["drama_title"] for r in unused["items"]] == ["乙剧", "只有英语", "有翻译没素材"]
     assert client.get(path, params={"visibility": "public", "scheduled": "true"}).json()["total"] == 0
     assert client.get(path, params={"query": "failed00001"}).json()["items"][0]["failed"] is True
     first = client.get(path, params={"page_size": 1}).json()
-    assert len(first["items"]) == 2 and first["pages"] == 2
+    assert len(first["items"]) == 2 and first["pages"] == 4
     second = client.get(path, params={"page_size": 1, "page": 2}).json()
     assert [r["drama_title"] for r in second["items"]] == ["乙剧"]
     desc = client.get(path, params={"sort_by": "drama_code", "sort_order": "desc"}).json()
-    assert [r["drama_title"] for r in desc["items"]] == ["乙剧", "甲剧", "甲剧"]
+    assert [r["drama_title"] for r in desc["items"]] == ["有翻译没素材", "只有英语", "乙剧", "甲剧", "甲剧"]
+
+
+def test_all_157_existing_completed_dramas_are_represented_without_new_inventory_sync(ledger):
+    client, session = ledger
+    for number in range(6, 159):
+        drama = Drama(id=f"completed-{number}", drama_number=number, drama_code=f"DRM-COMPLETE-{number:04d}",
+                      chinese_title=f"完成剧{number}", normalized_title=f"完成剧{number}", source_type="manual", status="active")
+        session.add(drama)
+        session.flush()
+        session.add(DramaProductionState(drama_id=drama.id, production_completion_status="completed"))
+    session.commit()
+    path = "/api/v3/channels/channel-a/drama-ledger"
+    response = client.get(path, params={"page_size": 150})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["completed_drama_count"] == 157
+    assert data["drama_count"] == 157
+    assert data["total"] == 158  # Two real uploads for one drama remain visible.
+    second = client.get(path, params={"page_size": 150, "page": 2}).json()
+    assert len({row["drama_id"] for row in data["items"] + second["items"]}) == 157
+    unused = client.get(path, params={"visibility": "not_uploaded", "page_size": 150}).json()
+    assert unused["total"] == 156
+    assert all(row["youtube_video_id"] is None for row in unused["items"])
 
 
 def test_exact_filename_match_and_unmatched_uploads_are_both_visible(ledger):
@@ -126,8 +150,8 @@ def test_additional_schedules_are_not_hidden_by_an_earlier_public_upload(ledger)
                                         status=status, idempotency_key=ident))
     session.commit()
     rows = client.get("/api/v3/channels/channel-a/drama-ledger").json()["items"]
-    assert len(rows) == 4
-    assert [r["drama_id"] for r in rows] == ["d1", "d1", "d1", "d2"]
+    assert len(rows) == 6
+    assert [r["drama_id"] for r in rows] == ["d1", "d1", "d1", "d2", "d3", "d5"]
     future = next(r for r in rows if r["schedule_id"] == "future")
     assert future["visibility"] == "pending_match" and future["has_schedule"] is True
 
@@ -143,19 +167,19 @@ def test_ledger_is_tenant_scoped_and_rejects_invalid_parameters(ledger):
     assert client.get("/api/v3/channels/channel-a/drama-ledger", params={"page_size": 0}).status_code == 422
 
 
-def test_missing_language_inventory_is_reported_not_presented_as_no_available_dramas(ledger):
+def test_missing_language_snapshot_does_not_hide_locally_completed_dramas(ledger):
     client, session = ledger
     from sqlalchemy import update
     session.execute(update(DramaProductionState).values(finished_languages=None))
     session.commit()
     data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
     assert data["completed_drama_count"] == 4
-    assert data["inventory_warning"]
-    assert "语言" in data["inventory_warning"]
-    assert len(data["items"]) == 2  # The real upload history is still available.
+    assert data["inventory_warning"] is None
+    assert {r["drama_id"] for r in data["items"]} == {"d1", "d2", "d3", "d5"}
+    assert len(data["items"]) == 5
 
 
-def test_unknown_inventory_warns_even_when_whole_drama_is_still_in_progress(ledger):
+def test_incomplete_dramas_are_not_added_to_unuploaded_inventory(ledger):
     client, session = ledger
     from sqlalchemy import update
     session.execute(update(DramaProductionState).values(
@@ -163,10 +187,11 @@ def test_unknown_inventory_warns_even_when_whole_drama_is_still_in_progress(ledg
     session.commit()
     data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
     assert data["completed_drama_count"] == 0
-    assert data["inventory_warning"]
+    assert data["inventory_warning"] is None
+    assert len(data["items"]) == 2  # Actual history remains, no invented inventory.
 
 
-def test_active_drama_without_any_production_state_is_reported_as_unknown_inventory(ledger):
+def test_drama_without_completion_record_is_not_added_or_used_to_demand_sync(ledger):
     client, session = ledger
     from sqlalchemy import update
     session.execute(update(DramaProductionState).values(finished_languages=[]))
@@ -174,8 +199,7 @@ def test_active_drama_without_any_production_state_is_reported_as_unknown_invent
                       chinese_title="尚未同步进度", normalized_title="尚未同步进度", source_type="manual", status="active"))
     session.commit()
     data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
-    assert data["inventory_warning"] is not None
-    assert "1 部剧" in data["inventory_warning"]
+    assert data["inventory_warning"] is None
     assert not any(row["drama_id"] == "without-progress" for row in data["items"])
 
 
@@ -202,15 +226,15 @@ def test_retrying_sync_does_not_restore_public_status_for_previously_missing_vid
     assert data["sync_complete"] is False
 
 
-def test_translation_placeholders_do_not_hide_missing_inventory_warning(ledger):
+def test_translation_placeholders_do_not_block_the_completed_drama_inventory(ledger):
     client, session = ledger
     from sqlalchemy import update
     session.execute(update(DramaTranslation).values(asset_status="missing"))
     session.execute(update(DramaProductionState).values(finished_languages=None))
     session.commit()
     data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
-    assert data["inventory_warning"] and "语言" in data["inventory_warning"]
-    assert len(data["items"]) == 2
+    assert data["inventory_warning"] is None
+    assert len(data["items"]) == 5
 
 
 def test_one_current_private_upload_and_one_unbound_schedule_share_one_ledger_row(ledger):
@@ -249,7 +273,7 @@ def test_unbound_schedule_is_not_counted_as_unuploaded_when_the_drama_has_upload
     assert client.get(path, params={"query": "甲剧", "visibility": "not_uploaded"}).json()["total"] == 0
 
 
-def test_zhihe_finished_languages_reach_unuploaded_inventory_even_before_whole_drama_completion(ledger):
+def test_language_snapshot_does_not_replace_the_existing_completed_drama_baseline(ledger):
     from types import SimpleNamespace
     from zhiju.services.zhihe_progress_sync import sync_zhihe_progress
     from test_zhihe_progress_sync import _remote_item
@@ -260,10 +284,7 @@ def test_zhihe_finished_languages_reach_unuploaded_inventory_even_before_whole_d
     source = SimpleNamespace(iter_progress_items=lambda **_: iter([item]))
     sync_zhihe_progress(session, source)
     data = client.get("/api/v3/channels/channel-a/drama-ledger", params={"query": "未完成", "visibility": "not_uploaded"}).json()
-    assert data["total"] == 1
-    assert data["items"][0]["drama_id"] == "d4"
-    assert data["items"][0]["youtube_video_id"] is None
-    assert data["items"][0]["has_schedule"] is False
+    assert data["total"] == 0
     # An authoritative newer snapshot with no completed languages removes the
     # unused inventory entry, without deleting upload or schedule history.
     item["updated_at"] = "2026-10-28T13:00:00Z"

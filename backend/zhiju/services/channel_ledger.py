@@ -38,19 +38,11 @@ def list_channel_ledger(
         names[title_key(alias.alias)].add(alias.drama_id)
     production = list(session.scalars(select(DramaProductionState)))
     completed_ids = {p.drama_id for p in production if p.production_completion_status == "completed"}
-    inventoried_ids = {p.drama_id for p in production if p.finished_languages is not None}
-    missing_inventory_count = len({d.id for d in dramas.values() if d.status == "active"} - inventoried_ids)
     inventory_warning = None
-    if missing_inventory_count:
-        inventory_warning = f"有 {missing_inventory_count} 部剧尚未同步逐语言成片清单；请同步成片库存，当前列表不能代表全部可用库存。"
-    if not channel.default_language:
-        inventory_warning = "频道尚未配置语言，暂不能匹配可用成片库存；上传与排期历史仍保留。"
-
-    # Only final-compose language completion is inventory authority. One ready
-    # language remains usable while sibling languages are still being produced.
-    ready = {p.drama_id for p in production
-             if p.drama_id in dramas and dramas[p.drama_id].status == "active"
-             and channel.default_language and channel.default_language.casefold() in (p.finished_languages or [])}
+    # The existing locally synced completed dramas are the ledger baseline.
+    # Reading this page must not require a new upstream sync or asset snapshot.
+    ready = {drama_id for drama_id in completed_ids
+             if drama_id in dramas and dramas[drama_id].status == "active"}
     videos = list(session.scalars(select(YoutubeVideo).where(YoutubeVideo.channel_id == channel.id)))
     schedules = list(session.scalars(select(ChannelScheduleEntry).where(
         ChannelScheduleEntry.channel_id == channel.id,
@@ -193,6 +185,6 @@ def list_channel_ledger(
         "last_synced_at": _utc(watermark.data_through_at) if watermark else None,
         "sync_status": watermark.status if watermark else None,
         "sync_complete": sync_complete,
-        "inventory_basis": "按智核正式逐语言最终成片匹配；上传及排期历史全部保留",
+        "inventory_basis": f"以现有已同步、制作完成的 {len(ready)} 部剧为底表，匹配本频道上传及排期；未上传表示本频道暂无上传记录",
         "completed_drama_count": len(completed_ids), "inventory_warning": inventory_warning,
     }
