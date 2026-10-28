@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     BigInteger,
     Numeric,
     SmallInteger,
@@ -155,6 +156,8 @@ class DramaProductionState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     role_extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="角色提取状态")
     tts_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="TTS状态")
     production_completion_status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="not_started", comment="制作完成状态")
+    finished_languages: Mapped[list[str] | None] = mapped_column(JSON(none_as_null=True), nullable=True,
+        comment="智核正式逐语言最终合成完成清单；NULL表示尚未同步，空数组表示无完成语言")
     is_production_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", comment="是否不进行制作")
     episode_count: Mapped[int | None] = mapped_column(Integer, comment="剧集数")
     total_duration_seconds: Mapped[int | None] = mapped_column(Integer, comment="剧集合集时长秒数")

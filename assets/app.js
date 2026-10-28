@@ -396,10 +396,12 @@
     const controls = `<div class="toolbar ledger-toolbar">
       <label class="field"><span>频道</span><select class="select" id="ledgerChannel">${options(channels.map(c => [c.channel_id, c.display_name || c.original_name]), channelId)}</select></label>
       <label class="field ledger-search"><span>搜索</span><input class="input" id="ledgerSearch" value="${esc(state.ledgerSearch)}" placeholder="剧名、我们的ID、videoId"></label>
-      <label class="field"><span>公开范围</span><select class="select" id="ledgerVisibility">${options([["", "全部"], ["public", "公开"], ["private", "私享"], ["unlisted", "未列出"], ["scheduled", "预约"], ["not_uploaded", "未上传"], ["failed", "上传/处理失败"], ["deleted", "已删除"], ["unavailable", "最近同步未发现"]], state.ledgerVisibility)}</select></label>
+      <label class="field"><span>公开范围</span><select class="select" id="ledgerVisibility">${options([["", "全部"], ["public", "公开"], ["private", "私享"], ["unlisted", "未列出"], ["scheduled", "预约"], ["not_uploaded", "未上传"], ["pending_match", "排期待关联"], ["failed", "上传/处理失败"], ["deleted", "已删除"], ["unavailable", "最近同步未发现"]], state.ledgerVisibility)}</select></label>
       <label class="field"><span>是否排期</span><select class="select" id="ledgerScheduled">${options([["", "全部"], ["true", "已排期"], ["false", "未排期"]], state.ledgerScheduled)}</select></label>
       <button class="button button-primary" data-action="apply-ledger-filters">查询</button>
+      <button class="button button-secondary" data-action="ledger-show-unuploaded">查看未上传</button>
       <button class="button button-secondary" data-action="reset-ledger-filters">重置</button>
+      <button class="button button-secondary" data-action="sync-ledger-inventory" title="读取智核逐语言最终成片清单，不启动制作">${icon("refresh-cw")} 同步成片库存</button>
       <button class="button button-secondary" data-action="sync-ledger-videos" ${canSync ? "" : "disabled"} title="${canSync ? "读取 YouTube 最新视频状态，不上传或发布视频" : "需要已授权频道及代码机或云端同步环境"}">${icon("refresh-cw")} 同步频道视频</button>
     </div>`;
     const heading = (key, text) => `<button class="ledger-sort" data-action="sort-ledger" data-sort="${key}">${text} ${state.ledgerSortBy === key ? state.ledgerSortOrder === "asc" ? "↑" : "↓" : "↕"}</button>`;
@@ -408,7 +410,7 @@
       const groupStart = previousGroup !== row.group_id;
       previousGroup = row.group_id;
       const visibility = row.visibility === "scheduled" ? fmtUtc(row.scheduled_publish_at)
-        : ({ public: "公开", private: "私享", unlisted: "未列出", failed: "上传/处理失败", deleted: "已删除", unavailable: "最近同步未发现" }[row.visibility] || "—");
+        : ({ public: "公开", private: "私享", unlisted: "未列出", failed: "上传/处理失败", deleted: "已删除", unavailable: "最近同步未发现", pending_match: "排期待关联" }[row.visibility] || "—");
       const processing = row.upload_status === "uploaded" ? `<span class="cell-sub">视频处理中</span>` : "";
       const schedule = row.is_public ? `<span class="ledger-public-check" title="已公开" aria-label="已公开">✓</span>` : fmtUtc(row.planned_at);
       return `<tr class="${groupStart ? "ledger-group-start" : ""} ${row.failed ? "ledger-row-failed" : ""}" data-ledger-group="${esc(row.group_id)}">
@@ -2146,6 +2148,19 @@
         state.ledgerVisibility = el("ledgerVisibility")?.value || "";
         state.ledgerScheduled = el("ledgerScheduled")?.value || "";
         state.ledgerPage = 1; await loadView("channelLedger", { preservePosition: true });
+      }
+      else if (action === "ledger-show-unuploaded") {
+        state.ledgerSearch = ""; state.ledgerVisibility = "not_uploaded"; state.ledgerScheduled = "";
+        state.ledgerPage = 1; await loadView("channelLedger", { preservePosition: true });
+      }
+      else if (action === "sync-ledger-inventory") {
+        button.disabled = true;
+        const channelId = state.ledgerChannelId;
+        try {
+          const result = await api("/integrations/zhihe/drama-progress/sync", { method: "POST" });
+          notify(`智核数据同步完成：读取 ${result.fetched} 部，更新 ${result.updated} 部`);
+          if (state.view === "channelLedger" && state.ledgerChannelId === channelId) await loadView("channelLedger", { preservePosition: true });
+        } finally { button.disabled = false; }
       }
       else if (action === "reset-ledger-filters") {
         state.ledgerSearch = ""; state.ledgerVisibility = ""; state.ledgerScheduled = "";

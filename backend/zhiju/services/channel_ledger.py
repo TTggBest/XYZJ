@@ -3,12 +3,12 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from math import ceil
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from zhiju.models import (
     Channel, ChannelScheduleEntry, Drama, DramaAlias, DramaProductionState,
-    DramaTranslation, Language, SyncWatermark, YoutubeVideo,
+    SyncWatermark, YoutubeVideo,
 )
 from zhiju.services.schedule_youtube import title_key, upload_identity
 from zhiju.tenant_repository import require_tenant_entity
@@ -36,28 +36,23 @@ def list_channel_ledger(
         names[title_key(drama.drama_code)].add(drama.id)
     for alias in session.scalars(select(DramaAlias)):
         names[title_key(alias.alias)].add(alias.drama_id)
-    completed_ids = set(session.scalars(select(DramaProductionState.drama_id).where(
-        DramaProductionState.production_completion_status == "completed")))
-    inventoried_ids = set(session.scalars(select(DramaTranslation.drama_id).where(
-        DramaTranslation.drama_id.in_(completed_ids), DramaTranslation.asset_status == "ready"))) if completed_ids else set()
-    missing_inventory_count = len(completed_ids - inventoried_ids)
+    production = list(session.scalars(select(DramaProductionState)))
+    completed_ids = {p.drama_id for p in production if p.production_completion_status == "completed"}
+    inventoried_ids = {p.drama_id for p in production if p.finished_languages is not None}
+    missing_inventory_count = len({p.drama_id for p in production
+                                   if p.drama_id in dramas and dramas[p.drama_id].status == "active"}
+                                  - inventoried_ids)
     inventory_warning = None
     if missing_inventory_count:
-        inventory_warning = f"已有 {len(completed_ids)} 部剧标记制作完成，其中 {missing_inventory_count} 部缺少就绪的语言成片库存记录；当前列表不能代表全部可用库存。"
+        inventory_warning = f"有 {missing_inventory_count} 部剧尚未同步逐语言成片清单；请同步成片库存，当前列表不能代表全部可用库存。"
     if not channel.default_language:
         inventory_warning = "频道尚未配置语言，暂不能匹配可用成片库存；上传与排期历史仍保留。"
 
-    # A translated title alone does not prove the existence of a finished file.
-    ready = set(session.scalars(
-        select(DramaTranslation.drama_id)
-        .join(Language, Language.id == DramaTranslation.language_id)
-        .join(DramaProductionState, DramaProductionState.drama_id == DramaTranslation.drama_id)
-        .join(Drama, Drama.id == DramaTranslation.drama_id)
-        .where(func.lower(Language.code) == (channel.default_language or "").lower(),
-               DramaTranslation.asset_status == "ready",
-               DramaProductionState.production_completion_status == "completed",
-               Drama.status == "active")
-    )) if channel.default_language else set()
+    # Only final-compose language completion is inventory authority. One ready
+    # language remains usable while sibling languages are still being produced.
+    ready = {p.drama_id for p in production
+             if p.drama_id in dramas and dramas[p.drama_id].status == "active"
+             and channel.default_language and channel.default_language.casefold() in (p.finished_languages or [])}
     videos = list(session.scalars(select(YoutubeVideo).where(YoutubeVideo.channel_id == channel.id)))
     schedules = list(session.scalars(select(ChannelScheduleEntry).where(
         ChannelScheduleEntry.channel_id == channel.id,
@@ -89,7 +84,7 @@ def list_channel_ledger(
             "drama_id": drama.id if drama else None,
             "drama_title": drama.chinese_title if drama else video.title,
             "drama_code": drama.drama_code if drama else None,
-            "youtube_video_id": video.youtube_video_id if video else None,
+            "youtube_video_id": video.youtube_video_id if video else schedule.source_video_id if schedule else None,
             "visibility": state, "scheduled_publish_at": _utc(video.scheduled_publish_at) if video else None,
             "uploaded_at": _utc(video.uploaded_at) if video else None,
             "schedule_id": schedule.id if schedule else None,
@@ -125,10 +120,38 @@ def list_channel_ledger(
         if drama_id in dramas:
             represented.add(drama_id)
         rows.append(make_row(drama_id, video, schedule))
+    # A unique, current private upload and one unassigned schedule are the same
+    # ledger use. Project them together without writing a schedule assignment.
+    video_rows = defaultdict(list)
+    remaining_schedules = defaultdict(list)
+    videos_by_id = {"video:" + v.id: v for v in videos}
+    for row in rows:
+        if row["drama_id"]:
+            video_rows[row["drama_id"]].append(row)
+    for schedule in schedules:
+        if schedule.id not in used_schedules:
+            remaining_schedules[schedule.drama_id].append(schedule)
+    for drama_id, pending in remaining_schedules.items():
+        uploaded = video_rows.get(drama_id, [])
+        if not sync_complete or len(uploaded) != 1 or len(pending) != 1:
+            continue
+        row, schedule = uploaded[0], pending[0]
+        video = videos_by_id[row["row_id"]]
+        language = upload_identity(video.original_file_name)[1]
+        if (row["schedule_id"] or row["visibility"] != "private" or video.upload_status != "processed"
+                or video.is_blocked or schedule.source_video_id or schedule.source_video_overridden
+                or not language or language.casefold() != (channel.default_language or "").casefold()
+                or not video.uploaded_at or _utc(video.uploaded_at) > _utc(schedule.planned_utc_time)):
+            continue
+        row.update(schedule_id=schedule.id, planned_at=_utc(schedule.planned_utc_time), has_schedule=True)
+        used_schedules.add(schedule.id)
     for schedule in schedules:
         if schedule.id not in used_schedules:
             represented.add(schedule.drama_id)
-            rows.append(make_row(schedule.drama_id, schedule=schedule))
+            row = make_row(schedule.drama_id, schedule=schedule)
+            if video_rows.get(schedule.drama_id) or schedule.source_video_id:
+                row["visibility"] = "pending_match"
+            rows.append(row)
     for drama_id in ready - represented:
         rows.append(make_row(drama_id))
 
@@ -172,6 +195,6 @@ def list_channel_ledger(
         "last_synced_at": _utc(watermark.data_through_at) if watermark else None,
         "sync_status": watermark.status if watermark else None,
         "sync_complete": sync_complete,
-        "inventory_basis": "制作完成且对应语言素材就绪；上传及排期历史全部保留",
+        "inventory_basis": "按智核正式逐语言最终成片匹配；上传及排期历史全部保留",
         "completed_drama_count": len(completed_ids), "inventory_warning": inventory_warning,
     }

@@ -20,6 +20,7 @@ const page=start(process.argv[1],auth,async(path,options)=>{
  if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
  if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
  if(path.includes('/youtube-videos/sync')){synced=true;return new Response('{"fetched":3}');}
+ if(path==='/api/v3/integrations/zhihe/drama-progress/sync')return new Response('{"fetched":5,"updated":2}');
  if(path.includes('/drama-ledger')){
   const data=structuredClone(ledger);if(synced){data.sync_complete=true;data.last_synced_at='2026-10-28T12:00:00Z';}
   if(path.includes('visibility=failed'))data.items=data.items.filter(r=>r.failed);
@@ -68,4 +69,16 @@ assert.match(page.nodes.get('viewRoot').innerHTML,/最近同步/);
 await page.document.emit('change',{target:{id:'ledgerChannel',value:'c2',matches:()=>false}});await settle();
 assert.match(page.nodes.get('pageTitle').textContent,/英语频道/);
 assert.ok(calls.some(([p])=>p.startsWith('/api/v3/channels/c2/drama-ledger')));
+""")
+
+
+def test_user_can_sync_finished_inventory_and_directly_view_unuploaded_dramas():
+    run_node(BOOT + r"""
+await click('channel-ledger',{id:'c1'});
+assert.match(page.nodes.get('viewRoot').innerHTML,/同步成片库存/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/查看未上传/);
+await click('sync-ledger-inventory');
+assert.ok(calls.some(([p,m])=>p==='/api/v3/integrations/zhihe/drama-progress/sync'&&m==='POST'));
+await click('ledger-show-unuploaded');
+assert.match(calls.filter(([p])=>p.includes('/drama-ledger')).at(-1)[0],/visibility=not_uploaded/);
 """)

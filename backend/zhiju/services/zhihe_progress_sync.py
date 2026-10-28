@@ -187,6 +187,12 @@ def sync_zhihe_progress(
     synced_at = datetime.now(timezone.utc).replace(tzinfo=None)
     for item in client.iter_progress_items(updated_after=updated_after):
         result["fetched"] += 1
+        finished_languages = None
+        if "finished_languages" in item:
+            codes = item["finished_languages"]
+            if not isinstance(codes, list) or any(not isinstance(code, str) or not code.strip() for code in codes):
+                raise ZhiheApiError("智核逐语言成片清单格式无效")
+            finished_languages = sorted({code.strip().casefold() for code in codes})
         drama = _find_drama(
             session,
             source_external_id=str(item["drama_id"]),
@@ -210,9 +216,16 @@ def sync_zhihe_progress(
             and state.source_updated_at is not None
             and state.source_updated_at >= source_updated_at
         ):
-            if repaired_cloud_download:
+            # The first full sync after the API gains inventory must backfill
+            # the new field even when the existing progress version is equal.
+            inventory_backfilled = (state.source_updated_at == source_updated_at
+                                    and state.finished_languages is None and finished_languages is not None)
+            if inventory_backfilled:
+                state.finished_languages = finished_languages
+            if repaired_cloud_download or inventory_backfilled:
                 state.source_synced_at = synced_at
-                _audit(session, "drama.cloud_download_completed", "drama", drama.id)
+                _audit(session, "drama.zhihe_progress_synced" if inventory_backfilled
+                       else "drama.cloud_download_completed", "drama", drama.id)
                 result["updated"] += 1
             else:
                 result["skipped_stale"] += 1
@@ -224,6 +237,8 @@ def sync_zhihe_progress(
         nodes = item["nodes"]
         for node_name, field_name in ZHIHE_NODE_FIELDS.items():
             setattr(state, field_name, str(nodes[node_name]["status"]))
+        if finished_languages is not None:
+            state.finished_languages = finished_languages
         _complete_cloud_download_from_following_nodes(state)
         state.episode_count = item.get("episode_count")
         state.total_duration_seconds = item.get("total_duration_seconds")

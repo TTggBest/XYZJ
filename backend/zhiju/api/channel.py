@@ -65,7 +65,7 @@ router = APIRouter(prefix="/v3", tags=["channel-center"])
 def get_channel_drama_ledger(
     channel_id: str,
     query: str | None = None,
-    visibility: Literal["public", "private", "unlisted", "scheduled", "not_uploaded", "failed", "deleted", "unavailable"] | None = None,
+    visibility: Literal["public", "private", "unlisted", "scheduled", "not_uploaded", "failed", "deleted", "unavailable", "pending_match"] | None = None,
     scheduled: bool | None = None,
     sort_by: Literal["drama_title", "drama_code", "youtube_video_id", "visibility", "uploaded_at", "planned_at"] = "drama_code",
     sort_order: Literal["asc", "desc"] = "asc",
