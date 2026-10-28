@@ -163,3 +163,25 @@ def test_upload_missing_from_latest_complete_sync_keeps_history_but_not_public_c
     public = next(r for r in rows if r["youtube_video_id"] == "public00001")
     assert public["is_public"] is False and public["visibility"] == "unavailable"
     assert public["uploaded_at"].startswith("2026-10-01")
+
+
+@pytest.mark.parametrize("sync_status", ["running", "failed"])
+def test_retrying_sync_does_not_restore_public_status_for_previously_missing_video(ledger, sync_status):
+    client, session = ledger
+    session.add(SyncWatermark(channel_id="channel-a", data_type="videos", status=sync_status,
+                              data_through_at=datetime(2026, 10, 28, 12)))
+    session.commit()
+    data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
+    public = next(r for r in data["items"] if r["youtube_video_id"] == "public00001")
+    assert public["visibility"] == "unavailable" and public["is_public"] is False
+    assert data["sync_complete"] is False
+
+
+def test_translation_placeholders_do_not_hide_missing_inventory_warning(ledger):
+    client, session = ledger
+    from sqlalchemy import update
+    session.execute(update(DramaTranslation).values(asset_status="missing"))
+    session.commit()
+    data = client.get("/api/v3/channels/channel-a/drama-ledger").json()
+    assert data["inventory_warning"] and "语言" in data["inventory_warning"]
+    assert len(data["items"]) == 2

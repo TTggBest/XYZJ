@@ -38,11 +38,12 @@ def list_channel_ledger(
         names[title_key(alias.alias)].add(alias.drama_id)
     completed_ids = set(session.scalars(select(DramaProductionState.drama_id).where(
         DramaProductionState.production_completion_status == "completed")))
-    language_record = session.scalar(select(DramaTranslation.id).where(
-        DramaTranslation.drama_id.in_(completed_ids)).limit(1)) if completed_ids else None
+    inventoried_ids = set(session.scalars(select(DramaTranslation.drama_id).where(
+        DramaTranslation.drama_id.in_(completed_ids), DramaTranslation.asset_status == "ready"))) if completed_ids else set()
+    missing_inventory_count = len(completed_ids - inventoried_ids)
     inventory_warning = None
-    if completed_ids and not language_record:
-        inventory_warning = f"已有 {len(completed_ids)} 部剧标记制作完成，但缺少对应语言成片库存记录；当前列表不能代表全部可用库存。"
+    if missing_inventory_count:
+        inventory_warning = f"已有 {len(completed_ids)} 部剧标记制作完成，其中 {missing_inventory_count} 部缺少就绪的语言成片库存记录；当前列表不能代表全部可用库存。"
     if not channel.default_language:
         inventory_warning = "频道尚未配置语言，暂不能匹配可用成片库存；上传与排期历史仍保留。"
 
@@ -72,7 +73,7 @@ def list_channel_ledger(
         drama = dramas.get(drama_id)
         failed = bool(video and (video.upload_status in {"failed", "rejected"} or video.publish_status == "error"))
         deleted = bool(video and (video.deleted_at or video.publish_status == "deleted" or video.upload_status == "deleted"))
-        unavailable = bool(video and sync_complete and (
+        unavailable = bool(video and watermark and watermark.data_through_at and (
             not video.last_synced_at or _utc(video.last_synced_at) < _utc(watermark.data_through_at)))
         is_public = bool(video and not failed and not deleted and not unavailable and video.privacy_status == "public")
         state = "not_uploaded"
