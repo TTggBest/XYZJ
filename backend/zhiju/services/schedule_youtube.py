@@ -21,6 +21,7 @@ LANGUAGES = {
     "日语": "ja", "ja": "ja", "韩语": "ko", "ko": "ko", "中文": "zh", "zh": "zh",
     "泰语": "th", "th": "th", "越南语": "vi", "vi": "vi", "土耳其语": "tr", "tr": "tr",
     "俄语": "ru", "ru": "ru", "意大利语": "it", "it": "it", "印地语": "hi", "hi": "hi",
+    "孟加拉语": "bn", "孟加拉": "bn", "bengali": "bn", "bangla": "bn", "bn": "bn",
 }
 LANGUAGE_LABELS = {"ar": "阿拉伯语", "en": "英语", "fr": "法语", "pt": "葡萄牙语", "pt-BR": "巴葡", "id": "印尼语"}
 
@@ -182,7 +183,7 @@ def schedule_video_reviews(session, schedules, *, now=None):
             "last_synced_at": watermark.data_through_at if watermark else None,
             "channel_language": channel.default_language, "channel_timezone": channel.timezone,
             "planned_at": utc(schedule.planned_utc_time),
-            "empty_label": "本次未上传" if complete and not eligible else "待选择视频" if eligible else "尚未确认上传状态"}
+            "empty_label": "已上传 · 待绑定排期" if complete and candidates else "本次未上传" if complete else "尚未确认上传状态"}
     return result
 
 

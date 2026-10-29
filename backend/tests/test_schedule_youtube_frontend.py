@@ -153,3 +153,37 @@ assert.equal(requests.filter(([p])=>p.includes('/youtube-selection')).length,0);
 await click('select-schedule-youtube','s1',{videoId:'arabic-new1'});
 assert.equal(requests.filter(([p])=>p.includes('/youtube-selection')).length,1);
 """)
+
+
+def test_unbound_uploaded_videos_show_ids_and_upload_status_including_processing_and_blocked():
+    run_node(r"""
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const rows=['private','processing','error'].map((state,i)=>({schedule_id:'s'+i,chinese_title:'uploaded-'+state,
+ is_uploaded:false,is_published:false,video_sync:{sync_complete:true,selected:null,warnings:[],
+ videos:[{video_id:'existing-id-'+i,state,selectable:state==='private'}]}}));
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"频道"}]');
+ if(path.startsWith('/api/v3/schedules/channel-view'))return new Response(JSON.stringify({page:1,page_size:50,total:rows.length,items:rows}));
+ return new Response('[]');
+});
+for(let i=0;i<4;i++)await page.tick();
+async function click(action,extra={}){
+ const button={dataset:{action,...extra},closest:()=>null};
+ await page.document.emit('click',{target:{closest:s=>s==='[data-action]'?button:null}});
+}
+await click('go-schedules');await click('schedule-view-mode',{mode:'full'});
+const html=page.nodes.get('viewRoot').innerHTML;
+for(let i=0;i<rows.length;i++){
+ const row=html.match(/<tr>[\s\S]*?<\/tr>/g).find(r=>r.includes(rows[i].chinese_title));
+ assert.match(row,new RegExp('https://www.youtube.com/watch\\?v=existing-id-'+i));
+ assert.match(row,/未绑定本次排期/);
+ const cells=row.match(/<td(?:\s[^>]*)?>[\s\S]*?<\/td>/g);
+ assert.match(cells[5],/>已上传</);
+ assert.doesNotMatch(row,/本次未上传/);
+}
+assert.match(html,/视频处理中/);assert.match(html,/视频处理异常/);
+""")

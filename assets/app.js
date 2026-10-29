@@ -688,8 +688,10 @@
   function sourceVideoCell(item, entityType) {
     const targetId = entityType === "task" ? item.task_id : item.schedule_id;
     const review = entityType === "schedule" ? item.video_sync : null;
+    const uploads = review?.sync_complete ? (review.videos || []).filter(v => !["unavailable", "deleted"].includes(v.state)) : [];
     const link = item.source_video_url
       ? `<a class="schedule-video-id mono" href="${esc(item.source_video_url)}" target="_blank" rel="noreferrer">${esc(item.source_video_id || "打开链接")}</a>`
+      : !item.source_video_id && uploads.length ? uploads.map(v => `<a class="schedule-video-id mono" href="https://www.youtube.com/watch?v=${encodeURIComponent(v.video_id)}" target="_blank" rel="noreferrer">${esc(v.video_id)}</a><span class="cell-sub">${esc(videoStateLabel(v.state))} · 未绑定本次排期</span>`).join("")
       : `<span class="schedule-video-id ${item.source_video_id ? "mono" : "is-empty"}">${esc(item.source_video_id || review?.empty_label || "待补充")}</span>`;
     const warnings = review?.warnings || [];
     const languageError = warnings.some(w => ["language_error", "identity_conflict"].includes(w.code));
@@ -705,6 +707,11 @@
   function scheduleVideoStatusTag(item, field) {
     const review = item.video_sync;
     if (review && (!review.sync_complete || (item.source_video_id && (!review.selected || review.selected.state === "unavailable")))) return '<span class="tag">待核实</span>';
+    if (field === "is_uploaded" && review) {
+      const uploads = review.selected ? [review.selected] : (review.videos || []);
+      const uploaded = uploads.some(v => !["unavailable", "deleted"].includes(v.state));
+      return `<span class="tag ${uploaded ? "is-green" : ""}">${uploaded ? "已上传" : "未上传"}</span>`;
+    }
     if (field === "is_published" && review?.selected?.state === "scheduled") return '<span class="tag is-blue">已预约</span>';
     const yes = field === "is_published" && review?.selected ? review.selected.state === "public" : item[field];
     const text = field === "is_uploaded" ? (yes ? "已上传" : "未上传") : (yes ? "已上线" : "未上线");

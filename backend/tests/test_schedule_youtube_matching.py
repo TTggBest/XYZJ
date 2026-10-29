@@ -271,3 +271,26 @@ def test_sync_defaults_to_oldest_matching_language_and_exposes_duplicates():
         wrong = next(v for v in review["videos"] if v["video_id"] == "wrong-lang1")
         assert wrong["language_check"] == "mismatch"
         assert wrong["selectable"] is False
+
+
+def test_bengali_filename_matches_and_auto_binds_processed_upload(fixture):
+    session,schedule,_=fixture
+    session.get(Channel,schedule.channel_id).default_language='bn'
+    title=session.get(Drama,schedule.drama_id).chinese_title
+    add_video(session,schedule,original_file_name=f'{title}_孟加拉语.mp4')
+    reconcile_channel_schedules(session,schedule.channel_id,now=NOW)
+    assert schedule.source_video_id=='candidate01'
+    assert schedule.is_uploaded is True
+    review=schedule_video_reviews(session,[schedule],now=NOW)[schedule.id]
+    assert review['selected']['language_check']=='match'
+
+
+@pytest.mark.parametrize('changes',[{'upload_status':'uploaded'},{'region_restriction':{'blocked':['BD']}}])
+def test_unusable_upload_is_still_reported_as_uploaded_without_binding(fixture,changes):
+    session,schedule,_=fixture
+    add_video(session,schedule,**changes)
+    review=schedule_video_reviews(session,[schedule],now=NOW)[schedule.id]
+    assert review['videos'][0]['video_id']=='candidate01'
+    assert review['empty_label']=='已上传 · 待绑定排期'
+    assert review['videos'][0]['selectable'] is False
+    assert schedule.source_video_id is None
