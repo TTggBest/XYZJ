@@ -44,6 +44,8 @@
   const youtubeReauthorizationChannels = new Set();
   let realtimeRetryTimer = null;
   let realtimeGeneration = 0;
+  let workProgressTimer = null, workProgressBusy = false, drawerGeneration = 0;
+  state.workDetailId = "";
 
   function renderYouTubeReauthorizationNotice() {
     const notice = el("youtubeReauthorizationNotice");
@@ -150,8 +152,8 @@
   }
   function openModal(title, body) { el("modalTitle").textContent = title; el("modalBody").innerHTML = body; el("modalBackdrop").hidden = false; renderIcons(); }
   function closeModal() { el("modalBackdrop").hidden = true; el("modalBody").innerHTML = ""; }
-  function openDrawer(title, body) { el("drawerTitle").textContent = title; el("drawerBody").innerHTML = body; el("drawerBackdrop").hidden = false; renderIcons(); }
-  function closeDrawer() { el("drawerBackdrop").hidden = true; }
+  function openDrawer(title, body, workId = "") { drawerGeneration++; state.workDetailId = workId; el("drawerTitle").textContent = title; el("drawerBody").innerHTML = body; el("drawerBackdrop").hidden = false; renderIcons(); }
+  function closeDrawer() { drawerGeneration++; state.workDetailId = ""; el("drawerBackdrop").hidden = true; }
   function formData(form) { return Object.fromEntries(new FormData(form).entries()); }
   function idempotency(prefix, ...parts) { return `${prefix}:${parts.join(":")}:${Date.now()}`.slice(0, 160); }
   async function copyText(value) {
@@ -988,16 +990,22 @@
     const actor = auth.current();
     return actor?.platform_role === "super_admin" || ["owner", "admin"].includes(actor?.membership_role);
   }
-  async function workDetail(id) {
+  async function workDetail(id, refresh = false) {
+    const generation = drawerGeneration, actor = auth.current();
+    const scroll = el("drawerBody").scrollTop;
     const detail = await api(`/work-orders/${id}`);
     const w = detail.work_order, p = detail.package;
     const run = canRunV14() ? await api(`/work-orders/${id}/v14-runs/current`) : null;
     const versionPicker = !run && canRunV14() ? await workflowPicker() : '';
+    if (actor !== auth.current() || generation !== drawerGeneration || (refresh && (state.workDetailId !== id || el("drawerBackdrop").hidden))) return;
+    const packageStatus = p.status === 'text_ready' && run && run.status !== 'text_ready' ? '<span class="tag is-blue">说明已完成 · 文本生产中</span>' : tag(p.status);
     const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">生成运营包</button>`
       : ["queued", "running"].includes(run.status) ? `${run.status === "queued" ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
       : ["interrupted", "cancelled"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">继续运行</button>` : "";
     const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
-    openDrawer("工单详情", `<div class="detail-block">${versionPicker || `<span>生产流程版本：${esc(workflowLabel(run?.workflow_version))}</span>`}</div><div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${tag(p.status)}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`);
+    openDrawer("工单详情", `<div class="detail-block">${versionPicker || `<span>生产流程版本：${esc(workflowLabel(run?.workflow_version))}</span>`}</div><div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${packageStatus}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`, id);
+    if (refresh) el("drawerBody").scrollTop = scroll;
+    scheduleWorkProgressRefresh();
   }
 
   function copyKey(packageId, field, value) {
@@ -1736,21 +1744,47 @@
       renderIcons();
       restoreViewPosition(position);
       updateScrollTopButton();
+      scheduleWorkProgressRefresh();
     } catch (error) {
       if (actor !== auth.current() || error.status === 401 || error.name === "AbortError") return;
       root.innerHTML = `<div class="section">${empty("数据读取失败", error.message)}</div>`; renderIcons(); notify(error.message, true);
     }
   }
 
+  function scheduleWorkProgressRefresh() {
+    if (workProgressTimer || !auth.current()?.tenant_id || document.visibilityState !== "visible" ||
+        (state.view !== "workorders" && !state.workDetailId)) return;
+    workProgressTimer = setTimeout(async () => {
+      workProgressTimer = null;
+      if (workProgressBusy || !auth.current()?.tenant_id || document.visibilityState !== "visible") return;
+      workProgressBusy = true;
+      try { await refreshWorkProgress(); }
+      catch (error) { if (error.name !== "AbortError") console.warn("工单进度读取失败", error); }
+      finally { workProgressBusy = false; scheduleWorkProgressRefresh(); }
+    }, 5000);
+  }
+  async function refreshWorkProgress() {
+    if (!el("modalBackdrop").hidden) return;
+    const id = state.workDetailId;
+    const checked = new Set([...document.querySelectorAll(".task-check:checked")].map(node => node.value));
+    if (state.view === "workorders") {
+      await loadView(state.view, { preservePosition: true });
+      document.querySelectorAll(".task-check").forEach(node => { if (!node.disabled) node.checked = checked.has(node.value); });
+    }
+    if (id && state.workDetailId === id && !el("drawerBackdrop").hidden) await workDetail(id, true);
+  }
   function scheduleRealtimeRefresh() {
     if (!auth.current()?.tenant_id || document.visibilityState !== "visible" || state.view === "accounts" || state.realtimeRefreshTimer) return;
     state.realtimeRefreshTimer = setTimeout(() => {
       state.realtimeRefreshTimer = null;
-      return loadView(state.view, { preservePosition: true });
+      return state.view === "workorders" || state.workDetailId ? refreshWorkProgress() : loadView(state.view, { preservePosition: true });
     }, 250);
   }
   function closeRealtime() {
     realtimeGeneration += 1;
+    if (!auth.current() || document.visibilityState !== "visible") {
+      clearTimeout(workProgressTimer); workProgressTimer = null;
+    }
     clearTimeout(realtimeRetryTimer);
     realtimeRetryTimer = null;
     clearTimeout(state.realtimeRefreshTimer);
@@ -1817,6 +1851,7 @@
     checkHealth();
     connectRealtime();
     scheduleRealtimeRefresh();
+    scheduleWorkProgressRefresh();
   }
 
   document.addEventListener("change", event => {

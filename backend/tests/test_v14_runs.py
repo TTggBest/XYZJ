@@ -184,3 +184,23 @@ def test_mysql_v14_ddl_has_distinct_unique_index_names():
     for statement in output.getvalue().split(";"):
         names = re.findall(r"CONSTRAINT (\w+) UNIQUE", statement)
         assert len(names) == len(set(names)), statement
+
+
+def test_begin_attempt_marks_node_running_before_result_and_keeps_start_on_content_retry(store):
+    from zhiju.services import v14_runs as runs
+    from zhiju.schemas.v14 import AttemptSubmission
+    with TenantSession(store, info={'tenant_id':'tenant-a'}) as s:
+        configure(s)
+        run=runs.create_run(s,'work-a')
+        claim=runs.claim_run(s,'device-a')
+        attempt=runs.begin_attempt(s,run.id,claim['claim_id'],'search')
+        node=s.scalar(sa.select(ProductionNodeRun).where(ProductionNodeRun.node_type=='search'))
+        assert node.status=='running' and node.worker_key=='device-a'
+        assert node.started_at is not None and node.completed_at is None
+        assert s.get(WorkOrder,'work-a').status=='running'
+        started=node.started_at
+        runs.submit_attempt(s,run.id,attempt.id,AttemptSubmission(
+            claim_id=claim['claim_id'],outcome='content_error',result={},error='invalid result'))
+        runs.begin_attempt(s,run.id,claim['claim_id'],'search')
+        assert node.started_at==started
+        assert node.completed_at is None

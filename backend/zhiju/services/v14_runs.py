@@ -192,6 +192,12 @@ def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
     if node_type != expected or any(a.outcome == "running" for a in rows):
         raise ConflictError("节点顺序不正确或已有运行中的尝试")
     sequence = 1 + max((a.sequence for a in attempts(session, run) if a.node_type == node_type), default=0)
+    from zhiju.services import production
+    node = production._latest_node(session, run.work_order_id, node_type, lock=True)
+    if node.status == "queued":
+        production.start_node(session, run.work_order_id, node_type, run.host_id, commit=False)
+    elif node.status != "running" or node.worker_key != run.host_id:
+        raise ConflictError("生产节点不属于当前执行")
     attempt = V14Attempt(run_id=run.id, claim_id=claim_id, node_type=node_type, sequence=sequence)
     session.add(attempt)
     session.commit()
