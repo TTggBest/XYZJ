@@ -1,4 +1,5 @@
 from zhiju.models.audit import AuditEvent, SchemaComment
+from zhiju.models.channel_analysis_run import ChannelAnalysisRun
 from zhiju.models.auth import (
     ACCOUNT_STATUSES,
     BINDING_STATUSES,

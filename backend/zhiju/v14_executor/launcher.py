@@ -17,7 +17,7 @@ class WorkerManager:
         self.settings = settings
         self.lock = Lock()
         self.process = None
-        self.pending = None
+        self.pending = {}
         self.closed = False
         self.last_error = None
 
@@ -28,7 +28,11 @@ class WorkerManager:
                 raise ValueError("本机组件与当前公司、主机或账号配置不匹配")
         if not isinstance(config.get("session_token"), str) or not config["session_token"]:
             raise ValueError("缺少当前网页登录授权，请重新登录")
-        return {key: config[key] for key in ("base_url", "host_id", "tenant_id", "account_profile", "session_token")}
+        task_type = config.get('task_type', 'operation_package')
+        if task_type not in {'operation_package','channel_analysis'}:
+            raise ValueError('未知执行任务类型')
+        return {**{key: config[key] for key in ("base_url", "host_id", "tenant_id", "account_profile", "session_token")},
+                'task_type':task_type}
 
     def prepare(self, config):
         config = self.validate(config)
@@ -57,7 +61,7 @@ class WorkerManager:
 
     def _spawn(self, config):
         worker = {**config, "codex_binary": self.settings["codex_binary"]}
-        for key in ("codex_home", "cache_root"):
+        for key in ("codex_home", "cache_root", "analysis_workspace_root"):
             if self.settings.get(key):
                 worker[key] = self.settings[key]
         env = os.environ.copy()
@@ -87,7 +91,7 @@ class WorkerManager:
                 raise ValueError("本机唤起组件正在关闭")
             if self.process is not None:
                 # A request arriving as the worker drains must not lose its wake-up.
-                self.pending = config
+                self.pending[config['task_type']] = config
             else:
                 self._spawn(config)
                 Thread(target=self._monitor, daemon=True).start()
@@ -98,7 +102,8 @@ class WorkerManager:
             code = self.process.wait()
             with self.lock:
                 if self.pending and not self.closed and code == 0:
-                    config, self.pending = self.pending, None
+                    key = next(iter(self.pending))
+                    config = self.pending.pop(key)
                     try:
                         self._spawn(config)
                         continue
@@ -106,13 +111,14 @@ class WorkerManager:
                         self.last_error = "V14 执行器重新启动失败，请重试唤起"
                 elif code:
                     self.last_error = f"V14 执行器已退出（退出码 {code}），请查看本机日志并重试唤起"
-                self.process = self.pending = None
+                self.process = None
+                self.pending = {}
                 return
 
     def close(self):
         with self.lock:
             self.closed = True
-            self.pending = None
+            self.pending = {}
             process = self.process
         if process and process.poll() is None:
             process.terminate()

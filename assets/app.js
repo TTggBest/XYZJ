@@ -476,11 +476,28 @@
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
   }
   async function loadChannelAnalysisCenter(channelId) {
-    const [reports, metrics] = await Promise.all([
+    const [reports, metrics, runs] = await Promise.all([
       api(`/channels/${channelId}/analysis-reports`),
-      api(`/youtube/channel-daily-metrics${query({ channel_id: channelId })}`)
+      api(`/youtube/channel-daily-metrics${query({ channel_id: channelId })}`),
+      api(`/channels/${channelId}/analysis-runs`)
     ]);
-    return { reports, metrics };
+    return { reports, metrics, runs };
+  }
+  function analysisRunCards(detail) {
+    if ((detail.analysis_runs || []).some(run => run.mode === "periodic" && run.status === "failed" && /授权|[Pp]ermission/.test(run.error || ""))) {
+      youtubeReauthorizationChannels.add(detail.channel.id);
+      renderYouTubeReauthorizationNotice();
+    }
+    const phases = {materials:"待补材料",authorization:"核验授权与采集",analysis:"分析与生成规范",ready:"分析完成，待应用"};
+    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : "待同步"}</p><div class="row-actions">${run.status === "draft" ? `<button class="button button-secondary" data-action="edit-analysis-materials" data-id="${run.id}">上传材料并开始</button>` : ""}${["running","failed"].includes(run.status) ? `<button class="button button-secondary" data-action="resume-channel-analysis" data-id="${run.id}">继续分析</button>` : ""}${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary" data-action="cancel-channel-analysis" data-id="${run.id}">取消</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}${["queued","applied"].includes(run.status) ? `<button class="button button-secondary" data-action="wake-channel-analysis" data-id="${run.id}">${run.status === "applied" ? "同步本地文件" : "重试唤起"}</button>` : ""}</div></article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
+  }
+  function analysisMaterialsForm(run) {
+    const slots = [["studio_zip","Studio 最近28天内容导出 ZIP",".zip"],["videos","内容 → 视频截图","image/png,image/jpeg,image/webp"],["audience","观众页截图","image/png,image/jpeg,image/webp"],["posts","帖子页截图","image/png,image/jpeg,image/webp"],["ab","已完成 A/B 测试截图（可多选）","image/png,image/jpeg,image/webp"]];
+    return `<form id="channelAnalysisMaterialsForm" data-run-id="${run.id}"><p>${run.mode === "initial" ? "冷启动无需上传运营数据，初始定位已随任务保存。" : "上传真实材料。日期与频道身份将结合文件内容核对；每个文件最多32MB。"}</p>${run.mode === "periodic" ? slots.map(([key,text,accept]) => `<div class="field"><label>${text}</label><input type="file" name="${key}" accept="${accept}" ${key === "ab" ? "multiple" : ""}><span>${run.materials.filter(m => m.kind === key).map(m => esc(m.name)).join("、") || "尚未上传"}</span></div>`).join("") : ""}<button class="button button-primary" type="submit">保存材料并开始</button></form>`;
+  }
+  function downloadAnalysisText(text, filename) {
+    const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
+    const link=document.createElement("a");link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
   async function loadChannelReferenceVersions(channelId) {
     return api(`/channels/${channelId}/dna-versions`);
@@ -510,7 +527,7 @@
       const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}${!item.youtube_playlist_id ? `<button class="button button-secondary button-small" data-action="create-youtube-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">创建到 YouTube</button>` : ""}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
       body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><header class="settings-content-head"><h3>置顶评论</h3><button class="button button-secondary button-small" data-action="add-pinned-comment" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${comments || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>播放列表</h3><button class="button button-secondary button-small" data-action="add-channel-playlist" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
-      body = channelAnalysisPanel(detail);
+      body = analysisRunCards(detail) + channelAnalysisPanel(detail);
     } else if (tab === "reference") {
       body = channelReferencePanel(detail);
     } else if (tab === "versions") {
@@ -523,7 +540,9 @@
     }
     return `<div class="channel-hub"><button class="button button-secondary" data-action="channel-ledger" data-id="${esc(detail.channel.id)}">${icon("list-checks")} 剧目台账</button>${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
   }
+  let analysisRefreshTimer = null;
   async function showChannelDetail(id, tab = "basic") {
+    clearTimeout(analysisRefreshTimer);
     const detail = state.channelDetailId === id && state.channelDetail ? state.channelDetail : await api(`/channels/${id}`);
     if (tab === "basic") {
       detail.initialization_readiness = await api(`/channels/${id}/initialization-readiness`);
@@ -531,11 +550,19 @@
       const analysis = await loadChannelAnalysisCenter(id);
       detail.analysis_reports = analysis.reports;
       detail.channel_metrics = analysis.metrics;
+      detail.analysis_runs = analysis.runs;
     } else if (tab === "reference") {
       detail.dna_versions = await loadChannelReferenceVersions(id);
     }
     state.channelDetail = detail; state.channelDetailId = id; state.channelDetailTab = tab;
     openDrawer(detail.channel.operational_name || detail.channel.original_name || "频道详情", channelDetailBody(detail, tab));
+    if (tab === "analysis" && (detail.analysis_runs || []).some(run => ["queued","running"].includes(run.status))) {
+      const revision = auth.capture();
+      analysisRefreshTimer=setTimeout(async () => {
+        if (!auth.isCurrent(revision) || el("drawerBackdrop").hidden || state.channelDetailId !== id || state.channelDetailTab !== "analysis") return;
+        try {await showChannelDetail(id,"analysis");} catch(error) {if(error.name !== "AbortError") notify(error.message,true);}
+      },5000);
+    }
   }
 
   function dramaExpiryValue(value) { return value ? String(value).slice(0, 10) : ""; }
@@ -2171,6 +2198,36 @@
         } finally { button.disabled = false; }
       }
       else if (action === "channel-detail") await showChannelDetail(id);
+      else if (action === "new-channel-analysis") {
+        openModal("开始频道分析", `<form id="channelAnalysisCreateForm" data-channel-id="${esc(id)}"><div class="field"><label>分析类型</label><select name="mode" class="select"><option value="periodic">正式数据分析（已运营）</option><option value="initial">冷启动初诊断（尚未运营）</option></select></div><div class="field"><label>初始定位（冷启动必填）</label><textarea name="positioning" class="textarea">${esc(state.channelDetail?.profile?.positioning || "")}</textarea></div><label><input type="checkbox" name="posts_not_applicable"> 从未使用帖子，帖子截图不适用</label><br><label><input type="checkbox" name="ab_not_applicable"> 没有已完成的 A/B 测试，测试截图不适用</label><p>正式分析将核验授权、读取近期28/90天API数据，并结合你上传的Studio材料。生成完成后需点击应用才生效。</p><button class="button button-primary" type="submit">建立分析任务</button></form>`);
+      }
+      else if (action === "edit-analysis-materials") {
+        const run=await api(`/analysis-runs/${id}`);openModal("分析材料",analysisMaterialsForm(run));
+      }
+      else if (action === "refresh-channel-analysis") await showChannelDetail(id,"analysis");
+      else if (action === "cancel-channel-analysis") {
+        await api(`/analysis-runs/${id}/cancel`,{method:"POST"});await showChannelDetail(state.channelDetailId,"analysis");
+      }
+      else if (["apply-channel-analysis","resume-channel-analysis","wake-channel-analysis"].includes(action)) {
+        const config={...await prepareV14Executor(auth.capture()),task_type:"channel_analysis"};
+        if (action === "resume-channel-analysis") {
+          if (!window.confirm("请确认上次本机分析已停止，再继续。已保存的数据会保留。")) return;
+          await api(`/analysis-runs/${id}/resume`,{method:"POST",body:JSON.stringify({stopped_confirmed:true})});
+        } else if (action === "apply-channel-analysis") {
+          await api(`/analysis-runs/${id}/apply`,{method:"POST"});notify("分析版本已应用，新运营包将使用此规范");
+        }
+        await localV14Request("/start",config);await showChannelDetail(state.channelDetailId,"analysis");
+      }
+      else if (action === "view-analysis-result") {
+        const run=await api(`/analysis-runs/${id}`);
+        const blocks=[["profile","频道用户画像与长期经营档案"],["diagnosis","频道当前运营诊断与运营包指导"],["generation_spec","生成规范"]].map(([key,title])=>`<div class="field"><label>${title}</label><textarea class="textarea" readonly>${esc(run.result[key])}</textarea><button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="${key}">下载文件</button></div>`);
+        openModal("频道分析结果",blocks.join("")+`<button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="normalized_snapshot">下载 JSON 原始快照</button>`);
+      }
+      else if (action === "download-analysis-document") {
+        const run=await api(`/analysis-runs/${id}`),key=button.dataset.key;
+        const names={profile:"频道用户画像与长期经营档案.md",diagnosis:"频道当前运营诊断与运营包指导.md",generation_spec:run.input_snapshot.channel.original_name+"_生成规范.md",normalized_snapshot:"频道Analytics原始快照.json"};
+        downloadAnalysisText(typeof run.result[key] === "string" ? run.result[key] : JSON.stringify(run.result[key],null,2),names[key]);
+      }
       else if (action === "channel-detail-tab") await showChannelDetail(id, button.dataset.channelDetailTab);
       else if (action === "edit-channel-initialization") {
         const draft = await api(`/channels/${id}/initialization-draft`);
@@ -2464,6 +2521,32 @@
       return;
     }
     try {
+      if (form.id === "channelAnalysisCreateForm") {
+        if (form.dataset.busy) return; form.dataset.busy="true";
+        try {
+          const run=await api(`/channels/${form.dataset.channelId}/analysis-runs`,{method:"POST",body:JSON.stringify({mode:data.mode,positioning:data.positioning,posts_not_applicable:!!form.elements.posts_not_applicable.checked,ab_not_applicable:!!form.elements.ab_not_applicable.checked}),expectedRevision});
+          openModal("分析材料",analysisMaterialsForm(run));await showChannelDetail(state.channelDetailId,"analysis");
+        } finally {delete form.dataset.busy;}
+        return;
+      }
+      if (form.id === "channelAnalysisMaterialsForm") {
+        if (form.dataset.busy) return; form.dataset.busy="true";
+        try {
+          const runId=form.dataset.runId;
+          for (const input of form.querySelectorAll('input[type="file"]')) {
+            for (const file of input.files) {
+              const body=new FormData();body.append("kind",input.name);body.append("file",file);
+              await api(`/analysis-runs/${runId}/materials`,{method:"POST",body,expectedRevision});
+            }
+          }
+          const config={...await prepareV14Executor(expectedRevision),task_type:"channel_analysis"};
+          await api(`/analysis-runs/${runId}/start`,{method:"POST",expectedRevision});
+          closeModal();
+          try {await localV14Request("/start",config);} catch(error) {throw new Error(`分析已排队，但本机唤起失败：${error.message}。请重试唤起。`);}
+          await showChannelDetail(state.channelDetailId,"analysis");notify("频道分析已开始");
+        } finally {delete form.dataset.busy;}
+        return;
+      }
       if (form.id === 'workflowUploadForm' || form.id === 'workflowReplaceForm') {
         const body = new FormData(form);
         if (form.dataset.busy) return;

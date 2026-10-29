@@ -16,12 +16,12 @@ class CloudClient:
         self.base_url, self.token = base_url.rstrip("/"), session_token
         self.host_id, self.tenant_id = host_id, tenant_id
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, *, timeout=20):
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(self.base_url + "/api/v3" + path, data=data, method=method,
             headers={"Cookie": "zhiju_session=" + self.token, "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 return None if response.status == 204 else json.load(response)
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
@@ -54,3 +54,15 @@ class CloudClient:
 
     def heartbeat(self, envelope):
         return self.request("POST", f"/v14/runs/{envelope['run_id']}/heartbeat", {"claim_id": envelope["claim_id"]})
+
+    def download_analysis_material(self, run_id, material_id):
+        request = urllib.request.Request(self.base_url + f'/api/v3/analysis-runs/{run_id}/materials/{material_id}',
+            headers={'Cookie':'zhiju_session='+self.token})
+        try:
+            with urllib.request.urlopen(request,timeout=60) as response:
+                return response.read(32*1024*1024+1)
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401,403}:raise PermissionError('分析素材授权失效') from None
+            raise RuntimeError(f'分析素材下载失败 HTTP {exc.code}') from None
+        except (urllib.error.URLError, TimeoutError):
+            raise ConnectionError('分析素材下载失败') from None

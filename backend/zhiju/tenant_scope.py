@@ -57,6 +57,20 @@ INTERNAL_ROUTES: frozenset[RouteKey] = frozenset()
 
 # Tenant routes operate on the active tenant's business or membership context.
 TENANT_ROUTES: frozenset[RouteKey] = frozenset({
+    ('GET','/api/v3/channels/{channel_id}/analysis-runs'),
+    ('POST','/api/v3/channels/{channel_id}/analysis-runs'),
+    ('GET','/api/v3/analysis-runs/{run_id}'),
+    ('POST','/api/v3/analysis-runs/{run_id}/materials'),
+    ('GET','/api/v3/analysis-runs/{run_id}/materials/{material_id}'),
+    ('POST','/api/v3/analysis-runs/{run_id}/start'),
+    ('POST','/api/v3/analysis-runs/{run_id}/cancel'),
+    ('POST','/api/v3/analysis-runs/{run_id}/resume'),
+    ('POST','/api/v3/analysis-runs/{run_id}/apply'),
+    ('POST','/api/v3/channel-analysis/claims'),
+    ('POST','/api/v3/analysis-runs/{run_id}/collect'),
+    ('POST','/api/v3/analysis-runs/{run_id}/heartbeat'),
+    ('PUT','/api/v3/analysis-runs/{run_id}/result'),
+    ('POST','/api/v3/analysis-runs/{run_id}/mirror-complete'),
     ('GET', '/api/v3/workflow-versions'),
     ('POST', '/api/v3/workflow-versions'),
     ('GET', '/api/v3/workflow-versions/{version_id}'),

@@ -48,6 +48,18 @@ def test_launcher_starts_one_worker_reuses_it_and_exits_after_queue(manager):
     assert manager.status()["pid"] is None
 
 
+def test_launcher_keeps_wakeups_for_both_business_task_types(manager,tmp_path):
+    script=tmp_path/'backend/zhiju/v14_executor/__main__.py'
+    script.write_text('import json,sys,time,pathlib\nc=json.load(sys.stdin)\n'
+        f'with pathlib.Path({str(tmp_path/"types.txt")!r}).open("a") as f: f.write(c["task_type"]+"\\n")\n'
+        'time.sleep(.15)\n')
+    manager.start(config())
+    manager.start({**config(),'task_type':'channel_analysis'})
+    manager.start(config())
+    wait_idle(manager)
+    assert (tmp_path/'types.txt').read_text().splitlines()==['operation_package','channel_analysis','operation_package']
+
+
 def test_launcher_cannot_change_host_company_origin_or_executable(manager):
     for field, value in [("host_id", "other-host"), ("tenant_id", "other-company"),
                          ("base_url", "https://other.example"), ("account_profile", "other")]:

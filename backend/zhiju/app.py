@@ -15,6 +15,7 @@ from zhiju.api.history import router as history_router
 from zhiju.api.identity import router as identity_router
 from zhiju.api.integration import router as integration_router
 from zhiju.api.channel import router as channel_router
+from zhiju.api.channel_analysis import router as channel_analysis_router
 from zhiju.api.operations import router as operations_router
 from zhiju.api.drama_library import router as drama_library_router
 from zhiju.api.drama_progress import router as drama_progress_router
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(image_processing_router, prefix="/api")
     app.include_router(youtube_oauth_router, prefix="/api")
     app.include_router(channel_router, prefix="/api")
+    app.include_router(channel_analysis_router, prefix="/api")
     app.include_router(drama_progress_router, prefix="/api")
     app.include_router(operations_router, prefix="/api")
     app.include_router(drama_library_router, prefix="/api")

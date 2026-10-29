@@ -35,6 +35,8 @@ class CodexClient:
                 "--output-schema", str(schema), "--output-last-message", str(output)]
             if stage.node_type == "search":
                 args += ["--enable", "standalone_web_search"]
+            for attachment in getattr(stage, 'images', ()):
+                args += ['--image', str(attachment)]
             args += ["-"]
             with tempfile.TemporaryFile() as stdin, tempfile.TemporaryFile() as logs:
                 stdin.write(prompt.encode("utf-8"))

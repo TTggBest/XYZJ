@@ -36,6 +36,12 @@ def main():
     cache = Path(config.get("cache_root", str(Path.home() / "Library/Caches/zhiju-v14"))) / config["tenant_id"] / config["host_id"]
     def cloud_client():
         return CloudClient(config["base_url"], config["session_token"], config["host_id"], config["tenant_id"])
+    if config.get('task_type') == 'channel_analysis':
+        from .channel_analysis import drain
+        drain(cloud_client(), CodexClient(binary=config.get('codex_binary','codex'),
+            timeout=config.get('timeout',900), account_profile=config.get('account_profile','current'),
+            codex_home=config.get('codex_home')), config, cache / 'channel-analysis', once=args.once)
+        return
     # Replay old outbound results once, before any parallel worker can claim work.
     # Each newly claimed run then exclusively owns its own run-id cache directory.
     if not args.once:
