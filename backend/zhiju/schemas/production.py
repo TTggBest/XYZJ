@@ -76,6 +76,9 @@ class TaskOverview(BaseModel):
     failure_reason: str | None
     work_order_id: str | None
     work_order_status: str | None
+    execution_run_id: str | None = None
+    execution_status: str | None = None
+    execution_error: str | None = None
     package_id: str | None
     package_status: str | None
     current_node: str | None

@@ -488,8 +488,15 @@ def list_task_overview(
         if work_order is not None
     ]
     latest_nodes = _latest_node_map(session, work_order_ids)
+    from zhiju.models.v14 import V14Run
+    from zhiju.services.v14_runs import execution_status
+    executions = {row.work_order_id: row for row in session.execute(
+        select(V14Run.work_order_id, V14Run.id, V14Run.status, V14Run.heartbeat_at, V14Run.error)
+        .where(V14Run.tenant_id == session.info["tenant_id"], V14Run.work_order_id.in_(work_order_ids))
+    )} if work_order_ids else {}
     result = []
     for task, channel, drama, slot, schedule, playlist, work_order, package, batch in rows:
+        execution = executions.get(work_order.id) if work_order else None
         node_map = latest_nodes.get(work_order.id, {}) if work_order else {}
         ordered_nodes = [node_map[node_type] for node_type in NODE_SEQUENCE if node_type in node_map]
         progress = summarize_node_progress(ordered_nodes)
@@ -534,6 +541,9 @@ def list_task_overview(
                 "failure_reason": task.failure_reason,
                 "work_order_id": work_order.id if work_order else None,
                 "work_order_status": work_order.status if work_order else None,
+                "execution_run_id": execution.id if execution else None,
+                "execution_status": execution_status(execution.status, execution.heartbeat_at) if execution else None,
+                "execution_error": execution.error if execution else None,
                 "package_id": package.id if package else None,
                 "package_status": package.status if package else None,
                 **progress,

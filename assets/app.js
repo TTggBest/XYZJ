@@ -978,10 +978,24 @@
     }
   }
 
+  function workorderState(item) {
+    if (item.execution_status === "interrupted") return '<span class="tag is-red">已中断</span>';
+    if (["queued", "running", "cancelled", "needs_user_review"].includes(item.execution_status)) return tag(item.execution_status);
+    return tag(item.work_order_status || item.task_status);
+  }
+  function workorderActions(item) {
+    if (item.task_status === "pending_dispatch") return `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${esc(item.task_id)}">${icon("play")} 开始生产</button>`;
+    if (!item.work_order_id) return "";
+    const interrupted = item.execution_status === "interrupted";
+    const resume = interrupted && item.execution_run_id && canRunV14() ? `<button class="button button-primary button-small" data-action="v14-resume" data-id="${esc(item.execution_run_id)}" data-work-id="${esc(item.work_order_id)}">恢复生产</button>` : "";
+    const label = interrupted ? "详情" : item.work_order_status === "completed" || item.execution_status === "text_ready" ? "查看结果" : "查看进度";
+    return `${resume}<button class="button button-secondary button-small" data-action="work-detail" data-id="${esc(item.work_order_id)}">${label}</button>`;
+  }
+
   async function showWorkorders() {
     const versionPicker = canRunV14() ? await workflowPicker() : '';
     const tasks = await api(`/tasks/overview${query({ task_date: state.date })}`); state.tasks = tasks;
-    const rows = tasks.map((item, index) => `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${tag(item.work_order_status || item.task_status)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${item.task_status === "pending_dispatch" ? `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${item.task_id}">${icon("play")} 开始生产</button>` : item.work_order_id ? `<button class="button button-secondary button-small" data-action="work-detail" data-id="${item.work_order_id}">查看进度</button>` : ""}</div></td></tr>`);
+    const rows = tasks.map((item, index) => `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${workorderState(item)}${item.execution_status === "interrupted" && item.execution_error ? `<span class="cell-sub is-red" title="${esc(item.execution_error)}">${esc(item.execution_error.slice(0, 120))}</span>` : ""}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${workorderActions(item)}</div></td></tr>`);
     const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button></div>`;
     const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks);
     root.innerHTML = `<div class="page-stack">${versionPicker ? `<section class="section"><div class="toolbar">${versionPicker}${auth.canView("settings", state.deviceRole) ? '<button class="button button-secondary" data-action="workflow-settings">管理运营包流程版本</button>' : ""}<span class="settings-muted">生成运营包时使用所选版本；已有成品不变。</span></div></section>` : ''}${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;

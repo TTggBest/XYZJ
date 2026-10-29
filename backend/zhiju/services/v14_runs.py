@@ -94,7 +94,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
         configured = str(channel_input.get("language") or "").strip().casefold()
         expected = channel.default_language.strip().casefold()
         if aliases.get(configured, configured) != aliases.get(expected, expected):
-            raise ConflictError("V14 材料语言与当前频道语言不一致，请修正后再启动")
+            raise ConflictError("运营包材料语言与当前频道语言不一致，请修正后再启动")
     run = V14Run(tenant_id=session.info["tenant_id"], work_order_id=work.id, package_id=package.id,
         host_id=config["host_id"], account_profile=config["account_profile"], model=config["default_model"],
         rules_snapshot={'skill_bundle': bundle} if bundle else deepcopy(config["rules"]), input_snapshot={
@@ -112,7 +112,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
         build_stage_input({"run_id": work.id, "input_snapshot": run.input_snapshot,
             "rules_snapshot": run.rules_snapshot}, "search")
     except (ValueError, KeyError, TypeError) as exc:
-        raise ConflictError(f"V14 配置不完整: {exc}") from exc
+        raise ConflictError(f"运营包配置不完整: {exc}") from exc
     session.add(run)
     if commit:
         session.commit()
@@ -130,14 +130,18 @@ def active_attempts(session, run):
     return [a for a in attempts(session, run) if a.sequence > floors.get(a.node_type, 0)]
 
 
-def run_read(session, run):
-    rows = attempts(session, run)
-    status = run.status
-    heartbeat = run.heartbeat_at
+def execution_status(status, heartbeat):
+    """Use the same heartbeat-based interruption state in list and detail."""
     if heartbeat and heartbeat.tzinfo is None:
         heartbeat = heartbeat.replace(tzinfo=timezone.utc)
     if status == "running" and heartbeat and datetime.now(timezone.utc) - heartbeat > timedelta(seconds=90):
         status = "interrupted"
+    return status
+
+
+def run_read(session, run):
+    rows = attempts(session, run)
+    status = execution_status(run.status, run.heartbeat_at)
     return {"run_id": run.id, "work_order_id": run.work_order_id, "package_id": run.package_id,
         "workflow_version": run.input_snapshot.get('workflow_version'),
         "status": status, "claim_id": run.claim_id, "model": run.model, "host_id": run.host_id, "error": run.error,
