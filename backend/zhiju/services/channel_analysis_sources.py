@@ -72,20 +72,27 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
     if run.mode=='periodic':
         token,profile,verified=verify_authorization(session,channel,fetcher)
         # YouTube Analytics calendar days follow Pacific time, including DST.
-        end=datetime.now(ZoneInfo('America/Los_Angeles')).date()-timedelta(days=1)
         created=date.fromisoformat(verified['snippet']['publishedAt'][:10])
-        sources['identity']=profile;sources.setdefault('api',{});sources['windows']={}
+        sources['identity']=profile;sources.setdefault('api',{})
+        if not sources.get('windows'):
+            end=datetime.now(ZoneInfo('America/Los_Angeles')).date()-timedelta(days=1)
+            windows={}
+            for days in (28,90):
+                start=max(created,end-timedelta(days=days-1))
+                if start>end:raise ConflictError('频道尚无完整运营日，请选择冷启动或稍后再分析')
+                windows[str(days)]={'start':str(start),'end':str(end),'timezone':'America/Los_Angeles',
+                    'complete_days':(end-start).days+1}
+            sources['windows']=windows
+            checkpoint()
+        end=date.fromisoformat(sources['windows']['28']['end'])
         previous_id=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id==run.channel_id,
             ChannelAnalysisRun.id!=run.id,ChannelAnalysisRun.status.in_(['ready','applied','superseded']))
             .order_by(ChannelAnalysisRun.created_at.desc()).limit(1))
         previous=session.get(ChannelAnalysisRun,previous_id) if previous_id else None
         reusable=previous.input_snapshot.get('sources',{}).get('api',{}) if previous else {}
         for days in (28,90):
-            start=max(created,end-timedelta(days=days-1))
-            if start>end:raise ConflictError('频道尚无完整运营日，请选择冷启动或稍后再分析')
-            window={'start':str(start),'end':str(end),'timezone':'America/Los_Angeles',
-                    'complete_days':(end-start).days+1}
-            sources['windows'][str(days)]=window
+            window=sources['windows'][str(days)]
+            start=date.fromisoformat(window['start'])
             specs=[('daily','day','views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost','day'),
                 ('videos','video','views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained','-views'),
                 ('country','country','views,estimatedMinutesWatched','-views'),

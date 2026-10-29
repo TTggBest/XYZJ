@@ -38,6 +38,17 @@ def test_cold_start_requires_explicit_positioning_and_never_collects_api(session
     assert run.input_snapshot['positioning'] == '女性重新掌握人生'
 
 
+@pytest.mark.parametrize('metric',['views','watch_time_minutes','subscribers_gained','subscribers_lost','impressions','ctr'])
+def test_cold_start_rejects_any_existing_nonzero_operating_metric(session,metric):
+    from zhiju.models import YoutubeChannelDailyMetric
+    s,c=session
+    s.add(YoutubeChannelDailyMetric(channel_id=c.id,metric_date=datetime.now().date(),
+        synced_at=datetime.now(timezone.utc),**{metric:0.1 if metric=='ctr' else 1}))
+    s.commit()
+    with pytest.raises(ConflictError,match='已有公开运营数据'):
+        service.create_run(s,c.id,mode='initial',positioning='新频道定位')
+
+
 def test_periodic_missing_assets_cannot_start_or_silently_become_initial(session,monkeypatch):
     from zhiju.services import channel_analysis_sources
     monkeypatch.setattr(channel_analysis_sources,'verify_authorization',lambda *args:('token',{},{}))
@@ -186,6 +197,12 @@ def test_formal_collection_preserves_successful_datasets_after_auth_interruption
     from zhiju.services.youtube_oauth import YouTubeAuthorizationRequired
     s,c=session
     end=datetime.now(ZoneInfo('America/Los_Angeles')).date()-timedelta(days=1)
+    elapsed_days=[0]
+    class CollectionClock(datetime):
+        @classmethod
+        def now(cls,tz=None):
+            return datetime.now(tz)+timedelta(days=elapsed_days[0])
+    monkeypatch.setattr(sources,'datetime',CollectionClock)
     profile={'items':[{'id':'UCtest','snippet':{'title':'Test','publishedAt':str(end-timedelta(days=100))+'T00:00:00Z'}}]}
     monkeypatch.setattr(sources,'verify_authorization',lambda *args:('token',profile,profile['items'][0]))
     monkeypatch.setattr(service,'get_settings',lambda:SimpleNamespace(artifact_root=tmp_path))
@@ -210,7 +227,10 @@ def test_formal_collection_preserves_successful_datasets_after_auth_interruption
                 'rows':[['v1' if dimension=='video' else 'value',5]]}
     with pytest.raises(YouTubeAuthorizationRequired):sources.collect(s,run.id,claim['claim_id'],fetcher=fetch)
     assert run.input_snapshot['sources']['api']['28:daily']['status']=='available'
+    frozen_windows=dict(run.input_snapshot['sources']['windows'])
+    elapsed_days[0]=2
     sources.collect(s,run.id,claim['claim_id'],fetcher=fetch)
+    assert run.input_snapshot['sources']['windows']==frozen_windows
     assert calls[(str(end-timedelta(days=27)),'day')]==1
     assert run.input_snapshot['sources']['normalized']['impression_weighted_ctr']['value_percent']==pytest.approx(1.9)
     before=calls.copy();sources.collect(s,run.id,claim['claim_id'],fetcher=fetch)

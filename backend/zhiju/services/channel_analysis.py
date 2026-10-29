@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import yaml
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from zhiju.config import get_settings
 from zhiju.models import (Channel, ChannelProfile, ChannelPlaylist, ChannelAnalysisRun,
     ChannelAnalysisReport, ChannelAudienceProfile, ChannelDnaVersion, YoutubeVideo,
@@ -50,7 +50,10 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
     if mode == 'initial' and (session.scalar(select(YoutubeVideo.id).where(
         YoutubeVideo.channel_id == channel_id, YoutubeVideo.privacy_status == 'public',
         YoutubeVideo.deleted_at.is_(None)).limit(1)) or session.scalar(select(YoutubeChannelDailyMetric.id).where(
-        YoutubeChannelDailyMetric.channel_id == channel_id, YoutubeChannelDailyMetric.views > 0).limit(1))):
+        YoutubeChannelDailyMetric.channel_id == channel_id, or_(
+            *(getattr(YoutubeChannelDailyMetric,key)>0 for key in (
+                'views','watch_time_minutes','subscribers_gained','subscribers_lost','impressions','ctr'))
+        )).limit(1))):
         raise ConflictError('频道已有公开运营数据，请使用正式数据分析')
     existing = session.scalar(select(ChannelAnalysisRun).where(ChannelAnalysisRun.channel_id == channel_id,
         ChannelAnalysisRun.status.in_(['draft','queued','running'])))
