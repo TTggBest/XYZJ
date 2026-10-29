@@ -33,6 +33,7 @@ class AttemptSubmission(BaseModel):
 
 class ResumeRequest(BaseModel):
     stopped_confirmed: bool = False
+    retry_content: bool = False
 
 
 class ClaimIdentity(BaseModel):

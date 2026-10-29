@@ -138,4 +138,4 @@ def cancel(run_id: str, s: Session = Depends(get_tenant_db), p=Depends(operator)
 
 @router.post("/v14/runs/{run_id}/resume")
 def resume(run_id: str, body: ResumeRequest, s: Session = Depends(get_tenant_db), p=Depends(operator)):
-    return call(service.resume_run, s, run_id, body.stopped_confirmed)
+    return call(service.resume_run, s, run_id, body.stopped_confirmed, retry_content=body.retry_content)

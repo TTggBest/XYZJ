@@ -233,8 +233,9 @@ def submit_attempt(session, run_id: str, attempt_id: str, payload):
     if payload.outcome == "system_error":
         run.status = "interrupted"
     elif payload.outcome == "content_error":
+        retry_after = run.input_snapshot.get("manual_content_retry_after", {}).get(attempt.node_type, 0)
         failures = sum(a.outcome == "content_error" and a.node_type == attempt.node_type
-                       for a in active_attempts(session, run))
+                       and a.sequence > retry_after for a in active_attempts(session, run))
         if failures >= 3:
             run.status = "needs_user_review"
     elif attempt.node_type == "merge":
@@ -253,7 +254,7 @@ def cancel_run(session, run_id):
     return run_read(session, run)
 
 
-def resume_run(session, run_id, stopped_confirmed):
+def resume_run(session, run_id, stopped_confirmed, *, retry_content=False):
     run = get_run(session, run_id)
     if not stopped_confirmed:
         raise ConflictError("请先确认原执行器进程已停止")
@@ -268,8 +269,21 @@ def resume_run(session, run_id, stopped_confirmed):
         and {"search", "title", "cover", "description"}.issubset(
             {a.node_type for a in rows if a.outcome == "accepted"})
     )
-    if run_read(session, run)["status"] not in {"interrupted", "cancelled"} and not zero_post_system_failure:
+    manual_retry = run.status == "needs_user_review" and retry_content
+    if run_read(session, run)["status"] not in {"interrupted", "cancelled"} and not zero_post_system_failure and not manual_retry:
         raise ConflictError("当前状态不能继续；内容重试耗尽需要人工审核")
+    if manual_retry:
+        active = active_attempts(session, run)
+        done = {a.node_type for a in active if a.outcome == "accepted"}
+        node = next((n for n in NODE_SEQUENCE if n not in done), None)
+        failed = [a for a in active if a.node_type == node and a.outcome == "content_error"]
+        if not failed:
+            raise ConflictError("当前阶段没有可重新尝试的内容失败记录")
+        # Keep all evidence and accepted outputs; only start a new bounded retry budget.
+        run.input_snapshot = {**run.input_snapshot, "manual_content_retry_after": {
+            **run.input_snapshot.get("manual_content_retry_after", {}),
+            node: max(a.sequence for a in failed),
+        }}
     for a in rows:
         if a.outcome == "running":
             a.outcome, a.error = "interrupted", "原执行已停止"

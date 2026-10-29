@@ -39,12 +39,17 @@ async function click(action,extra={}){const b={dataset:{action,...extra},closest
 await click('go-workorders');
 const html=page.nodes.get('viewRoot').innerHTML;
 assert.match(html,/已中断/);assert.match(html,/连接中断/);
-assert.equal((html.match(/data-action="v14-resume"/g)||[]).length,1);
+assert.equal((html.match(/data-action="v14-resume"/g)||[]).length,2);
 assert.match(html,/data-id="r0" data-work-id="w0">恢复生产/);
 assert.match(html,/data-action="work-detail" data-id="w0">详情/);
 assert.match(html,/data-action="work-detail" data-id="w4">查看结果/);
 assert.equal(resumes,0);
+assert.match(html,/data-id="r3" data-work-id="w3" data-retry-content="true">恢复生产/);
 await click('v14-resume',{id:'r0',workId:'w0'});
 assert.match(page.nodes.get('modalBody').innerHTML,/保留已完成阶段/);
+assert.equal(resumes,0);
+await click('v14-resume',{id:'r3',workId:'w3',retryContent:'true'});
+assert.match(page.nodes.get('modalBody').innerHTML,/最多3次/);
+assert.match(page.nodes.get('modalBody').innerHTML,/name="retry_content" value="true"/);
 assert.equal(resumes,0);
 ''')

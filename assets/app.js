@@ -987,8 +987,9 @@
     if (item.task_status === "pending_dispatch") return `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${esc(item.task_id)}">${icon("play")} 开始生产</button>`;
     if (!item.work_order_id) return "";
     const interrupted = item.execution_status === "interrupted";
-    const resume = interrupted && item.execution_run_id && canRunV14() ? `<button class="button button-primary button-small" data-action="v14-resume" data-id="${esc(item.execution_run_id)}" data-work-id="${esc(item.work_order_id)}">恢复生产</button>` : "";
-    const label = interrupted ? "详情" : item.work_order_status === "completed" || item.execution_status === "text_ready" ? "查看结果" : "查看进度";
+    const retryContent = item.execution_status === "needs_user_review";
+    const resume = (interrupted || retryContent) && item.execution_run_id && canRunV14() ? `<button class="button button-primary button-small" data-action="v14-resume" data-id="${esc(item.execution_run_id)}" data-work-id="${esc(item.work_order_id)}"${retryContent ? ' data-retry-content="true"' : ''}>恢复生产</button>` : "";
+    const label = interrupted || retryContent ? "详情" : item.work_order_status === "completed" || item.execution_status === "text_ready" ? "查看结果" : "查看进度";
     return `${resume}<button class="button button-secondary button-small" data-action="work-detail" data-id="${esc(item.work_order_id)}">${label}</button>`;
   }
 
@@ -1015,7 +1016,7 @@
     const packageStatus = p.status === 'text_ready' && run && run.status !== 'text_ready' ? '<span class="tag is-blue">说明已完成 · 文本生产中</span>' : tag(p.status);
     const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">生成运营包</button>`
       : ["queued", "running"].includes(run.status) ? `${run.status === "queued" ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
-      : ["interrupted", "cancelled"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">继续运行</button>` : "";
+      : ["interrupted", "cancelled", "needs_user_review"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}"${run.status === "needs_user_review" ? ' data-retry-content="true"' : ''}>恢复生产</button>` : "";
     const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
     openDrawer("工单详情", `<div class="detail-block">${versionPicker || `<span>生产流程版本：${esc(workflowLabel(run?.workflow_version))}</span>`}</div><div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${packageStatus}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`, id);
     if (refresh) el("drawerBody").scrollTop = scroll;
@@ -2161,7 +2162,8 @@
         notify("已取消，既有结果保留"); await workDetail(button.dataset.workId);
       }
       else if (action === "v14-resume") {
-        openModal("继续运营包生产", `<form class="form-grid" id="v14ResumeForm"><input type="hidden" name="run_id" value="${esc(id)}"><input type="hidden" name="work_id" value="${esc(button.dataset.workId)}"><p class="field-wide">继续会保留已完成阶段，不重置内容重试次数。</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认继续</button></div></form>`);
+        const retryContent = button.dataset.retryContent === "true";
+        openModal("继续运营包生产", `<form class="form-grid" id="v14ResumeForm"><input type="hidden" name="retry_content" value="${retryContent ? "true" : "false"}"><input type="hidden" name="run_id" value="${esc(id)}"><input type="hidden" name="work_id" value="${esc(button.dataset.workId)}"><p class="field-wide">${retryContent ? "保留已完成阶段和全部失败记录，仅对未通过阶段再尝试，最多3次；仍未通过会再次暂停。" : "继续会保留已完成阶段，不重置内容重试次数。"}</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认继续</button></div></form>`);
       }
       else if (action === "package-detail" || action === "package-page-detail") {
         state.packageDetailOrigin = null;
@@ -2634,7 +2636,7 @@
       if (form.id === "v14ResumeForm") {
         if (!form.elements.stopped_confirmed.checked) throw new Error("请先确认旧进程已停止");
         const config = await prepareV14Executor(expectedRevision);
-        await api(`/v14/runs/${data.run_id}/resume`, {method: "POST", body: JSON.stringify({stopped_confirmed: true}), expectedRevision});
+        await api(`/v14/runs/${data.run_id}/resume`, {method: "POST", body: JSON.stringify({stopped_confirmed: true, retry_content: data.retry_content === "true"}), expectedRevision});
         await wakeV14Executor(config, expectedRevision);
         closeModal(); await workDetail(data.work_id); return;
       }
