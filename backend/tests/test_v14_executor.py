@@ -103,6 +103,61 @@ def test_network_retry_reuses_result(tmp_path):
     assert len(cloud.sent) == 2 and cloud.sent[0] == cloud.sent[1]
 
 
+@pytest.mark.parametrize("bundled", [False, True])
+@pytest.mark.parametrize("status,reason", [
+    ("failed", "YouTube search returned no usable videos"),
+    ("failed", "YouTube retrieval unavailable: TimeoutExpired"),
+    ("completed", ""),
+    ("partial", ""),
+])
+def test_search_passes_retrieval_result_to_model(tmp_path, bundled, status, reason):
+    from zhiju.v14_executor.runner import run_once
+    from zhiju.v14_runtime.contract import build_stage_input
+    from zhiju.workflow_bundles import BASELINE, snapshot
+
+    e = {**envelope(), "tenant_id": "t1", "claim_id": "claim", "account_profile": "current"}
+    e["accepted_results"] = {}
+    if bundled:
+        e["rules_snapshot"] = {"skill_bundle": snapshot(
+            BASELINE.read_bytes(), version_id="builtin-v14", label="V14", revision=1)}
+    plot = build_stage_input(e, "search").context["plot_payload"]
+    evidence = {"provider": "agent-reach", "status": status, "reason": reason,
+                "videos": [] if status == "failed" else [{"video_url": "https://www.youtube.com/watch?v=abcdefghijk"}]}
+
+    class Model:
+        account_profile = "current"
+        calls = 0
+
+        def generate(self, stage, model):
+            self.calls += 1
+            assert stage.context["plot_payload"] == plot
+            assert json.dumps(evidence, ensure_ascii=False) in stage.prompt
+            result = valid_market_payload()
+            result.update(drama_id="pending_r1", drama_title="剧目", search_status=status,
+                          selection_context={"channel_name": "频道", "channel_language": "阿拉伯语", "channel_type": "复仇"})
+            if status == "failed":
+                result.update(verified_market_angle_count=0, market_videos=[])
+                result["fallback"] = {"used": True, "reason": reason}
+                for angle in result["angle_candidates"] + result["final_angles"]:
+                    angle.update(source_type="story_derived", market_evidence_refs=[],
+                                 market_confidence="story_only", evidence_freshness="none")
+            return result
+
+    cloud, model = Cloud(e), Model()
+    cloud.submissions = 1
+    run_once(cloud, model, cache_root=tmp_path,
+             evidence_provider=lambda item: deepcopy(evidence), retry_delay=0)
+    assert model.calls == 1
+    assert cloud.sent[0]["outcome"] == "accepted"
+    result = cloud.sent[0]["result"]
+    assert result["plot_payload"] == plot
+    assert result["external_evidence"] == evidence
+    if status == "failed":
+        assert result["market_payload"]["verified_market_angle_count"] == 0
+        assert all(angle["source_type"] == "story_derived"
+                   for angle in result["market_payload"]["final_angles"])
+
+
 def test_restart_uses_cloud_accepted_stages(tmp_path):
     from zhiju.v14_executor.runner import run_once
     class Model:

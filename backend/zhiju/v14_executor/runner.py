@@ -99,8 +99,8 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                             evidence = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'evidence', {'item': stage.item})
                         else:
                             evidence = evidence_provider(stage.item)
-                        if evidence.get("status") not in {"completed", "partial"}:
-                            raise RuntimeError("市场检索失败: " + str(evidence.get("reason", "缺少检索结果")))
+                        # Keep failed retrieval evidence so Find can use its
+                        # existing plot-only fallback instead of stopping the run.
                         if stage.skill_bundle:
                             stage = build_stage_input({**envelope, 'external_evidence': evidence}, node)
                         else:
