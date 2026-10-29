@@ -28,7 +28,7 @@ async function click(action,extra={}){
 await click('go-schedules');
 await click('schedule-view-mode',{mode:'full'});
 const html=page.nodes.get('viewRoot').innerHTML;
-assert.match(html,/视频最新更新时间：2026\/10\/29 16:00:00（北京时间）/);
+assert.match(html,/频道数据最新同步时间：2026\/10\/29 16:00:00（北京时间）/);
 assert.match(html,/<th[^>]*>发布状态<\/th>/);
 assert.match(html,/<th[^>]*>任务生成<\/th>/);
 const tableRows=html.match(/<tr>[\s\S]*?<\/tr>/g);
