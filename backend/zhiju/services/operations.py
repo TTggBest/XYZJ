@@ -1122,7 +1122,11 @@ def list_channel_schedule_page(
     reviews = schedule_video_reviews(session, [row[0] for row in rows])
     for item in items:
         item["video_sync"] = reviews[item["schedule_id"]]
-    return {"page": page, "page_size": page_size, "total": total, "items": items}
+    from zhiju.models import SyncWatermark
+    watermark = session.scalar(select(SyncWatermark).where(
+        SyncWatermark.channel_id == channel_id, SyncWatermark.data_type == "videos"))
+    return {"page": page, "page_size": page_size, "total": total, "items": items,
+            "video_updated_at": watermark.last_completed_at if watermark else None}
 
 
 def _candidate_payload(

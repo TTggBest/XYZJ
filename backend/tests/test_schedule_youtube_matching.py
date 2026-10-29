@@ -294,3 +294,17 @@ def test_unusable_upload_is_still_reported_as_uploaded_without_binding(fixture,c
     assert review['empty_label']=='已上传 · 待绑定排期'
     assert review['videos'][0]['selectable'] is False
     assert schedule.source_video_id is None
+
+
+def test_full_schedule_update_time_uses_success_watermark_even_with_empty_filter(fixture):
+    from zhiju.services.operations import list_channel_schedule_page
+    from zhiju.schemas.operations import ChannelSchedulePage
+    session,schedule,watermark=fixture
+    watermark.last_completed_at=NOW
+    watermark.status='failed'
+    watermark.last_failed_at=NOW+timedelta(hours=1)
+    session.commit()
+    result=ChannelSchedulePage.model_validate(list_channel_schedule_page(
+        session,channel_id=schedule.channel_id,query='no matching drama'))
+    assert result.items==[]
+    assert result.video_updated_at.replace(tzinfo=timezone.utc)==NOW

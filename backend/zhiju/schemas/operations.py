@@ -447,6 +447,7 @@ class ChannelSchedulePage(BaseModel):
     page_size: int
     total: int
     items: list[ChannelScheduleRow]
+    video_updated_at: datetime | None = None
 
 
 class ScheduleStatusChange(BaseModel):

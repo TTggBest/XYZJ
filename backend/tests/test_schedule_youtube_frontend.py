@@ -17,7 +17,7 @@ const page=start(process.argv[1],auth,async(path)=>{
  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
  if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
  if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"频道"}]');
- if(path.startsWith('/api/v3/schedules/channel-view'))return new Response(JSON.stringify({page:1,page_size:50,total:rows.length,items:rows}));
+ if(path.startsWith('/api/v3/schedules/channel-view'))return new Response(JSON.stringify({page:1,page_size:50,total:rows.length,items:rows,video_updated_at:'2026-10-29T08:00:00Z'}));
  return new Response('[]');
 });
 for(let i=0;i<4;i++)await page.tick();
@@ -28,6 +28,7 @@ async function click(action,extra={}){
 await click('go-schedules');
 await click('schedule-view-mode',{mode:'full'});
 const html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/视频最新更新时间：2026\/10\/29 16:00:00（北京时间）/);
 assert.match(html,/<th[^>]*>发布状态<\/th>/);
 assert.match(html,/<th[^>]*>任务生成<\/th>/);
 const tableRows=html.match(/<tr>[\s\S]*?<\/tr>/g);
