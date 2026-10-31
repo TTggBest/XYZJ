@@ -5,7 +5,7 @@
   const accountCenter = window.ZhijuAccountCenter;
   const { localDate, resetDateToToday, shouldShowScrollTop } = window.ZhijuRuntimeViewState;
   const MEDIA_GROUPS_PER_PAGE = 20;
-  const NODE_TYPES = ["search", "title", "cover", "description", "community", "merge"];
+  const NODE_TYPES = ["search", "title", "cover_scene", "cover", "description", "community_scene", "community", "merge"];
   const NODE_LABELS = { search: "搜索", title: "标题", cover_scene: "封面场景规划", community_scene: "社群场景规划", cover: "封面", description: "说明", community: "社群", merge: "合成" };
   const STATUS_LABELS = {
     active: "启用", enabled: "启用", inactive: "停用", suspended: "停用", revoked: "已撤销", retired: "已退役", new: "待配置", archived: "已归档", paused: "已暂停", authorized: "已授权", analyzed: "已分析", branded: "已装修", configured: "已配置", scheduled: "已排期",
@@ -146,7 +146,8 @@
     return `<div class="progress"><div class="progress-row"><span>总进度</span><strong>${safe}%</strong></div><div class="progress-track"><div class="progress-bar" style="width:${safe}%"></div></div></div>`;
   }
   function nodesStrip(nodes = {}) {
-    return `<div class="node-strip" title="搜索 · 标题 · 封面 · 说明 · 社群 · 合成">${NODE_TYPES.map(type => {
+    const types = NODE_TYPES.filter(type => !type.endsWith("_scene") || type in nodes);
+    return `<div class="node-strip" title="${types.map(type => NODE_LABELS[type]).join(" · ")}">${types.map(type => {
       const status = nodes[type]?.status;
       const cls = ["completed", "succeeded"].includes(status) ? "is-done" : ["running", "in_progress"].includes(status) ? "is-active" : status === "failed" ? "is-failed" : "";
       return `<span class="node-dot ${cls}" title="${NODE_LABELS[type]}：${label(status)}"></span>`;

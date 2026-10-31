@@ -9,7 +9,7 @@ import sys
 from threading import Lock, Thread
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .client import CloudClient
+from .client import CloudClient, EXECUTOR_PROTOCOL
 
 
 class WorkerManager:
@@ -57,7 +57,7 @@ class WorkerManager:
         running = self.process is not None and self.process.poll() is None
         return {"host_id": self.settings["host_id"], "tenant_id": self.settings["tenant_id"],
                 "running": running, "pid": self.process.pid if running else None,
-                "last_error": self.last_error, "worker_limit": 10, "executor_protocol": 2}
+                "last_error": self.last_error, "worker_limit": 10, "executor_protocol": EXECUTOR_PROTOCOL}
 
     def _spawn(self, config):
         worker = {**config, "codex_binary": self.settings["codex_binary"]}

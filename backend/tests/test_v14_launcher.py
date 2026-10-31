@@ -144,7 +144,9 @@ def test_local_http_origin_and_private_network_preflight(manager):
     try:
         request = Request(url + "/health", headers={"Origin": "https://fixture.example"})
         with urlopen(request) as response:
-            assert json.load(response)["host_id"] == "host-a"
+            health = json.load(response)
+            assert health["host_id"] == "host-a"
+            assert health["executor_protocol"] == 3
             assert response.headers["Access-Control-Allow-Origin"] == "https://fixture.example"
         request = Request(url + "/start", method="OPTIONS", headers={"Origin": "https://fixture.example",
             "Access-Control-Request-Private-Network": "true"})

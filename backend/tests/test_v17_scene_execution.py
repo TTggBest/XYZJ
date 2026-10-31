@@ -179,6 +179,39 @@ def test_begin_client_receives_the_planner_history_selected_by_cloud():
     assert data['planning_history_ids'] == context['planning_history_ids']
 
 
+def test_begin_api_delivers_frozen_planning_ids_without_starting_a_model(store):
+    from fastapi.testclient import TestClient
+    from zhiju import auth_context
+    from zhiju.app import create_app
+    from test_v14_api import PRINCIPAL
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        run = create_scene_run(s)
+        from zhiju.services import v14_runs as runs, production
+        claim = runs.claim_run(s, 'device-a', executor_protocol=3)
+        rid, claim_id = run.id, claim['claim_id']
+        for name in ('search', 'title'):
+            s.add(V14Attempt(run_id=rid, claim_id=claim_id, node_type=name,
+                             sequence=1, outcome='accepted', payload={}))
+            production._latest_node(s, run.work_order_id, name).status = 'completed'
+        production._latest_node(s, run.work_order_id, 'cover_scene').status = 'queued'
+        s.commit()
+    app = create_app()
+    app.dependency_overrides[auth_context.get_current_principal] = lambda: PRINCIPAL
+    def db():
+        with TenantSession(store, info={'tenant_id': 'tenant-a', 'principal': PRINCIPAL}) as s:
+            yield s
+    app.dependency_overrides[auth_context.get_tenant_db] = db
+    with TestClient(app) as client:
+        response = client.post(f'/api/v3/v14/runs/{rid}/attempts',
+                               json={'claim_id': claim_id, 'node_type': 'cover_scene'})
+        assert response.status_code == 200, response.text
+        assert response.json()['planning_context']['planning_history_ids'] == {'cover_scene': []}
+        assert response.json()['planning_context']['creative_history'] == []
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        attempt = s.get(V14Attempt, response.json()['attempt_id'])
+        assert attempt.outcome == 'running' and attempt.payload == {'history_reference_ids': []}
+
+
 def test_adding_community_to_completed_zero_post_run_replans_only_community(store):
     from zhiju.services import v14_runs as runs, production
     from zhiju.services.community_requirements import update_community
