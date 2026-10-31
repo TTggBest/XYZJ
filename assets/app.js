@@ -6,7 +6,7 @@
   const { localDate, resetDateToToday, shouldShowScrollTop } = window.ZhijuRuntimeViewState;
   const MEDIA_GROUPS_PER_PAGE = 20;
   const NODE_TYPES = ["search", "title", "cover", "description", "community", "merge"];
-  const NODE_LABELS = { search: "搜索", title: "标题", cover: "封面", description: "说明", community: "社群", merge: "合成" };
+  const NODE_LABELS = { search: "搜索", title: "标题", cover_scene: "封面场景规划", community_scene: "社群场景规划", cover: "封面", description: "说明", community: "社群", merge: "合成" };
   const STATUS_LABELS = {
     active: "启用", enabled: "启用", inactive: "停用", suspended: "停用", revoked: "已撤销", retired: "已退役", new: "待配置", archived: "已归档", paused: "已暂停", authorized: "已授权", analyzed: "已分析", branded: "已装修", configured: "已配置", scheduled: "已排期",
     pending_dispatch: "待下发", dispatched: "已下发", running: "进行中", completed: "已完成", failed: "失败", cancelled: "已取消", pending: "待处理",
@@ -295,7 +295,7 @@
         ${kpi("package-check", "待审核运营包", pendingPackages.length, "生产完成后统一审核")}
       </div>
       <div class="dashboard-grid">
-        ${section("今日生产进度", `${state.date} · 搜索、标题、封面、说明、社群、合成`, rows.length ? table(["剧目", "频道", "节点", "进度", "状态", ""], rows, 850) : empty("今日还没有生产工单", "工单开始生产后，六个生产节点会在这里显示。", "go-workorders", "进入工单"), `<button class="button button-secondary button-small" data-action="go-workorders">查看全部 ${icon("arrow-right")}</button>`)}
+        ${section("今日生产进度", `${state.date} · 按所选流程显示生产节点`, rows.length ? table(["剧目", "频道", "节点", "进度", "状态", ""], rows, 850) : empty("今日还没有生产工单", "工单开始生产后，对应流程的生产节点会在这里显示。", "go-workorders", "进入工单"), `<button class="button button-secondary button-small" data-action="go-workorders">查看全部 ${icon("arrow-right")}</button>`)}
         ${auth.canView("logs", state.deviceRole) ? section("系统动态", "最近 8 条数据库状态事件", activity) : ""}
       </div>
     </div>`;

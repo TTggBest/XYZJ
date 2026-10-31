@@ -114,7 +114,11 @@ def execution_run(s, p, run_id):
 def begin(run_id: str, body: AttemptStart, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     execution_run(s, p, run_id)
     attempt = call(service.begin_attempt, s, run_id, body.claim_id, body.node_type)
-    return {"attempt_id": attempt.id}
+    result = {"attempt_id": attempt.id}
+    if body.node_type in {'cover_scene', 'community_scene'}:
+        current = service.envelope(s, service.get_run(s, run_id))
+        result['planning_context'] = {key: current[key] for key in ('creative_history', 'planning_history_ids')}
+    return result
 
 
 @router.put("/v14/runs/{run_id}/attempts/{attempt_id}")

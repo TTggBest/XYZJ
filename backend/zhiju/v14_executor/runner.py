@@ -85,7 +85,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
     thread.start()
     model_client.cancelled = lambda: cancelled.is_set() or bool(stop_event and stop_event.is_set())
     try:
-        for node in NODES:
+        for node in envelope.get("node_sequence", NODES):
             if node in envelope["accepted_results"]:
                 continue
             while True:
@@ -97,6 +97,8 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                     stage = build_stage_input(envelope, node)
                     if node == "merge":
                         result = {"text_complete": True}
+                    elif node == "community_scene" and stage.item["community_count"] == 0:
+                        result = {"section": "community_scene", "plans": []}
                     elif node == "community" and stage.item["community_count"] == 0:
                         result = {"section": "community", "results": []}
                     elif node == "search":

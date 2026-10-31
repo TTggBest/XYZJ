@@ -21,7 +21,7 @@ class ClaimRequest(BaseModel):
 
 class AttemptStart(BaseModel):
     claim_id: str
-    node_type: Literal["search", "title", "cover", "description", "community", "merge"]
+    node_type: Literal["search", "title", "cover_scene", "cover", "description", "community_scene", "community", "merge"]
 
 
 class AttemptSubmission(BaseModel):

@@ -43,14 +43,17 @@ class CloudClient:
         principal = self.request("GET", "/auth/me")
         if principal["tenant_id"] != self.tenant_id:
             raise PermissionError("当前会话公司已切换；停止领取")
-        result = self.request("POST", "/v14/claims", {"host_id": self.host_id, "executor_protocol": 2})
+        result = self.request("POST", "/v14/claims", {"host_id": self.host_id, "executor_protocol": 3})
         if result and result["tenant_id"] != self.tenant_id:
             raise PermissionError("领取结果不属于本机配置的公司")
         return result
 
     def begin(self, envelope, node):
-        return self.request("POST", f"/v14/runs/{envelope['run_id']}/attempts",
-            {"claim_id": envelope["claim_id"], "node_type": node})["attempt_id"]
+        result = self.request("POST", f"/v14/runs/{envelope['run_id']}/attempts",
+            {"claim_id": envelope["claim_id"], "node_type": node})
+        if 'planning_context' in result:
+            envelope.update(result['planning_context'])
+        return result['attempt_id']
 
     def current(self, envelope):
         return self.request("GET", f"/work-orders/{envelope['work_order_id']}/v14-runs/current")

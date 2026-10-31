@@ -27,6 +27,8 @@ from zhiju.tenant_repository import require_tenant_entity
 
 NODE_SEQUENCE = ("search", "title", "cover", "description", "community", "merge")
 PACKAGE_STAGE = {
+    "cover_scene": "title_ready",
+    "community_scene": "text_ready",
     "search": "search_ready",
     "title": "title_ready",
     "cover": "cover_ready",
@@ -272,14 +274,15 @@ def list_work_orders(session: Session, *, production_date=None, status: str | No
 
 def summarize_node_progress(nodes: list[ProductionNodeRun]) -> dict[str, object]:
     completed = sum(node.status in {"completed", "skipped"} for node in nodes)
-    total = len(NODE_SEQUENCE)
+    sequence = tuple(node.node_type for node in nodes) if nodes else NODE_SEQUENCE
+    total = len(sequence)
     by_type = {node.node_type: node for node in nodes}
     current_node = None
     for status in ("failed", "running", "queued"):
         current_node = next(
             (
                 node_type
-                for node_type in NODE_SEQUENCE
+                for node_type in sequence
                 if node_type in by_type and by_type[node_type].status == status
             ),
             None,
@@ -384,7 +387,7 @@ def list_work_order_overview(
     result = []
     for work_order, task, batch, channel, drama, package in rows:
         node_map = latest_nodes.get(work_order.id, {})
-        ordered_nodes = [node_map[node_type] for node_type in NODE_SEQUENCE if node_type in node_map]
+        ordered_nodes = sorted(node_map.values(), key=lambda node: node.sequence_number)
         progress = summarize_node_progress(ordered_nodes)
         result.append(
             {
@@ -498,7 +501,7 @@ def list_task_overview(
     for task, channel, drama, slot, schedule, playlist, work_order, package, batch in rows:
         execution = executions.get(work_order.id) if work_order else None
         node_map = latest_nodes.get(work_order.id, {}) if work_order else {}
-        ordered_nodes = [node_map[node_type] for node_type in NODE_SEQUENCE if node_type in node_map]
+        ordered_nodes = sorted(node_map.values(), key=lambda node: node.sequence_number)
         progress = summarize_node_progress(ordered_nodes)
         result.append(
             {
@@ -580,7 +583,7 @@ def _latest_node(session: Session, work_order_id: str, node_type: str, *, lock: 
 
 
 def start_node(session: Session, work_order_id: str, node_type: str, worker_key: str, *, commit: bool = True) -> ProductionNodeRun:
-    if node_type not in NODE_SEQUENCE:
+    if node_type not in {*NODE_SEQUENCE, 'cover_scene', 'community_scene'}:
         raise NotFoundError("生产节点不存在")
     node = _latest_node(session, work_order_id, node_type, lock=True)
     if node.status != "queued":
@@ -710,7 +713,7 @@ def review_package(session: Session, package_id: str, decision: str, note: str |
 
 
 def retry_node(session: Session, work_order_id: str, node_type: str, reason: str) -> dict[str, object]:
-    if node_type not in NODE_SEQUENCE:
+    if node_type not in {*NODE_SEQUENCE, 'cover_scene', 'community_scene'}:
         raise NotFoundError("生产节点不存在")
     work_order = require_tenant_entity(session, WorkOrder, work_order_id, lock=True)
     if work_order is None:
@@ -730,7 +733,7 @@ def retry_node(session: Session, work_order_id: str, node_type: str, reason: str
         work_order_id=work_order.id,
         package_id=package.id,
         node_type=node_type,
-        sequence_number=NODE_SEQUENCE.index(node_type) + 1,
+        sequence_number=latest.sequence_number,
         attempt_number=next_attempt,
         status="queued",
         idempotency_key=f"{work_order.id}:{node_type}:{next_attempt}",
@@ -745,7 +748,7 @@ def retry_node(session: Session, work_order_id: str, node_type: str, reason: str
                     work_order_id=work_order.id,
                     package_id=package.id,
                     node_type="merge",
-                    sequence_number=6,
+                    sequence_number=merge.sequence_number,
                     attempt_number=merge_attempt,
                     status="pending",
                     idempotency_key=f"{work_order.id}:merge:{merge_attempt}",

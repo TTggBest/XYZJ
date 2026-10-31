@@ -12,6 +12,7 @@ from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel
 from zhiju.services.identity import ConflictError
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
+from zhiju.workflow_bundles import execution_nodes
 
 
 def get_settings(session: Session) -> V14Setting | None:
@@ -117,6 +118,18 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
     missing = production_material_issues(session, channel, channel_input)
     if missing:
         raise ConflictError(f"频道 {channel.operational_name or channel.original_name} 尚未具备生产条件，缺少：" + "、".join(missing))
+    sequence = execution_nodes(run.rules_snapshot)
+    if sequence != NODE_SEQUENCE:
+        from zhiju.models import ProductionNodeRun
+        from zhiju.services.production import _latest_nodes
+        nodes = {n.node_type: n for n in _latest_nodes(session, work.id)}
+        for number, name in enumerate(sequence, 1):
+            if name in nodes:
+                nodes[name].sequence_number = number
+            else:
+                session.add(ProductionNodeRun(work_order_id=work.id, package_id=package.id,
+                    node_type=name, sequence_number=number, attempt_number=1, status='pending',
+                    idempotency_key=f'{work.id}:{name}:1'))
     session.add(run)
     if commit:
         session.commit()
@@ -167,8 +180,14 @@ def envelope(session, run):
         for a in active_attempts(session, old):
             if a.outcome == "accepted":
                 history_rows.append({"run_id": old.id, "input_snapshot": old.input_snapshot,
-                                     "node_type": a.node_type, "payload": a.payload})
-    return {**run_read(session, run), "tenant_id": run.tenant_id, "claim_id": run.claim_id,
+                                     "node_type": a.node_type, "payload": a.payload,
+                                     "accepted_at": a.updated_at.isoformat(), "attempt_id": a.id})
+    if "cover_scene" in execution_nodes(rules):
+        history_rows.sort(key=lambda row: (row["accepted_at"], row["attempt_id"]))
+    planning_ids = {a.node_type: a.payload['history_reference_ids'] for a in rows
+                    if a.outcome == 'running' and a.node_type in {'cover_scene', 'community_scene'}
+                    and a.payload is not None}
+    return {"planning_history_ids": planning_ids, "node_sequence": execution_nodes(rules), **run_read(session, run), "tenant_id": run.tenant_id, "claim_id": run.claim_id,
         "account_profile": run.account_profile, "input_snapshot": run.input_snapshot,
         "rules_snapshot": rules, "creative_history": history_rows,
         "accepted_results": {a.node_type: a.payload for a in rows if a.outcome == "accepted"},
@@ -183,7 +202,8 @@ def claim_run(session, host_id: str, *, executor_protocol: int = 2):
     if run_id is None:
         return None
     run = session.scalar(select(V14Run).where(V14Run.id == run_id).with_for_update())
-    if run.rules_snapshot.get('skill_bundle') and executor_protocol < 2:
+    from zhiju.workflow_bundles import executor_protocol as required_protocol
+    if executor_protocol < required_protocol(run.rules_snapshot):
         raise ConflictError('当前执行器不支持成套 Skills，请更新本机执行器；任务仍保持待执行')
     run.status, run.claim_id = "running", str(uuid4())
     run.heartbeat_at = datetime.now(timezone.utc)
@@ -201,7 +221,7 @@ def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
     check_claim(run, claim_id)
     rows = active_attempts(session, run)
     done = {a.node_type for a in rows if a.outcome == "accepted"}
-    expected = next((n for n in NODE_SEQUENCE if n not in done), None)
+    expected = next((n for n in execution_nodes(run.rules_snapshot) if n not in done), None)
     if node_type != expected or any(a.outcome == "running" for a in rows):
         raise ConflictError("节点顺序不正确或已有运行中的尝试")
     sequence = 1 + max((a.sequence for a in attempts(session, run) if a.node_type == node_type), default=0)
@@ -212,6 +232,10 @@ def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
     elif node.status != "running" or node.worker_key != run.host_id:
         raise ConflictError("生产节点不属于当前执行")
     attempt = V14Attempt(run_id=run.id, claim_id=claim_id, node_type=node_type, sequence=sequence)
+    if node_type in {'cover_scene', 'community_scene'}:
+        from zhiju.v14_runtime.contract import build_stage_input
+        stage = build_stage_input(envelope(session, run), node_type)
+        attempt.payload = {'history_reference_ids': [row['reference_id'] for row in stage.context['planning_history']]}
     session.add(attempt)
     session.commit()
     return attempt
@@ -284,7 +308,7 @@ def resume_run(session, run_id, stopped_confirmed, *, retry_content=False):
     if manual_retry:
         active = active_attempts(session, run)
         done = {a.node_type for a in active if a.outcome == "accepted"}
-        node = next((n for n in NODE_SEQUENCE if n not in done), None)
+        node = next((n for n in execution_nodes(run.rules_snapshot) if n not in done), None)
         failed = [a for a in active if a.node_type == node and a.outcome == "content_error"]
         if not failed:
             raise ConflictError("当前阶段没有可重新尝试的内容失败记录")

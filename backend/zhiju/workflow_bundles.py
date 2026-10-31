@@ -83,3 +83,17 @@ def snapshot(data: bytes, *, version_id: str, label: str, revision: int) -> dict
 
 def archive_from_snapshot(bundle: dict) -> bytes:
     return base64.b64decode(bundle['archive'])
+
+
+def execution_nodes(rules_snapshot: dict) -> tuple[str, ...]:
+    """Execute the node order declared by the selected Skills archive."""
+    default = ('search', 'title', 'cover', 'description', 'community', 'merge')
+    bundle = rules_snapshot.get('skill_bundle')
+    if not bundle:
+        return default
+    return tuple(inspect_bundle(archive_from_snapshot(bundle)).get('nodes', default))
+
+
+def executor_protocol(rules_snapshot: dict) -> int:
+    bundle = rules_snapshot.get('skill_bundle')
+    return int(inspect_bundle(archive_from_snapshot(bundle)).get('executor_protocol', 2)) if bundle else 1

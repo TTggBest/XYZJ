@@ -64,23 +64,25 @@ def update_community(session, kind, entity_id, count):
         rows = v14_runs.attempts(session, run)
         if not {"search", "title", "cover", "description"}.issubset({a.node_type for a in rows if a.outcome == "accepted"}):
             raise ConflictError("缺少已接受上游结果，不能仅补产社群")
+        sequence = v14_runs.execution_nodes(run.rules_snapshot)
+        community_nodes = tuple(node for node in sequence if node in {'community_scene', 'community', 'merge'})
         snapshot = deepcopy(run.input_snapshot)
         snapshot["community_count"] = count
-        snapshot["community_revision_after"] = {node: max((a.sequence for a in rows if a.node_type == node), default=0) for node in ("community", "merge")}
+        snapshot["community_revision_after"] = {node: max((a.sequence for a in rows if a.node_type == node), default=0) for node in community_nodes}
         # Check the actual frozen community assets before changing business state.
         from zhiju.v14_runtime.contract import build_stage_input
         try:
-            build_stage_input({**v14_runs.envelope(session, run), "input_snapshot": snapshot}, "community")
+            build_stage_input({**v14_runs.envelope(session, run), "input_snapshot": snapshot}, community_nodes[0])
         except (ValueError, KeyError, TypeError) as exc:
             raise ConflictError(f"社群材料不完整: {exc}") from exc
         run.input_snapshot = snapshot
         run.status, run.claim_id, run.error = "queued", None, None
-        for node in ("community", "merge"):
+        for node in community_nodes:
             previous = production._latest_node(session, work.id, node, lock=True)
             number = previous.attempt_number + 1
             session.add(ProductionNodeRun(work_order_id=work.id, package_id=package.id, node_type=node,
-                sequence_number=production.NODE_SEQUENCE.index(node) + 1, attempt_number=number,
-                status="queued" if node == "community" else "pending",
+                sequence_number=sequence.index(node) + 1, attempt_number=number,
+                status="queued" if node == community_nodes[0] else "pending",
                 idempotency_key=f"{work.id}:{node}:{number}"))
         work.status, work.completed_at = "queued", None
         task.status, task.completed_at = "processing", None

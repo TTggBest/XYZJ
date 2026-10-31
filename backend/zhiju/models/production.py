@@ -191,7 +191,7 @@ class PackageOutputCopyState(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
 class ProductionNodeRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     __tablename__ = "production_node_runs"
     __table_args__ = (
-        CheckConstraint("node_type IN ('search','title','cover','description','community','merge')", name="valid_node_type"),
+        CheckConstraint("node_type IN ('search','title','cover_scene','cover','description','community_scene','community','merge')", name="valid_node_type"),
         CheckConstraint("status IN ('pending','queued','running','completed','failed','skipped','cancelled')", name="valid_status"),
         CheckConstraint("attempt_number >= 1", name="attempt_positive"),
         UniqueConstraint("work_order_id", "node_type", "attempt_number", name="uq_production_node_runs_attempt"),
