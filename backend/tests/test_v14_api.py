@@ -37,6 +37,14 @@ def start(client):
     return run, claim.json()
 
 
+def test_task_overview_exposes_assigned_executor_host(client):
+    client.post('/api/v3/work-orders/work-a/v14-runs').raise_for_status()
+    response = client.get('/api/v3/tasks/overview')
+    assert response.status_code == 200, response.text
+    task = next(item for item in response.json() if item['work_order_id'] == 'work-a')
+    assert task['execution_host_id'] == 'device-a'
+
+
 def test_task_start_dispatches_and_enqueues_v14_idempotently(client):
     first = client.post("/api/v3/tasks/task-a/start-v14")
     assert first.status_code == 200, first.text
@@ -57,6 +65,9 @@ def test_indonesian_material_alias_can_start_bound_channel(client, store, materi
     from zhiju.models.v14 import V14Setting
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
         s.get(Channel, "channel-a").default_language = "id"
+        from zhiju.models import ChannelPinnedCommentTemplate
+        pinned = s.scalar(sa.select(ChannelPinnedCommentTemplate).where(ChannelPinnedCommentTemplate.language == "ar"))
+        pinned.language = "id"
         setting = s.scalar(sa.select(V14Setting))
         config = deepcopy(setting.payload)
         config["channel_inputs"]["channel-a"]["language"] = material_language

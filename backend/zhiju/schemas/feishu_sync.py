@@ -18,3 +18,4 @@ class FeishuSyncResult(BaseModel):
     metadata_rows_skipped: int | None = None
     sheets_read: int | None = None
     corrections: int | None = None
+    channel_material_issues: list[dict[str, object]] | None = None

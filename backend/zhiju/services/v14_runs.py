@@ -113,6 +113,10 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
             "rules_snapshot": run.rules_snapshot}, "search")
     except (ValueError, KeyError, TypeError) as exc:
         raise ConflictError(f"运营包配置不完整: {exc}") from exc
+    from zhiju.services.channel_readiness import production_material_issues
+    missing = production_material_issues(session, channel, channel_input)
+    if missing:
+        raise ConflictError(f"频道 {channel.operational_name or channel.original_name} 尚未具备生产条件，缺少：" + "、".join(missing))
     session.add(run)
     if commit:
         session.commit()

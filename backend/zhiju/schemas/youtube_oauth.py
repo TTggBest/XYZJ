@@ -66,6 +66,7 @@ class YouTubeChannelImportCommit(BaseModel):
 
 class YouTubeChannelImportCommitResult(BaseModel):
     channels: list[ChannelRead]
+    channel_material_issues: list[dict[str, object]] = Field(default_factory=list)
 
 
 class YouTubeVideoSyncResult(BaseModel):

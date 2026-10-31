@@ -771,7 +771,7 @@ await settle(page);
 await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
 await settle(page);
 let html=page.nodes.get('viewRoot').innerHTML;
-assert(html.indexOf('新男频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('旧女频'));
+assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
 assert.match(html,/最新录入优先/);assert.match(html,/全部频类/);assert.match(html,/全部语言/);assert.match(html,/录入时间/);
 await page.document.emit('change',{target:{id:'channelAudienceFilter',value:'female',matches:()=>false,closest:()=>null}});
 html=page.nodes.get('viewRoot').innerHTML;
@@ -780,9 +780,9 @@ await page.document.emit('change',{target:{id:'channelLanguageFilter',value:'es'
 html=page.nodes.get('viewRoot').innerHTML;
 assert.doesNotMatch(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 1 个/);
 await clickAction(page,'reset-channel-list-filters');
-await page.document.emit('change',{target:{id:'channelSortOrder',value:'asc',matches:()=>false,closest:()=>null}});
+await page.document.emit('change',{target:{id:'channelSortOrder',value:'desc',matches:()=>false,closest:()=>null}});
 html=page.nodes.get('viewRoot').innerHTML;
-assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
+assert(html.indexOf('新男频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('旧女频'));
 """)
 
 

@@ -190,3 +190,39 @@ await click('dispatch-all');
 assert.equal(requests.filter(([p])=>p.endsWith('/start-v14')).length,1);
 assert.equal(requests.filter(([p])=>p==='http://127.0.0.1:19733/start').length,1);
 """)
+
+
+@pytest.mark.parametrize('status', ['queued', 'running'])
+def test_active_detail_shows_local_worker_exit_and_retry_without_starting(status):
+    boot = BOOT.replace("if(launcherOffline)throw", "if(path.endsWith('/health'))return new Response(JSON.stringify({host_id:'device-a',tenant_id:'t1',running:false,last_error:'执行器退出码 1'}));\n  if(launcherOffline)throw")
+    run_node(boot + r"""
+run={run_id:'run-a',status:STATUS,host_id:'device-a',model:'selected-model',attempts:[]};
+await click('work-detail','work-a');
+assert.match(page.nodes.get('drawerBody').innerHTML,/本机执行器已退出/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/退出码 1/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/重试唤起执行器/);
+assert.equal(requests.filter(([p])=>p.endsWith('/start')).length,0);
+assert.equal(requests.filter(([p,o])=>p.endsWith('/health')&&o.method==='POST').length,0);
+""".replace('STATUS', repr(status)))
+
+
+@pytest.mark.parametrize('host,tenant,visible', [
+    ('device-a', 't1', True), ('other-device', 't1', False),
+    ('device-a', 'other-tenant', False),
+])
+def test_workorder_list_reports_only_its_local_executor_failure(host, tenant, visible):
+    boot = BOOT.replace('if(launcherOffline)throw',
+        f"if(path.endsWith('/health'))return new Response(JSON.stringify({{host_id:{host!r},tenant_id:{tenant!r},running:false,last_error:'执行器退出码 1'}}));\n  if(launcherOffline)throw")
+    boot = boot.replace("return new Response('[]');", r"""
+ if(path.startsWith('/api/v3/tasks/overview'))return new Response(JSON.stringify([
+  {task_id:'t1',work_order_id:'work-a',task_status:'in_progress',execution_status:'queued',execution_host_id:'device-a',nodes:[]}
+ ]));
+ return new Response('[]');
+""")
+    run_node(boot + r"""
+await click('go-workorders');
+const html=page.nodes.get('viewRoot').innerHTML;
+assert.equal(html.includes('本机执行器已退出'),VISIBLE);
+assert.equal(html.includes('重试唤起执行器'),VISIBLE);
+assert.equal(requests.filter(([p,o])=>o.method==='POST').length,0);
+""".replace('VISIBLE', str(visible).lower()))

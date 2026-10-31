@@ -491,7 +491,7 @@ def list_task_overview(
     from zhiju.models.v14 import V14Run
     from zhiju.services.v14_runs import execution_status
     executions = {row.work_order_id: row for row in session.execute(
-        select(V14Run.work_order_id, V14Run.id, V14Run.status, V14Run.heartbeat_at, V14Run.error)
+        select(V14Run.work_order_id, V14Run.id, V14Run.host_id, V14Run.status, V14Run.heartbeat_at, V14Run.error)
         .where(V14Run.tenant_id == session.info["tenant_id"], V14Run.work_order_id.in_(work_order_ids))
     )} if work_order_ids else {}
     result = []
@@ -541,6 +541,7 @@ def list_task_overview(
                 "failure_reason": task.failure_reason,
                 "work_order_id": work_order.id if work_order else None,
                 "work_order_status": work_order.status if work_order else None,
+                "execution_host_id": execution.host_id if execution else None,
                 "execution_run_id": execution.id if execution else None,
                 "execution_status": execution_status(execution.status, execution.heartbeat_at) if execution else None,
                 "execution_error": execution.error if execution else None,

@@ -36,6 +36,13 @@ def configure(s):
     from test_v14_contract import envelope
     sample = envelope()
     sample["rules_snapshot"]["title"] = {"rule": "original"}
+    from zhiju.models import ChannelPlaylist, ChannelProfile, ChannelPinnedCommentTemplate
+    if s.scalar(sa.select(ChannelProfile).where(ChannelProfile.channel_id == "channel-a")) is None:
+        s.add(ChannelProfile(channel_id="channel-a", status="active", title_template="🔥 A... B!", fixed_symbol="🔥"))
+        for language in ("ar", "zh-CN"):
+            s.add(ChannelPinnedCommentTemplate(channel_id="channel-a", language=language, version_number=1, body="回复", status="active"))
+        for row in sample["input_snapshot"]["channel"]["playlists"]:
+            s.add(ChannelPlaylist(channel_id="channel-a", local_name=row["name"], url=row["url"], local_description="列表说明", status="active"))
     return save_settings(s, {
         "host_id": "device-a", "account_profile": "current", "default_model": "test-model",
         "available_models": ["test-model"], "rules": sample["rules_snapshot"],

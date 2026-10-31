@@ -239,6 +239,8 @@ def list_channel_overview(
     for watermark in watermark_rows:
         watermarks_by_channel.setdefault(watermark.channel_id, []).append(watermark)
 
+    from zhiju.services.channel_readiness import production_material_issues
+
     result = []
     for channel in channels:
         accounts = accounts_by_channel.get(channel.id, [])
@@ -278,6 +280,7 @@ def list_channel_overview(
                 "daily_publish_count": channel.daily_publish_count,
                 "status": channel.status,
                 "deleted_at": channel.deleted_at,
+                "production_material_issues": production_material_issues(session, channel),
                 "authorized_account_count": len(accounts),
                 "authorized_accounts": accounts,
                 "profile_id": profile.id if profile else None,

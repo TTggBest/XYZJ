@@ -192,3 +192,49 @@ def test_schema_error_does_not_consume_creative_retry(tmp_path):
     cloud.submissions = 1
     run_once(cloud, Model(), cache_root=tmp_path, evidence_provider=lambda item: {"status": "completed"}, retry_delay=0)
     assert cloud.sent[0]["outcome"] == "system_error"
+
+
+@pytest.mark.parametrize('current', [None, 'deleted', {'run_id': 'replacement'}])
+def test_deleted_cached_run_does_not_block_next_claim(tmp_path, current):
+    from zhiju.v14_executor.client import CloudNotFound
+    from zhiju.v14_executor.runner import run_once
+    entry = {'envelope': {'run_id': 'old', 'work_order_id': 'work-old', 'claim_id': 'claim-old'},
+             'attempt_id': 'attempt-old', 'body': {'result': {'generated': 'preserved'}}}
+    cache = tmp_path / 'old' / 'pending.json'
+    cache.parent.mkdir()
+    cache.write_text(json.dumps(entry))
+    class Cloud:
+        def submit(self, *args): raise CloudNotFound('云端请求失败 HTTP 404')
+        def current(self, e):
+            if current == 'deleted': raise CloudNotFound('工单不存在')
+            return current
+        def claim(self): raise StopIteration('new queue reached')
+    with pytest.raises(StopIteration, match='new queue reached'):
+        run_once(Cloud(), None, cache_root=tmp_path)
+    assert not cache.exists()
+    assert json.loads((cache.parent / 'attempt-old.abandoned.json').read_text()) == entry
+
+
+def test_missing_attempt_for_existing_run_is_not_discarded(tmp_path):
+    from zhiju.v14_executor.client import CloudNotFound
+    from zhiju.v14_executor.runner import replay_pending
+    cache = tmp_path / 'old' / 'pending.json'
+    cache.parent.mkdir()
+    cache.write_text(json.dumps({'envelope': {'run_id': 'old'}, 'attempt_id': 'a', 'body': {}}))
+    class Cloud:
+        def submit(self, *args): raise CloudNotFound('missing attempt')
+        def current(self, e): return {'run_id': 'old'}
+    with pytest.raises(CloudNotFound, match='missing attempt'):
+        replay_pending(Cloud(), tmp_path)
+    assert cache.exists()
+
+
+def test_cloud_404_has_distinct_type(monkeypatch):
+    import urllib.error
+    import urllib.request
+    from zhiju.v14_executor.client import CloudClient, CloudNotFound
+    def missing(*args, **kwargs):
+        raise urllib.error.HTTPError('https://example.test', 404, 'not found', {}, None)
+    monkeypatch.setattr(urllib.request, 'urlopen', missing)
+    with pytest.raises(CloudNotFound):
+        CloudClient('https://example.test', 'test', 'host', 'tenant').current({'work_order_id': 'deleted'})

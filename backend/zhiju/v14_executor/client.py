@@ -8,6 +8,10 @@ class CloudConflict(RuntimeError):
     pass
 
 
+class CloudNotFound(RuntimeError):
+    pass
+
+
 class CloudClient:
     def __init__(self, base_url, session_token, host_id, tenant_id):
         url = urlparse(base_url)
@@ -26,6 +30,8 @@ class CloudClient:
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
                 raise PermissionError("智矩登录已失效、公司已切换或主机绑定不匹配，请重新登录配置") from None
+            if exc.code == 404:
+                raise CloudNotFound("云端请求失败 HTTP 404") from None
             if exc.code == 409:
                 error = json.load(exc).get("detail", "执行状态冲突")
                 raise CloudConflict(str(error)) from None

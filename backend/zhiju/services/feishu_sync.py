@@ -2054,6 +2054,8 @@ def _sync_channel_playlists(session: Session, channel: Channel, row: dict[str, s
 
 
 def sync_channels(session: Session) -> dict[str, object]:
+    from zhiju.services.channel_readiness import production_material_issues
+
     _require_tenant_context(session)
     settings = get_settings()
     master_rows = [
@@ -2149,6 +2151,11 @@ def sync_channels(session: Session) -> dict[str, object]:
             default=None,
         )
         return {
+            "channel_material_issues": [
+                {"channel_id": c.id, "channel_name": c.operational_name or c.original_name, "missing": missing}
+                for c in session.scalars(select(Channel).where(Channel.original_name.in_(master_names)))
+                if (missing := production_material_issues(session, c))
+            ],
             "sync_type": "channels",
             "environment": settings.env,
             "rows_read": len(master_rows),

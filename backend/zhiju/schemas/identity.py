@@ -93,6 +93,7 @@ class ChannelOverview(BaseModel):
     daily_publish_count: int
     status: str
     deleted_at: datetime | None
+    production_material_issues: list[str] = Field(default_factory=list)
     authorized_account_count: int
     authorized_accounts: list[ChannelAuthorizedAccountOverview]
     profile_id: str | None

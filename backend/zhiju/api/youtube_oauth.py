@@ -196,7 +196,13 @@ def post_commit_youtube_channel_import(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return YouTubeChannelImportCommitResult(channels=channels)
+    from zhiju.services.channel_readiness import production_material_issues
+    issues = [
+        {"channel_id": channel.id, "channel_name": channel.operational_name or channel.original_name, "missing": missing}
+        for channel in channels
+        if (missing := production_material_issues(session, channel))
+    ]
+    return YouTubeChannelImportCommitResult(channels=channels, channel_material_issues=issues)
 
 
 @router.post(

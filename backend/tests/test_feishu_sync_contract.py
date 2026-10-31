@@ -4,6 +4,8 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from test_v14_runs import store
+
 from zhiju.app import app
 from zhiju.database import TenantSession, database_router
 from zhiju.models import Channel
@@ -26,7 +28,7 @@ def test_feishu_sync_routes_are_registered() -> None:
     assert "/api/v3/feishu-sync/channels" in paths
 
 
-def test_channel_sync_imports_chinese_meaning(monkeypatch) -> None:
+def test_channel_sync_imports_chinese_meaning(monkeypatch, store) -> None:
     suffix = uuid4().hex[:10]
     channel_name = f"Bangkit Setelah Terluka-{suffix}"
     channel_id = f"UC{suffix.upper()}CHANNELTEST"
@@ -48,14 +50,16 @@ def test_channel_sync_imports_chinese_meaning(monkeypatch) -> None:
     ])
     monkeypatch.setattr(feishu_sync, "_client_rows", lambda *_args: next(rows))
 
-    connection = database_router.get_active_engine().connect()
+    connection = store.connect()
     transaction = connection.begin()
     session = TenantSession(
         bind=connection, join_transaction_mode="create_savepoint",
         info={"tenant_id": "tenant-feishu-contract"},
     )
     try:
-        feishu_sync.sync_channels(session)
+        result = feishu_sync.sync_channels(session)
+        assert result["channel_material_issues"][0]["channel_name"] == channel_name
+        assert "hashtag 白名单" in result["channel_material_issues"][0]["missing"]
         channel = session.scalar(select(Channel).where(Channel.youtube_channel_id == channel_id))
 
         assert channel is not None

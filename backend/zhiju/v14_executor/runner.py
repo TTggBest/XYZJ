@@ -6,7 +6,7 @@ import time
 
 from zhiju.v14_runtime.contract import build_stage_input, validate_result
 from zhiju.v14_runtime.market import collect_agent_reach_evidence, build_market_packaging_prompt
-from .client import CloudConflict
+from .client import CloudConflict, CloudNotFound
 
 NODES = ("search", "title", "cover", "description", "community", "merge")
 
@@ -34,14 +34,20 @@ def replay_pending(client, root, retry_delay=2):
         entry = json.loads(cached.read_text())
         try:
             send_cached(client, entry["envelope"], entry["attempt_id"], entry["body"], cached, retry_delay)
-        except CloudConflict:
-            current = client.current(entry["envelope"])
-            if not current or current["run_id"] != entry["envelope"]["run_id"]:
-                raise
-            stale = current.get("claim_id") != entry["envelope"]["claim_id"]
-            stopped = current["status"] in {"cancelled", "text_ready"}
-            if not stale and not stopped:
-                raise
+        except (CloudConflict, CloudNotFound) as rejected:
+            try:
+                current = client.current(entry["envelope"])
+            except CloudNotFound:
+                current = None  # The work order itself has been deleted.
+            removed = not current or current["run_id"] != entry["envelope"]["run_id"]
+            if not removed:
+                # A 404 for an attempt in a live run is a real protocol error.
+                if isinstance(rejected, CloudNotFound):
+                    raise
+                stale = current.get("claim_id") != entry["envelope"]["claim_id"]
+                stopped = current["status"] in {"cancelled", "text_ready"}
+                if not stale and not stopped:
+                    raise
             # Retain generated evidence, but do not let a deliberately invalidated claim
             # poison the outbound queue forever. Never swallow an unrelated 409.
             cached.replace(cached.with_name(entry["attempt_id"] + ".abandoned.json"))
