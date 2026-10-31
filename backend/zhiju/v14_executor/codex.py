@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import tempfile
@@ -51,7 +52,17 @@ class CodexClient:
                             raise TimeoutError("Codex 调用超时，子进程已停止")
                         time.sleep(min(0.1, self.timeout))
                     if process.returncode:
-                        raise RuntimeError(f"Codex 调用失败，退出码 {process.returncode}；请检查账号和所选模型（不自动切换模型）")
+                        # CLI stdout includes the entire business prompt. Keep only
+                        # its explicit error lines, not an echoed prompt or result.
+                        logs.seek(0, os.SEEK_END)
+                        logs.seek(max(0, logs.tell() - 16384))
+                        lines = logs.read().decode("utf-8", errors="replace").splitlines()
+                        errors = [line for line in lines if re.match(r"^(?:Error|ERROR|error):", line)]
+                        detail = "\n".join(errors[-3:])[:2000]
+                        message = f"Codex 调用失败，退出码 {process.returncode}（不自动切换模型）"
+                        if detail:
+                            message += "；" + detail
+                        raise RuntimeError(message)
                     if not output.exists():
                         raise RuntimeError("Codex 未返回结构化结果")
                     return json.loads(output.read_text(encoding="utf-8"))

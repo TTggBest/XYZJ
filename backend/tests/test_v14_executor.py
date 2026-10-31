@@ -16,6 +16,10 @@ args=sys.argv[1:]
 if args==['login','status']: print('Logged in using ChatGPT'); sys.exit(0)
 model=args[args.index('--model')+1]
 if model=='missing': sys.exit(17)
+if model=='oversized-input':
+ print('PRIVATE PROMPT BODY', flush=True)
+ print('Error: turn/start failed: Input exceeds the maximum length of 1048576 characters. (code -32602), data: {"input_error_code":"input_too_large","max_chars":1048576,"actual_chars":1053140}', file=sys.stderr)
+ sys.exit(1)
 if model=='slow': time.sleep(30)
 schema=json.loads(pathlib.Path(args[args.index('--output-schema')+1]).read_text())
 skill_file=pathlib.Path(args[args.index('--cd')+1])/'skills/xy-title-v14/SKILL.md'
@@ -53,6 +57,19 @@ def test_unavailable_model_has_no_fallback(fake_cli):
     from zhiju.v14_runtime.contract import build_stage_input
     with pytest.raises(RuntimeError, match="17"):
         CodexClient(binary=fake_cli).generate(build_stage_input(envelope(), "title"), "missing")
+
+
+def test_cli_input_error_is_reported_without_echoing_prompt(fake_cli):
+    from zhiju.v14_executor.codex import CodexClient
+    from zhiju.v14_runtime.contract import build_stage_input
+    with pytest.raises(RuntimeError) as error:
+        CodexClient(binary=fake_cli).generate(build_stage_input(envelope(), "cover"), "oversized-input")
+    message = str(error.value)
+    assert "input_too_large" in message
+    assert "1053140" in message
+    assert "1048576" in message
+    assert "PRIVATE PROMPT BODY" not in message
+    assert "请检查账号" not in message
 
 
 def test_cloud_medium_reasoning_is_explicitly_passed(fake_cli):
