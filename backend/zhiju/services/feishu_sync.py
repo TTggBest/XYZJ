@@ -2104,7 +2104,11 @@ def sync_channels(session: Session) -> dict[str, object]:
                 raise FeishuSyncError(f"频道名与YouTube Channel ID指向不同记录：{name}")
             channel = by_external_id or by_name
             if channel is None:
-                channel = Channel(youtube_channel_id=youtube_channel_id, original_name=name)
+                channel = Channel(
+                    youtube_channel_id=youtube_channel_id,
+                    original_name=name,
+                    timezone=channel_timezone,
+                )
                 session.add(channel)
                 session.flush()
                 inserted += 1
@@ -2123,7 +2127,7 @@ def sync_channels(session: Session) -> dict[str, object]:
             channel.default_genre = channel.channel_type
             channel.application_success_date = _parse_date(master.get("申请成功日期", ""))
             channel.display_order = int(master.get("序号") or 0) or None
-            channel.timezone = channel_timezone
+            # Language supplies an initial default, not an existing channel's audience timezone.
             _sync_channel_profile(session, channel, info, branding)
             _sync_channel_terms(session, channel, branding)
             _sync_pinned_template(session, channel, language, info.get("置顶回复", ""))
