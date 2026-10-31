@@ -994,6 +994,47 @@
     } catch (_) { return null; }
     finally { clearTimeout(timer); }
   }
+  function interruptedWorkorders() {
+    return [...new Map(state.tasks.filter(item => item.execution_status === "interrupted" &&
+      item.execution_run_id && item.work_order_id).map(item => [item.execution_run_id, item])).values()];
+  }
+  async function resumeMany(ids, startDate) {
+    if (taskStartingV14) return;
+    if (state.date !== startDate) throw new Error("工单日期已切换，请重新选择一键恢复");
+    const selected = new Set(ids);
+    const items = interruptedWorkorders().filter(item => selected.has(item.execution_run_id));
+    if (!items.length) return notify("当前日期没有可恢复的中断工单", true);
+    const expectedRevision = auth.capture();
+    let done = 0, failed = 0, wakeError = "";
+    taskStartingV14 = true;
+    try {
+      const config = await prepareV14Executor(expectedRevision);
+      for (const item of items) {
+        if (!auth.isCurrent(expectedRevision)) return;
+        if (state.date !== startDate) break;
+        try {
+          await api(`/v14/runs/${item.execution_run_id}/resume`, {method: "POST",
+            body: JSON.stringify({stopped_confirmed: true, retry_content: false}), expectedRevision});
+          if (!auth.isCurrent(expectedRevision)) return;
+          done += 1;
+        } catch (error) {
+          if (!auth.isCurrent(expectedRevision) || error.status === 401 || error.name === "AbortError") return;
+          failed += 1;
+          notify(`${item.chinese_title || "工单"}：${error.message}`, true);
+        }
+      }
+      if (done) {
+        try { await wakeV14Executor(config, expectedRevision); }
+        catch (error) { wakeError = error.message; }
+      }
+      if (!auth.isCurrent(expectedRevision)) return;
+      notify(`已恢复排队 ${done} 条工单${failed ? `，失败 ${failed} 条` : ""}${wakeError ? `；${wakeError}` : done ? "；已唤起本机执行器" : ""}`, !!failed || !!wakeError);
+      closeModal();
+      if (state.view === "workorders" && state.date === startDate) await loadView("workorders");
+    } finally {
+      taskStartingV14 = false;
+    }
+  }
   function localExecutorError(health, hostId, status) {
     return ["queued", "running"].includes(status) && health?.tenant_id === auth.current()?.tenant_id &&
       health.host_id === hostId && health.running === false && health.last_error ? health.last_error : "";
@@ -1024,11 +1065,11 @@
     ]);
     state.channels = channels;
     const tasks = window.ZhijuOperationsPageData.sortChannelRecords(items, channels);
-    state.tasks = tasks;
     const launcherHealth = canRunV14() && tasks.some(item => ["queued", "running"].includes(item.execution_status)) ? await localExecutorHealth() : null;
     if (actor !== auth.current() || state.view !== "workorders" || date !== state.date) return;
+    state.tasks = tasks;
     const rows = tasks.map((item, index) => { const launcherError = localExecutorError(launcherHealth, item.execution_host_id, item.execution_status); return `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${workorderState(item, launcherError)}${launcherError ? `<span class="cell-sub is-red">${esc(launcherError)}</span>` : ""}${item.execution_status === "interrupted" && item.execution_error ? `<span class="cell-sub is-red" title="${esc(item.execution_error)}">${esc(item.execution_error.slice(0, 120))}</span>` : ""}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${workorderActions(item, launcherError)}</div></td></tr>`; });
-    const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button></div>`;
+    const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button>${canRunV14() ? `<button class="button button-secondary" data-action="v14-resume-all" ${interruptedWorkorders().length ? "" : "disabled"}>${icon("rotate-ccw")} 一键恢复（${interruptedWorkorders().length}）</button>` : ""}</div>`;
     const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks) + " · 排序：频道录入先后 → 计划发布时间";
     root.innerHTML = `<div class="page-stack">${versionPicker ? `<section class="section"><div class="toolbar">${versionPicker}${auth.canView("settings", state.deviceRole) ? '<button class="button button-secondary" data-action="workflow-settings">管理运营包流程版本</button>' : ""}<span class="settings-muted">生成运营包时使用所选版本；已有成品不变。</span></div></section>` : ''}${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
@@ -2204,6 +2245,12 @@
         await api(`/v14/runs/${id}/cancel`, { method: "POST" });
         notify("已取消，既有结果保留"); await workDetail(button.dataset.workId);
       }
+      else if (action === "v14-resume-all") {
+        if (!canRunV14() || taskStartingV14) return;
+        const items = interruptedWorkorders();
+        if (!items.length) return notify("当前日期没有可恢复的中断工单", true);
+        openModal("一键恢复运营包生产", `<form class="form-grid" id="v14BatchResumeForm"><input type="hidden" name="batch_date" value="${esc(state.date)}"><input type="hidden" name="run_ids" value="${esc(JSON.stringify(items.map(item => item.execution_run_id)))}"><p class="field-wide">恢复 ${esc(state.date)} 的 ${items.length} 条已中断工单，保留各工单的流程版本和已完成阶段，不重置内容重试次数；统一唤起一次本机执行器。</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认一键恢复</button></div></form>`);
+      }
       else if (action === "v14-resume") {
         const retryContent = button.dataset.retryContent === "true";
         openModal("继续运营包生产", `<form class="form-grid" id="v14ResumeForm"><input type="hidden" name="retry_content" value="${retryContent ? "true" : "false"}"><input type="hidden" name="run_id" value="${esc(id)}"><input type="hidden" name="work_id" value="${esc(button.dataset.workId)}"><p class="field-wide">${retryContent ? "保留已完成阶段和全部失败记录，仅对未通过阶段再尝试，最多3次；仍未通过会再次暂停。" : "继续会保留已完成阶段，不重置内容重试次数。"}</p><label class="field-wide"><input type="checkbox" name="stopped_confirmed" required> 我已确认原执行器与 Codex 子进程停止</label><div class="form-actions"><button class="button button-primary" type="submit">确认继续</button></div></form>`);
@@ -2674,6 +2721,11 @@
         await api("/v14/settings", {method: "PUT", body: JSON.stringify(payload), expectedRevision});
         state.v14Config = payload; notify("V14 配置已保存；旧运行快照不变"); closeModal();
         if (state.view === "settings") await loadView("settings");
+        return;
+      }
+      if (form.id === "v14BatchResumeForm") {
+        if (!form.elements.stopped_confirmed.checked) throw new Error("请先确认旧进程已停止");
+        await resumeMany(JSON.parse(data.run_ids), data.batch_date);
         return;
       }
       if (form.id === "v14ResumeForm") {
