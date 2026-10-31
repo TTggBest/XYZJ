@@ -141,7 +141,23 @@ def list_schedulable_dramas(session: Session) -> list[dict[str, object]]:
         )
         .order_by(Drama.drama_number)
     ).all()
-    return [_drama_payload(session, drama) for drama, state in rows if _is_schedulable_drama(drama, state)]
+    dramas = [drama for drama, state in rows if _is_schedulable_drama(drama, state)]
+    if not dramas:
+        return []
+    ids = [drama.id for drama in dramas]
+    aliases = {drama_id: [] for drama_id in ids}
+    terms = {drama_id: [] for drama_id in ids}
+    for alias in session.scalars(
+        select(DramaAlias).where(DramaAlias.drama_id.in_(ids)).order_by(DramaAlias.alias)
+    ):
+        aliases[alias.drama_id].append(alias)
+    for term in session.scalars(
+        select(DramaCoreTerm).where(DramaCoreTerm.drama_id.in_(ids))
+        .order_by(DramaCoreTerm.term_type, DramaCoreTerm.weight.desc(), DramaCoreTerm.term)
+    ):
+        terms[term.drama_id].append(term)
+    return [{**drama.__dict__, "aliases": aliases[drama.id], "core_terms": terms[drama.id]}
+            for drama in dramas]
 
 
 def _require_schedulable_drama(session: Session, drama_id: str, *, missing_message: str = "剧目不存在") -> Drama:

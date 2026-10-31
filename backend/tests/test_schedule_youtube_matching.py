@@ -308,3 +308,21 @@ def test_full_schedule_update_time_uses_success_watermark_even_with_empty_filter
         session,channel_id=schedule.channel_id,query='no matching drama'))
     assert result.items==[]
     assert result.video_updated_at.replace(tzinfo=timezone.utc)==NOW
+
+
+def test_other_channels_pending_same_drama_do_not_warn_on_bound_video(fixture):
+    session, schedule, _ = fixture
+    add_video(session, schedule)
+    schedule.source_video_id = 'candidate01'
+    schedule.planned_utc_time = NOW + timedelta(days=10)
+    other = _schedule_fixture(session)
+    other.drama_id = schedule.drama_id
+    other.source_video_id = None
+    third = _schedule_fixture(session)
+    third.channel_id = other.channel_id
+    third.drama_id = schedule.drama_id
+    third.source_video_id = None
+    session.commit()
+    reviews = schedule_video_reviews(session, [schedule, other], now=NOW)
+    assert 'multiple_schedules' not in [w['code'] for w in reviews[schedule.id]['warnings']]
+    assert 'multiple_schedules' in [w['code'] for w in reviews[other.id]['warnings']]

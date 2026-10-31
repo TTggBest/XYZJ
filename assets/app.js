@@ -760,14 +760,14 @@
     return `<td><input type="checkbox" class="schedule-task-check" value="${esc(item.schedule_id)}" aria-label="选择排期：${esc(item.chinese_title)}" ${canCreateScheduleTask(item) ? "" : "disabled"}></td>`;
   }
   async function showSchedules() {
-    const [channels, dramas] = await Promise.all([api("/channels/overview"), api("/schedules/eligible-dramas")]);
+    const channels = await api("/channels/overview");
     if (!channels.some(channel => channel.channel_id === state.scheduleChannelId)) state.scheduleChannelId = channels[0]?.channel_id || "";
     const date = state.date;
     const fullMode = state.scheduleViewMode === "full";
     const allDayMode = state.scheduleViewMode === "all-day";
     const schedules = !fullMode && (allDayMode || state.scheduleChannelId) ? await api(`/schedules/overview${query({ channel_id: allDayMode ? null : state.scheduleChannelId, date_from: date, date_to: date })}`) : [];
     const full = fullMode && state.scheduleChannelId ? await api(`/schedules/channel-view${query({ channel_id: state.scheduleChannelId, query: state.scheduleFullSearch, sort_order: state.scheduleFullSortOrder, page: state.scheduleFullPage, page_size: state.scheduleFullPageSize })}`) : { page: 1, page_size: state.scheduleFullPageSize, total: 0, items: [] };
-    Object.assign(state, { schedules, channels, dramas, scheduleFull: full });
+    Object.assign(state, { schedules, channels, scheduleFull: full });
     const selectedChannel = channels.find(channel => channel.channel_id === state.scheduleChannelId);
     const listItems = fullMode ? full.items : schedules;
     const selectionHeader = "选择";
@@ -877,6 +877,7 @@
   async function openScheduleForm() {
     const channel = state.channels.find(item => item.channel_id === state.scheduleChannelId);
     if (!channel) return notify("请先选择频道", true);
+    state.dramas = await api("/schedules/eligible-dramas");
     if (!state.dramas.length) return notify("当前没有制剧已全部完成的可排期剧目", true);
     openModal("新建频道排期", `<form class="form-grid" id="scheduleForm"><input type="hidden" name="channel_id" value="${channel.channel_id}"><div class="field"><label>频道</label><input class="input" value="${esc(channel.display_name)}" disabled></div><div class="field"><label>剧目（制剧已全部完成）</label><select class="select" name="drama_id" required><option value="">选择剧目</option>${state.dramas.map(d => `<option value="${d.id}">${esc(d.chinese_title)}</option>`).join("")}</select></div><div class="field"><label>发布日期</label><input class="input" type="date" name="publish_date" value="${state.date}" required></div><div class="field"><label>发布档位</label><select class="select" name="publish_slot_id" id="scheduleSlot" required disabled><option value="">正在读取档位</option></select></div><div class="field"><label>播放列表</label><select class="select" name="playlist_id" id="schedulePlaylist" disabled><option value="">不指定</option></select></div><div class="field"><label>社群数量</label><input class="input" type="number" name="community_count" value="0" min="0" max="20"></div><div class="field"><label>优先级</label><input class="input" type="number" name="priority" value="100" min="0"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存排期</button></div></form>`);
     await loadChannelScheduling(channel.channel_id);
@@ -1752,9 +1753,14 @@
     el("appShell").classList.remove("mobile-nav-open");
     if (!preservePosition) { loading(); renderIcons(); }
     try {
-      if (view !== "accounts") await loadDemoStatus();
+      if (view === "schedules") {
+        await Promise.all([loadDemoStatus(), renderers[view]()]);
+      } else {
+        if (view !== "accounts") await loadDemoStatus();
+        if (actor !== auth.current()) return;
+        await renderers[view]();
+      }
       if (actor !== auth.current()) return;
-      await renderers[view]();
       if (["dashboard", "schedules", "workorders", "packages"].includes(view)) injectDemoBar();
       renderIcons();
       restoreViewPosition(position);
