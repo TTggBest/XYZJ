@@ -167,12 +167,17 @@ def run_read(session, run):
                       "sequence": a.sequence, "error": a.error} for a in rows]}
 
 
-def envelope(session, run):
-    rows = active_attempts(session, run)
+def execution_rules(session, run):
     rules = run.rules_snapshot
     if run.input_snapshot.get('workflow_recovery'):
         from zhiju.services.workflow_versions import resolve
         rules = {**rules, 'skill_bundle': resolve(session, run.input_snapshot['workflow_recovery']['version']['id'])}
+    return rules
+
+
+def envelope(session, run):
+    rows = active_attempts(session, run)
+    rules = execution_rules(session, run)
     # Serialize accepts across the tenant using the same settings row lock used by submit.
     history = list(session.scalars(select(V14Run).where(V14Run.tenant_id == run.tenant_id, V14Run.id != run.id)))
     history_rows = []
@@ -203,7 +208,7 @@ def claim_run(session, host_id: str, *, executor_protocol: int = 2):
         return None
     run = session.scalar(select(V14Run).where(V14Run.id == run_id).with_for_update())
     from zhiju.workflow_bundles import executor_protocol as required_protocol
-    if executor_protocol < required_protocol(run.rules_snapshot):
+    if executor_protocol < required_protocol(execution_rules(session, run)):
         raise ConflictError('当前执行器不支持成套 Skills，请更新本机执行器；任务仍保持待执行')
     run.status, run.claim_id = "running", str(uuid4())
     run.heartbeat_at = datetime.now(timezone.utc)
@@ -221,7 +226,7 @@ def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
     check_claim(run, claim_id)
     rows = active_attempts(session, run)
     done = {a.node_type for a in rows if a.outcome == "accepted"}
-    expected = next((n for n in execution_nodes(run.rules_snapshot) if n not in done), None)
+    expected = next((n for n in execution_nodes(execution_rules(session, run)) if n not in done), None)
     if node_type != expected or any(a.outcome == "running" for a in rows):
         raise ConflictError("节点顺序不正确或已有运行中的尝试")
     sequence = 1 + max((a.sequence for a in attempts(session, run) if a.node_type == node_type), default=0)
@@ -308,7 +313,7 @@ def resume_run(session, run_id, stopped_confirmed, *, retry_content=False):
     if manual_retry:
         active = active_attempts(session, run)
         done = {a.node_type for a in active if a.outcome == "accepted"}
-        node = next((n for n in execution_nodes(run.rules_snapshot) if n not in done), None)
+        node = next((n for n in execution_nodes(execution_rules(session, run)) if n not in done), None)
         failed = [a for a in active if a.node_type == node and a.outcome == "content_error"]
         if not failed:
             raise ConflictError("当前阶段没有可重新尝试的内容失败记录")
@@ -357,4 +362,56 @@ def correct_workflow(session, run_id, version_id, stopped_confirmed, reason):
         'corrected_at': datetime.now(timezone.utc).isoformat(),
     }}
     session.commit()
+    return run_read(session, run)
+
+
+def upgrade_workflow(session, run_id, version_id, stopped_confirmed, reason, *, commit=True):
+    """Move paused V16 work after title to V17, preserving accepted outputs and original snapshots."""
+    session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info['tenant_id']).with_for_update())
+    run = get_run(session, run_id)
+    if not stopped_confirmed or run.status != 'interrupted':
+        raise ConflictError('请确认执行器已停止；只允许切换已中断工单')
+    current_rules = execution_rules(session, run)
+    if current_rules.get('skill_bundle', {}).get('id') == version_id:
+        return run_read(session, run)
+    from zhiju.services.workflow_versions import resolve
+    bundle = resolve(session, version_id)
+    target_rules = {'skill_bundle': bundle}
+    target_nodes = ('search', 'title', 'cover_scene', 'cover', 'description', 'community_scene', 'community', 'merge')
+    if (current_rules.get('skill_bundle', {}).get('label') != 'V16'
+            or bundle['label'] != 'V17' or execution_nodes(target_rules) != target_nodes):
+        raise ConflictError('此入口只支持将 V16 的中断工单切换到 V17 八节点流程')
+    rows = active_attempts(session, run)
+    if {a.node_type for a in rows if a.outcome == 'accepted'} != {'search', 'title'} or any(a.outcome == 'running' for a in rows):
+        raise ConflictError('只允许保留已完成搜索和标题、尚未完成下游的工单切换')
+    from zhiju.v14_runtime.contract import build_stage_input
+    try:
+        build_stage_input({**envelope(session, run), 'rules_snapshot': target_rules}, 'cover_scene')
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ConflictError(f'既有资料无法接入 V17: {exc}') from exc
+    from zhiju.models import ProductionNodeRun
+    from zhiju.services.production import _latest_nodes
+    nodes = {n.node_type: n for n in _latest_nodes(session, run.work_order_id)}
+    for number, name in enumerate(target_nodes, 1):
+        if name in nodes:
+            node = nodes[name]
+            node.sequence_number = number
+            if name not in {'search', 'title'}:
+                node.status, node.worker_key = 'pending', None
+        else:
+            session.add(ProductionNodeRun(work_order_id=run.work_order_id, package_id=run.package_id,
+                node_type=name, sequence_number=number, attempt_number=1,
+                status='queued' if name == 'cover_scene' else 'pending',
+                idempotency_key=f'{run.work_order_id}:{name}:1'))
+    previous = run.input_snapshot.get('workflow_recovery')
+    recovery = {'version': {k: bundle[k] for k in ('id', 'label', 'revision')},
+                'reason': reason, 'corrected_at': datetime.now(timezone.utc).isoformat()}
+    if previous:
+        recovery['previous'] = deepcopy(previous)
+    run.input_snapshot = {**run.input_snapshot, 'workflow_recovery': recovery}
+    run.claim_id = None
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return run_read(session, run)

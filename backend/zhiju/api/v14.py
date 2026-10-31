@@ -151,3 +151,10 @@ def workflow_recovery(run_id: str, body: WorkflowRecoveryRequest,
                       s: Session = Depends(get_tenant_db), p=Depends(operator)):
     return call(service.correct_workflow, s, run_id, body.workflow_version_id,
                 body.stopped_confirmed, body.reason)
+
+
+@router.post("/v14/runs/{run_id}/workflow-upgrade", dependencies=[Depends(require_platform_permission)])
+def workflow_upgrade(run_id: str, body: WorkflowRecoveryRequest,
+                     s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    return call(service.upgrade_workflow, s, run_id, body.workflow_version_id,
+                body.stopped_confirmed, body.reason)

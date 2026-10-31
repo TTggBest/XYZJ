@@ -64,7 +64,7 @@ def update_community(session, kind, entity_id, count):
         rows = v14_runs.attempts(session, run)
         if not {"search", "title", "cover", "description"}.issubset({a.node_type for a in rows if a.outcome == "accepted"}):
             raise ConflictError("缺少已接受上游结果，不能仅补产社群")
-        sequence = v14_runs.execution_nodes(run.rules_snapshot)
+        sequence = v14_runs.execution_nodes(v14_runs.execution_rules(session, run))
         community_nodes = tuple(node for node in sequence if node in {'community_scene', 'community', 'merge'})
         snapshot = deepcopy(run.input_snapshot)
         snapshot["community_count"] = count
