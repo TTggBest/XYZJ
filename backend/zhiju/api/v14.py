@@ -8,13 +8,14 @@ from sqlalchemy.orm import Session
 from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
 from zhiju.models import WorkOrder
 from zhiju.models.v14 import V14Run
-from zhiju.schemas.v14 import (V14SettingsWrite, ClaimRequest, AttemptStart, AttemptSubmission, ClaimIdentity, ResumeRequest)
+from zhiju.schemas.v14 import (V14SettingsWrite, ClaimRequest, AttemptStart, AttemptSubmission, ClaimIdentity, ResumeRequest, WorkflowRecoveryRequest)
 from zhiju.services import v14_runs as service
 from zhiju.services.identity import ConflictError
 from zhiju.services.channel import NotFoundError
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.api.auth import require_same_origin
 from zhiju.services.v14_sessions import authorize_executor
+from zhiju.permissions import require_platform_permission
 
 router = APIRouter(prefix="/v3", tags=["v14"])
 
@@ -139,3 +140,10 @@ def cancel(run_id: str, s: Session = Depends(get_tenant_db), p=Depends(operator)
 @router.post("/v14/runs/{run_id}/resume")
 def resume(run_id: str, body: ResumeRequest, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     return call(service.resume_run, s, run_id, body.stopped_confirmed, retry_content=body.retry_content)
+
+
+@router.post("/v14/runs/{run_id}/workflow-recovery", dependencies=[Depends(require_platform_permission)])
+def workflow_recovery(run_id: str, body: WorkflowRecoveryRequest,
+                      s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    return call(service.correct_workflow, s, run_id, body.workflow_version_id,
+                body.stopped_confirmed, body.reason)

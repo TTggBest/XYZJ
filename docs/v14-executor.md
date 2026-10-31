@@ -61,6 +61,8 @@ Ctrl-C/停止 LaunchAgent 后，先确认 Codex 子进程已退出，再在智�
 
 ## 完成边界
 
+输入构建故障修复后，平台管理员可对已中断、搜索与标题已接受且封面出现系统错误的工单，调用 `POST /api/v3/v14/runs/{run_id}/workflow-recovery`，传入 `workflow_version_id`、`stopped_confirmed=true` 和 `reason`。目标必须是同一工作流的已发布新修订，封面输出 Schema 必须一致。此操作只在 `input_snapshot.workflow_recovery` 记录纠正版本、原因和时间；原 `rules_snapshot`、原业务输入与接受结果保留，状态仍为中断，不领取任务。后续现有恢复入口和服务端验收均使用该纠正版本；界面显示有效版本，原版本仍可查。发布版本归档不可覆盖，同一工单不能重复更换纠正版本。
+
 模型读取云端快照，当前工单按六节点运行；每次内容失败最多初次加两次修复，系统错误另计。文本完成显示 text_ready，现有运营包进入 review_pending 等待审核，不代表图片已生成或最终交付。
 
 首次真实验收需要明确选择一个未生产的测试工单和模型，再授权启动。不自动安装、不自动发布 YouTube、不自动写飞书。

@@ -667,7 +667,8 @@ def list_package_operation_overview(
     if not package_ids:
         return []
     from zhiju.models.v14 import V14Run
-    workflow_versions = {r.package_id: r.input_snapshot.get('workflow_version') for r in session.scalars(
+    workflow_versions = {r.package_id: (r.input_snapshot.get('workflow_recovery', {}).get('version')
+                                     or r.input_snapshot.get('workflow_version')) for r in session.scalars(
         select(V14Run).where(V14Run.package_id.in_(package_ids)))}
     channel_ids = {package.channel_id for package, *_ in rows}
 

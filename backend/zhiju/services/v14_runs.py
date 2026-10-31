@@ -147,7 +147,8 @@ def run_read(session, run):
     rows = attempts(session, run)
     status = execution_status(run.status, run.heartbeat_at)
     return {"run_id": run.id, "work_order_id": run.work_order_id, "package_id": run.package_id,
-        "workflow_version": run.input_snapshot.get('workflow_version'),
+        "workflow_version": run.input_snapshot.get('workflow_recovery', {}).get('version') or run.input_snapshot.get('workflow_version'),
+        "original_workflow_version": run.input_snapshot.get('workflow_version'),
         "status": status, "claim_id": run.claim_id, "model": run.model, "host_id": run.host_id, "error": run.error,
         "attempts": [{"attempt_id": a.id, "node_type": a.node_type, "outcome": a.outcome,
                       "sequence": a.sequence, "error": a.error} for a in rows]}
@@ -155,6 +156,10 @@ def run_read(session, run):
 
 def envelope(session, run):
     rows = active_attempts(session, run)
+    rules = run.rules_snapshot
+    if run.input_snapshot.get('workflow_recovery'):
+        from zhiju.services.workflow_versions import resolve
+        rules = {**rules, 'skill_bundle': resolve(session, run.input_snapshot['workflow_recovery']['version']['id'])}
     # Serialize accepts across the tenant using the same settings row lock used by submit.
     history = list(session.scalars(select(V14Run).where(V14Run.tenant_id == run.tenant_id, V14Run.id != run.id)))
     history_rows = []
@@ -165,7 +170,7 @@ def envelope(session, run):
                                      "node_type": a.node_type, "payload": a.payload})
     return {**run_read(session, run), "tenant_id": run.tenant_id, "claim_id": run.claim_id,
         "account_profile": run.account_profile, "input_snapshot": run.input_snapshot,
-        "rules_snapshot": run.rules_snapshot, "creative_history": history_rows,
+        "rules_snapshot": rules, "creative_history": history_rows,
         "accepted_results": {a.node_type: a.payload for a in rows if a.outcome == "accepted"},
         "retry_state": [{"node_type": a.node_type, "outcome": a.outcome, "error": a.error} for a in rows]}
 
@@ -292,5 +297,40 @@ def resume_run(session, run_id, stopped_confirmed, *, retry_content=False):
         if a.outcome == "running":
             a.outcome, a.error = "interrupted", "原执行已停止"
     run.claim_id, run.status, run.error = None, "queued", None
+    session.commit()
+    return run_read(session, run)
+
+
+def correct_workflow(session, run_id, version_id, stopped_confirmed, reason):
+    """Pin an explicit input-build correction for an interrupted cover, without enqueueing."""
+    session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info['tenant_id']).with_for_update())
+    run = get_run(session, run_id)
+    if not stopped_confirmed or run.status != 'interrupted':
+        raise ConflictError('仅允许在确认执行器停止后纠正已中断工单')
+    previous = run.input_snapshot.get('workflow_recovery')
+    if previous:
+        if previous['version']['id'] == version_id:
+            return run_read(session, run)
+        raise ConflictError('本工单已有版本纠正记录，请先审阅现有纠正')
+    rows = active_attempts(session, run)
+    if {a.node_type for a in rows if a.outcome == 'accepted'} != {'search', 'title'}:
+        raise ConflictError('此入口仅修复已完成搜索和标题、尚未完成封面的工单')
+    if not any(a.node_type == 'cover' and a.outcome == 'system_error' for a in rows):
+        raise ConflictError('当前封面阶段没有系统错误')
+    from zhiju.services.workflow_versions import resolve
+    bundle = resolve(session, version_id)
+    original = run.rules_snapshot.get('skill_bundle', {})
+    if bundle['label'] != original.get('label') or bundle['revision'] <= original.get('revision', 0):
+        raise ConflictError('纠正必须选择同一工作流的已发布新修订')
+    from zhiju.v14_runtime.contract import build_stage_input
+    current = envelope(session, run)
+    replacement = {**current, 'rules_snapshot': {**run.rules_snapshot, 'skill_bundle': bundle}}
+    if build_stage_input(current, 'cover').schema != build_stage_input(replacement, 'cover').schema:
+        raise ConflictError('输入修复不能改变封面输出结构')
+    run.input_snapshot = {**run.input_snapshot, 'workflow_recovery': {
+        'version': {k: bundle[k] for k in ('id', 'label', 'revision')},
+        'reason': reason,
+        'corrected_at': datetime.now(timezone.utc).isoformat(),
+    }}
     session.commit()
     return run_read(session, run)

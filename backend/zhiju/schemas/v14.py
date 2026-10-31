@@ -36,5 +36,11 @@ class ResumeRequest(BaseModel):
     retry_content: bool = False
 
 
+class WorkflowRecoveryRequest(BaseModel):
+    workflow_version_id: str
+    stopped_confirmed: bool = False
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class ClaimIdentity(BaseModel):
     claim_id: str
