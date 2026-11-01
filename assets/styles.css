@@ -949,3 +949,21 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .skill-default-badge svg { width:17px;height:17px; }
 .skill-source-preview { max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f5f8f6; border-radius:8px; padding:18px; line-height:1.6; font-size:13px; }
 @media(max-width:900px) { .skill-catalog { grid-template-columns:1fr; } .skill-category-nav { display:flex; overflow:auto; gap:8px; border-right:0; border-bottom:1px solid #dce5e1; } .skill-category { min-width:180px; margin:0; } .skill-category-content {padding:16px;} .skill-category-head {flex-wrap:wrap;} }
+
+/* Analysis uploads: keep acquisition guidance beside its corresponding input. */
+#channelAnalysisMaterialsForm { display: grid; gap: 14px; }
+.analysis-materials-intro { padding: 12px; background: var(--bg); border-radius: 6px; }
+.analysis-materials-intro p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.analysis-material-slot { min-width: 0; padding: 14px 0; border-top: 1px solid var(--line); gap: 8px; }
+.analysis-material-slot > label { color: var(--text); font-size: 14px; }
+.analysis-material-path { margin: 0; padding: 8px 10px; background: var(--bg); border-radius: 5px; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.analysis-material-path strong { display: block; color: var(--muted); font-size: 11px; }
+.analysis-material-help { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.analysis-material-slot input[type="file"] { width: 100%; min-width: 0; font-size: 12px; }
+.analysis-material-uploaded { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+#channelAnalysisMaterialsForm > button { justify-self: start; }
+
+.analysis-material-uploaded { display: flex; align-items: center; gap: 6px; }
+.analysis-material-uploaded svg { flex-shrink: 0; width: 17px; height: 17px; }
+.analysis-material-uploaded.is-green { color: var(--green); }
+.analysis-material-uploaded.is-red { color: var(--red); }

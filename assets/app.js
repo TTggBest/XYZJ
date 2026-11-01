@@ -518,8 +518,30 @@
     return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : "待同步"}</p><div class="row-actions">${run.status === "draft" ? `<button class="button button-secondary" data-action="edit-analysis-materials" data-id="${run.id}">上传材料并开始</button>` : ""}${["running","failed"].includes(run.status) ? `<button class="button button-secondary" data-action="resume-channel-analysis" data-id="${run.id}">继续分析</button>` : ""}${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary" data-action="cancel-channel-analysis" data-id="${run.id}">取消</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}${(["queued","applied"].includes(run.status) || (run.status === 'ready' && run.mirror_status !== 'completed')) ? `<button class="button button-secondary" data-action="wake-channel-analysis" data-id="${run.id}">${run.status === 'ready' ? '重试交付文件' : run.status === "applied" ? "同步本地文件" : "重试唤起"}</button>` : ""}</div></article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
   }
   function analysisMaterialsForm(run) {
-    const slots = [["studio_zip","Studio 最近28天内容导出 ZIP",".zip"],["videos","内容 → 视频截图","image/png,image/jpeg,image/webp"],["audience","观众页截图","image/png,image/jpeg,image/webp"],["posts","帖子页截图","image/png,image/jpeg,image/webp"],["ab","已完成 A/B 测试截图（可多选）","image/png,image/jpeg,image/webp"]];
-    return `<form id="channelAnalysisMaterialsForm" data-run-id="${run.id}"><p>${run.mode === "initial" ? "冷启动无需上传运营数据，初始定位已随任务保存。" : "上传真实材料。日期与频道身份将结合文件内容核对；每个文件最多32MB。"}</p>${run.mode === "periodic" ? slots.map(([key,text,accept]) => `<div class="field"><label>${text}</label><input type="file" name="${key}" accept="${accept}" ${key === "ab" ? "multiple" : ""}><span>${run.materials.filter(m => m.kind === key).map(m => esc(m.name)).join("、") || "尚未上传"}</span></div>`).join("") : ""}<button class="button button-primary" type="submit">保存材料并开始</button></form>`;
+    const slots = [
+      {key:"studio_zip", title:"28天数据 · Studio 内容导出 ZIP", accept:".zip", path:"YouTube Studio → 数据分析 → 高级模式 → 内容 → 最近28天 → 右上角导出当前视图 → CSV", help:"上传下载得到的原始 ZIP，不用解压。通常包含「表格数据.csv」「图表数据.csv」「总计.csv」。", detail:"数据应包含：内容 / 视频 ID、标题、发布日期、时长、观看次数、观看时长、订阅人数、展示次数和展示点击率；回访观众、收入等字段以 Studio 实际提供为准。只需这一份28天 ZIP，无需另传7天数据。"},
+      {key:"videos", title:"截图 1 · 内容 → 视频", accept:"image/png,image/jpeg,image/webp", path:"YouTube Studio → 数据分析 → 内容 → 视频", help:"日期选择与 ZIP 相同的最近28天，截取完整页面。", detail:"包含：观看次数、展示次数、展示点击率、平均观看时长、开头留存 / 前30秒表现、流量来源和热门视频。建议命名：内容_视频_28天.png。"},
+      {key:"audience", title:"截图 2 · 观众", accept:"image/png,image/jpeg,image/webp", path:"YouTube Studio → 数据分析 → 观众", help:"日期选择与 ZIP 相同的最近28天，截取完整页面及所有可见卡片。", detail:"包含：月度观众、新 / 回访观众、订阅状态、年龄与性别、设备、地区、字幕语言、观众在线时间及还看哪些频道 / 内容。Studio 显示「数据不足」的卡片照常截图，无需补数据。建议命名：观众_28天.png。"},
+      {key:"posts", title:"截图 3 · 内容 → 帖子", accept:"image/png,image/jpeg,image/webp", path:"YouTube Studio → 数据分析 → 内容 → 帖子", help:"日期选择与 ZIP 相同的最近28天，截取完整页面。", detail:"包含：帖子展示次数、点赞、订阅人数和热门帖子。如果从未发帖，请在创建分析任务时勾选「从未发布帖子」，无需上传此图。建议命名：帖子_28天.png。"},
+      {key:"ab", title:"已完成 A/B 测试截图（可多选）", accept:"image/png,image/jpeg,image/webp"}
+    ];
+    return `<form id="channelAnalysisMaterialsForm" data-run-id="${run.id}">${run.mode === "initial" ? `<p>冷启动无需上传运营数据，初始定位已随任务保存。</p>` : `<div class="analysis-materials-intro"><strong>先准备：1份28天 ZIP + 3张分析截图</strong><p>全部材料来自同一个频道，日期范围保持一致。截图请包含频道名称和日期；每个文件最多32MB，图片支持 PNG、JPG、WebP。</p></div>`}${run.mode === "periodic" ? slots.map(({key,title,accept,path,help,detail}) => `<section class="field analysis-material-slot"><label for="analysis-material-${key}">${title}</label>${path ? `<p class="analysis-material-path"><strong>获取位置</strong>${path}</p><p class="analysis-material-help">${help}</p><p class="analysis-material-help">${detail}</p>` : ""}<input type="file" id="analysis-material-${key}" name="${key}" accept="${accept}" ${key === "ab" ? "multiple" : ""}><span class="analysis-material-uploaded ${run.materials.some(m => m.kind === key) ? "is-green" : ""}" role="status" aria-live="polite" data-saved-names="${esc(JSON.stringify(run.materials.filter(m => m.kind === key).map(m => m.name)))}">${run.materials.some(m => m.kind === key) ? `${icon("circle-check")} 已上传 · ${run.materials.filter(m => m.kind === key).map(m => esc(m.name)).join("、")}` : "未选择文件"}</span></section>`).join("") : ""}<button class="button button-primary" type="submit">保存材料并开始</button></form>`;
+  }
+  function updateAnalysisMaterialStatus(input, stage = "selected") {
+    const status = input.closest(".analysis-material-slot").querySelector(".analysis-material-uploaded");
+    const saved = JSON.parse(status.dataset.savedNames || "[]");
+    const files = Array.from(input.files || []);
+    const names = files.map(file => file.name);
+    const success = stage === "uploaded" || (stage === "selected" && (names.length || saved.length));
+    status.classList.toggle("is-green", !!success);
+    status.classList.toggle("is-red", stage === "failed");
+    const message = stage === "uploading" ? `正在上传 · ${names.join("、")}`
+      : stage === "failed" ? "上传失败，请重试；已成功保存的材料会保留"
+      : stage === "uploaded" ? `已上传 · ${saved.join("、")}`
+      : names.length ? `已选择 ${names.length} 个文件 · 点击下方按钮保存上传`
+      : saved.length ? `已上传 · ${saved.join("、")}` : "未选择文件";
+    status.innerHTML = `${success ? icon("circle-check") + " " : ""}${esc(message)}`;
+    renderIcons();
   }
   function downloadAnalysisText(text, filename) {
     const url=URL.createObjectURL(new Blob([text],{type:"text/plain;charset=utf-8"}));
@@ -1999,6 +2021,10 @@
 
   document.addEventListener("change", event => {
     if (!auth.current()) return;
+    if (event.target.matches('#channelAnalysisMaterialsForm input[type="file"]')) {
+      updateAnalysisMaterialStatus(event.target);
+      return;
+    }
     if (event.target.id === "channelAudienceFilter") state.channelAudience = event.target.value || "";
     else if (event.target.id === "channelLanguageFilter") state.channelLanguage = event.target.value || "";
     else return;
@@ -2858,10 +2884,21 @@
         try {
           const runId=form.dataset.runId;
           for (const input of form.querySelectorAll('input[type="file"]')) {
-            for (const file of input.files) {
-              const body=new FormData();body.append("kind",input.name);body.append("file",file);
-              await api(`/analysis-runs/${runId}/materials`,{method:"POST",body,expectedRevision});
-            }
+            if (!input.files.length) continue;
+            const status=input.closest(".analysis-material-slot").querySelector(".analysis-material-uploaded");
+            const saved=JSON.parse(status.dataset.savedNames || "[]");
+            updateAnalysisMaterialStatus(input,"uploading");
+            try {
+              const pending=Array.from(input.files);
+              for (let index=0;index<pending.length;index++) {
+                const file=pending[index];
+                const body=new FormData();body.append("kind",input.name);body.append("file",file);
+                await api(`/analysis-runs/${runId}/materials`,{method:"POST",body,expectedRevision});
+                saved.push(file.name);status.dataset.savedNames=JSON.stringify(saved);
+                const remaining=new DataTransfer();pending.slice(index+1).forEach(item=>remaining.items.add(item));input.files=remaining.files;
+              }
+              updateAnalysisMaterialStatus(input,"uploaded");
+            } catch(error) {updateAnalysisMaterialStatus(input,"failed");throw error;}
           }
           const config={...await prepareV14Executor(expectedRevision),task_type:"channel_analysis"};
           await api(`/analysis-runs/${runId}/start`,{method:"POST",expectedRevision});
