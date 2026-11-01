@@ -967,3 +967,10 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .analysis-material-uploaded svg { flex-shrink: 0; width: 17px; height: 17px; }
 .analysis-material-uploaded.is-green { color: var(--green); }
 .analysis-material-uploaded.is-red { color: var(--red); }
+
+.analysis-run-actions { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 24px; margin-top: 14px; }
+.analysis-secondary-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.analysis-cancel { color: var(--red); }
+.analysis-primary-slot { min-width: 150px; display: flex; justify-content: flex-end; }
+.analysis-primary-slot > button { min-width: 150px; }
+@media(max-width:600px) { .analysis-run-actions { gap: 16px; } .analysis-primary-slot, .analysis-primary-slot > button { min-width: 126px; } }

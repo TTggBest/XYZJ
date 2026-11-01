@@ -509,13 +509,24 @@
     ]);
     return { reports, metrics, runs };
   }
+  const analysisActionPending = new Set();
+  function analysisRunActions(run) {
+    const busy=analysisActionPending.has(run.id);
+    const action=run.status === "draft" ? "edit-analysis-materials"
+      : ["failed","cancelled"].includes(run.status) ? "resume-channel-analysis"
+      : ["queued","applied"].includes(run.status) || (run.status === "ready" && run.mirror_status !== "completed") ? "wake-channel-analysis" : "";
+    const label=run.status === "draft" ? "上传材料并开始" : run.status === "cancelled" ? "恢复分析"
+      : run.status === "failed" ? "继续分析" : run.status === "running" ? "分析中"
+      : run.status === "applied" ? "同步本地文件" : run.status === "ready" ? "重试交付文件" : "重试唤起";
+    return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
+  }
   function analysisRunCards(detail) {
     if ((detail.analysis_runs || []).some(run => run.mode === "periodic" && run.status === "failed" && /授权|[Pp]ermission/.test(run.error || ""))) {
       youtubeReauthorizationChannels.add(detail.channel.id);
       renderYouTubeReauthorizationNotice();
     }
     const phases = {materials:"待补材料",authorization:"核验授权与采集",analysis:"分析与生成规范",ready:"分析完成，待应用"};
-    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : "待同步"}</p><div class="row-actions">${run.status === "draft" ? `<button class="button button-secondary" data-action="edit-analysis-materials" data-id="${run.id}">上传材料并开始</button>` : ""}${["running","failed","cancelled"].includes(run.status) ? `<button class="button button-secondary" data-action="resume-channel-analysis" data-id="${run.id}">${run.status === "cancelled" ? "恢复分析" : "继续分析"}</button>` : ""}${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary" data-action="cancel-channel-analysis" data-id="${run.id}">取消</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}${(["queued","applied"].includes(run.status) || (run.status === 'ready' && run.mirror_status !== 'completed')) ? `<button class="button button-secondary" data-action="wake-channel-analysis" data-id="${run.id}">${run.status === 'ready' ? '重试交付文件' : run.status === "applied" ? "同步本地文件" : "重试唤起"}</button>` : ""}</div></article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
+    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : "待同步"}</p>${analysisRunActions(run)}</article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
   }
   function analysisMaterialsForm(run) {
     const slots = [
@@ -2463,18 +2474,33 @@
       }
       else if (action === "refresh-channel-analysis") await showChannelDetail(id,"analysis");
       else if (action === "cancel-channel-analysis") {
+        if (analysisActionPending.has(id)) return;
+        if (!window.confirm("确定取消这条分析任务？已上传材料会保留，可稍后恢复。")) return;
         await api(`/analysis-runs/${id}/cancel`,{method:"POST"});await showChannelDetail(state.channelDetailId,"analysis");
       }
       else if (["apply-channel-analysis","resume-channel-analysis","wake-channel-analysis"].includes(action)) {
-        const config={...await prepareV14Executor(auth.capture()),task_type:"channel_analysis"};
-        if (action === "resume-channel-analysis") {
-          if (!window.confirm("请确认上次本机分析已停止，再继续。已保存的数据会保留。")) return;
-          const restored=await api(`/analysis-runs/${id}/resume`,{method:"POST",body:JSON.stringify({stopped_confirmed:true})});
-          if (restored.status === "draft") {openModal("分析材料",analysisMaterialsForm(restored));await showChannelDetail(state.channelDetailId,"analysis");return;}
-        } else if (action === "apply-channel-analysis") {
-          await api(`/analysis-runs/${id}/apply`,{method:"POST"});notify("分析版本已应用，新运营包将使用此规范");
+        if (analysisActionPending.has(id)) return;
+        if (action === "resume-channel-analysis" && !window.confirm("请确认上次本机分析已停止，再继续。已保存的数据会保留。")) return;
+        analysisActionPending.add(id);
+        const label=button.textContent;
+        button.disabled=true;button.textContent="正在唤起…";
+        notify("正在连接本机执行器，请稍候…");
+        try {
+          const config={...await prepareV14Executor(auth.capture()),task_type:"channel_analysis"};
+          if (action === "resume-channel-analysis") {
+            const restored=await api(`/analysis-runs/${id}/resume`,{method:"POST",body:JSON.stringify({stopped_confirmed:true})});
+            if (restored.status === "draft") {openModal("分析材料",analysisMaterialsForm(restored));return;}
+          } else if (action === "apply-channel-analysis") {
+            await api(`/analysis-runs/${id}/apply`,{method:"POST"});notify("分析版本已应用，新运营包将使用此规范");
+          }
+          await localV14Request("/start",config);
+          const current=await api(`/analysis-runs/${id}`);
+          notify(current.status === "running" ? "分析已在执行，可点击刷新进度查看" : "已唤起本机执行器，等待领取任务；无需重复点击");
+        } finally {
+          analysisActionPending.delete(id);
+          if (button.isConnected) {button.disabled=false;button.textContent=label;}
         }
-        await localV14Request("/start",config);await showChannelDetail(state.channelDetailId,"analysis");
+        await showChannelDetail(state.channelDetailId,"analysis");
       }
       else if (action === "view-analysis-result") {
         const run=await api(`/analysis-runs/${id}`);
