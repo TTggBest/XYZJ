@@ -373,3 +373,31 @@ def test_analysis_task_freezes_selected_catalog_version(session):
     assert 'output-contract.md' in second.input_snapshot['rules']
     assert 'scripts/validate_generation_spec.py' in second.input_snapshot['skill_version']['files']
     assert first.input_snapshot==frozen
+
+
+def test_cancelled_analysis_resumes_with_original_materials_and_snapshot(session):
+    s,c=session
+    run=service.create_run(s,c.id,mode='initial',positioning='新频道')
+    service.start_run(s,run.id)
+    old_claim=service.claim_run(s,'host')['claim_id']
+    run.materials=[{'id':'original','kind':'audience','name':'audience.png'}]
+    s.commit()
+    snapshot=dict(run.input_snapshot)
+    service.cancel_run(s,run.id)
+    with pytest.raises(ConflictError):service.resume_run(s,run.id,False)
+    restored=service.resume_run(s,run.id,True)
+    assert restored.status=='queued'
+    assert restored.claim_id is None
+    assert restored.materials[0]['id']=='original'
+    assert restored.input_snapshot==snapshot
+    with pytest.raises(ConflictError):service.claimed(s,run.id,old_claim)
+
+
+def test_cancelled_materials_draft_returns_to_upload_instead_of_running(session,monkeypatch):
+    from zhiju.services import channel_analysis_sources
+    monkeypatch.setattr(channel_analysis_sources,'verify_authorization',lambda *args:('token',{},{}))
+    s,c=session
+    run=service.create_run(s,c.id,mode='periodic')
+    service.cancel_run(s,run.id)
+    assert service.resume_run(s,run.id,True).status=='draft'
+    with pytest.raises(ConflictError,match='ZIP|截图'):service.start_run(s,run.id)

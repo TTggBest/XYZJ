@@ -180,9 +180,11 @@ def cancel_run(session,run_id):
 
 def resume_run(session,run_id,stopped_confirmed=False):
     run=get_run(session,run_id,True)
-    if not stopped_confirmed or run.status not in {'failed','running'}:
+    if not stopped_confirmed or run.status not in {'failed','running','cancelled'}:
         raise ConflictError('继续前请确认旧执行已停止')
-    run.claim_id=None;run.error=None;run.status='queued';session.commit();return run
+    run.claim_id=None;run.error=None
+    run.status='draft' if run.phase=='materials' else 'queued'
+    session.commit();return run
 
 
 def validate_result(run,result):
