@@ -187,6 +187,34 @@ def resume_run(session,run_id,stopped_confirmed=False):
     session.commit();return run
 
 
+def validate_screenshot_checks(run,checks):
+    for material in run.materials:
+        if material['kind']=='studio_zip':continue
+        check=checks.get(material['id'],{})
+        identity_and_page=all(check.get(key) is True for key in ('identity_matches','page_matches'))
+        window_verified=isinstance(check.get('window_matches'),bool) if material['kind']=='ab' else check.get('window_matches') is True
+        if not identity_and_page or not window_verified or not isinstance(check.get('evidence'),str) or not check['evidence'].strip():
+            raise ConflictError('截图频道、页面或周期未核实：'+material['name'])
+
+
+def record_screenshot_checks(session,run_id,claim_id,checks):
+    from zhiju.services.channel_analysis_normalize import validate_screenshot_observations,formal_snapshot
+    run=claimed(session,run_id,claim_id)
+    if run.mode!='periodic':raise ConflictError('仅正式分析需要读取截图')
+    validate_screenshot_checks(run,checks)
+    try:validate_screenshot_observations(checks)
+    except ValueError as exc:raise ConflictError(str(exc)) from exc
+    known_ids={item['id'] for item in run.input_snapshot['sources']['fact_snapshot'].get('video_inventory',[])}
+    for check in checks.values():
+        for item in [check]+check.get('observations',[]):
+            if item.get('video_id') is not None and item['video_id'] not in known_ids:
+                raise ConflictError('截图视频ID不在已确认视频清单中')
+    snapshot=copy.deepcopy(run.input_snapshot)
+    snapshot['sources']['screenshot_checks']=copy.deepcopy(checks)
+    snapshot['sources']['fact_snapshot']=formal_snapshot(snapshot['sources'],snapshot['channel'])
+    run.input_snapshot=snapshot;run.phase='analysis';session.commit();return run
+
+
 def validate_result(run,result):
     for key in ('profile','diagnosis','generation_spec'):
         if not isinstance(result.get(key),str) or not result[key].strip():raise ConflictError('缺少完整三份分析文件')
@@ -224,14 +252,7 @@ def validate_result(run,result):
         validate_formal_result(run,result,strategy)
         if not run.input_snapshot.get('sources_complete'):
             raise ConflictError('正式分析尚未完成数据采集')
-        checks=result.get('material_checks',{})
-        for material in run.materials:
-            if material['kind']=='studio_zip':continue
-            check=checks.get(material['id'],{})
-            identity_and_page=all(check.get(key) is True for key in ('identity_matches','page_matches'))
-            window_verified=isinstance(check.get('window_matches'),bool) if material['kind']=='ab' else check.get('window_matches') is True
-            if not identity_and_page or not window_verified or not isinstance(check.get('evidence'),str) or not check['evidence'].strip():
-                raise ConflictError('截图频道、页面或周期未核实：'+material['name'])
+        validate_screenshot_checks(run,result.get('material_checks',{}))
     result=copy.deepcopy(result)
     if run.mode!='periodic':
         result['normalized_snapshot']['authoritative_sources']=run.input_snapshot.get('sources',{})

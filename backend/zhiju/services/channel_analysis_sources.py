@@ -1,6 +1,7 @@
 """Read-only Google collection and native Studio archive normalization."""
 import csv
 import io
+import copy
 import json
 from datetime import datetime, timedelta, timezone, date
 from zoneinfo import ZoneInfo
@@ -72,7 +73,15 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
             'normalized':cold_start_snapshot(snapshot['channel'],snapshot['initial_facts'])}
         snapshot['sources_complete']=True;run.input_snapshot=snapshot;run.phase='analysis'
         session.commit();return run
-    if run.input_snapshot.get('sources_complete'):return run
+    if run.input_snapshot.get('sources_complete'):
+        if run.mode=='periodic' and run.input_snapshot.get('normalization_revision')!=3:
+            from zhiju.services.channel_analysis_normalize import formal_snapshot
+            snapshot=copy.deepcopy(run.input_snapshot)
+            snapshot['sources']['normalized']=normalize_sources(snapshot['sources'],snapshot['channel'],run.mode)
+            snapshot['sources']['fact_snapshot']=formal_snapshot(snapshot['sources'],snapshot['channel'])
+            snapshot['normalization_revision']=3;run.input_snapshot=snapshot
+            session.commit()
+        return run
     snapshot=dict(run.input_snapshot);channel=snapshot['channel']
     sources=snapshot.get('sources') or {}
     def checkpoint():
@@ -197,5 +206,5 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         from zhiju.services.channel_analysis_normalize import formal_snapshot
         sources['fact_snapshot']=formal_snapshot(sources,channel)
     claimed(session,run_id,claim_id)
-    snapshot['sources']=sources;snapshot['sources_complete']=True;run.input_snapshot=snapshot;run.phase='analysis'
+    snapshot['sources']=sources;snapshot['sources_complete']=True;snapshot['normalization_revision']=3;run.input_snapshot=snapshot;run.phase='analysis'
     session.commit();return run

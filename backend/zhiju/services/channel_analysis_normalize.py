@@ -1,10 +1,41 @@
 """Source-scoped arithmetic; absent values are never numeric zero."""
-from datetime import date
+from datetime import date,datetime
+import math
 
 
 def number(value):
     try:return float(str(value).replace(',','').replace('%','').strip())
     except (ValueError,TypeError):return None
+
+
+STUDIO_COLUMNS={
+    'views':('观看次数','Views'), 'impressions':('缩略图展示次数','展示次数','Impressions'),
+    'ctr_percent':('缩略图点击率 (%)','展示点击率 (%)','Impressions click-through rate (%)'),
+    'watch_hours':('观看时长（小时）','观看时长 (小时)','Watch time (hours)'),
+    'subscribers_net':('订阅人数','Subscribers'), 'subscribers_gained':('获得的订阅人数','Subscribers gained'),
+    'average_percentage_viewed':('平均观看百分比 (%)','Average percentage viewed (%)'),
+    'returning_viewers':('回访观看者人数','Returning viewers'), 'revenue':('估算收入','Estimated revenue'),
+    'duration_seconds':('时长','Duration')}
+
+
+def studio_metrics(row):
+    metrics={key:next((number(row[name]) for name in names if name in row),'unavailable') for key,names in STUDIO_COLUMNS.items()}
+    metrics={key:value if value is not None else 'unavailable' for key,value in metrics.items()}
+    duration=row.get('平均观看时长',row.get('Average view duration'))
+    try:
+        parts=[float(part) for part in duration.split(':')]
+        metrics['average_view_duration_seconds']=sum(value*60**i for i,value in enumerate(reversed(parts)))
+    except (AttributeError,ValueError):metrics['average_view_duration_seconds']='unavailable'
+    return metrics
+
+
+def api_coverage(rows,window):
+    days=sorted({str(row['day']) for row in rows if row.get('day')})
+    return {'requested_window':window,'returned_rows':len(rows),
+        'observed_start':days[0] if days else 'unavailable',
+        'observed_end':days[-1] if days else 'unavailable','returned_days':len(days),
+        'requested_end_returned':bool(days and window and days[-1]==window['end']),
+        'interpretation':'Only returned days are observed; missing dates are not assumed zero or complete.'}
 
 
 def studio_period(files):
@@ -28,26 +59,34 @@ def normalize_sources(sources,channel,mode):
             for page in dataset.get('pages',[]):
                 names=[h['name'] for h in page.get('columnHeaders',[])]
                 rows.extend(dict(zip(names,row)) for row in page.get('rows',[]))
-            records[key]={'status':dataset['status'],'rows':rows,'window':dataset.get('window'),'reason':dataset.get('reason')}
+            records[key]={'status':dataset['status'],'rows':rows,'window':dataset.get('window'),'reason':dataset.get('reason'),
+                'coverage':api_coverage(rows,dataset.get('window')) if key.endswith(':daily') else {'returned_rows':len(rows),'requested_window':dataset.get('window'),'completeness':'not established from returned rows'}}
     totals='unavailable';weighted='unavailable';content=[]
     for asset_id,files in sources.get('studio',{}).items():
         for filename,rows in files.items():
-            if '总计' in filename or 'totals' in filename.lower():
-                if rows:totals={'source':asset_id+'/'+filename,'scope':'all_content','values':rows[0]}
             if '表格' in filename or 'table' in filename.lower():
                 denominator=numerator=0.0
                 for row in rows:
                     # Ignore the aggregate row; never count it along with individual videos.
                     identity=row.get('内容') or row.get('视频 ID') or row.get('Content') or row.get('Video') or row.get('Video ID')
-                    if not identity or identity in {'总计','Total','Totals'}:continue
+                    if identity in {'总计','Total','Totals'}:
+                        totals={'source':asset_id+'/'+filename,'scope':'studio_exported_content',
+                            'filter':'ZIP does not record the UI content-type filter; do not relabel as all-content',
+                            'values':dict(row),'metrics':studio_metrics(row)}
+                        continue
+                    if not identity:continue
                     content.append({'video_id':identity,'source':asset_id+'/'+filename,
-                        'scope':'exported_content_row','values':dict(row)})
-                    impressions=number(row.get('展示次数',row.get('Impressions')))
-                    ctr=number(row.get('展示点击率 (%)',row.get('Impressions click-through rate (%)')))
+                        'scope':'exported_content_row','values':dict(row),'metrics':studio_metrics(row)})
+                    impressions=number(studio_metrics(row)['impressions'])
+                    ctr=number(studio_metrics(row)['ctr_percent'])
                     if impressions is not None and ctr is not None and impressions>=0:
                         denominator+=impressions;numerator+=impressions*ctr
                 if denominator:weighted={'value_percent':numerator/denominator,'impressions':denominator,
                     'source':asset_id+'/'+filename,'scope':'exported_content_rows_only'}
+    if isinstance(totals,dict) and totals['metrics']['returning_viewers']==0 and any(
+        (number(row['metrics']['returning_viewers']) or 0)>0 for row in content):
+        totals['metrics']['returning_viewers']='unavailable'
+        totals['returning_viewers_issue']='Export aggregate reports zero while individual rows have returning viewers; aggregate zero is not trustworthy, and rows must not be summed.'
     derived=[]
     for record in records.get('28:videos',{}).get('rows',[]):
         views=number(record.get('views'));minutes=number(record.get('estimatedMinutesWatched'))
@@ -60,6 +99,36 @@ def normalize_sources(sources,channel,mode):
         'studio_windows':sources.get('studio_windows',{}),'unavailable_is_not_zero':True}
 
 
+def annotate_video_comparability(row,end):
+    duration=number(row.get('duration_seconds'))
+    row['duration_class']='up_to_3_minutes' if duration is not None and duration<=180 else 'over_3_minutes' if duration is not None else 'unavailable'
+    published=row.get('published_at') or ''
+    parsed=None
+    for fmt in ('%b %d, %Y','%Y-%m-%d'):
+        try:parsed=datetime.strptime(published[:10] if fmt=='%Y-%m-%d' else published,fmt).date();break
+        except (ValueError,TypeError):pass
+    days=(date.fromisoformat(end)-parsed).days if parsed and end else None
+    row['complete_days_since_publish']=days if days is not None else 'unavailable'
+    row['maturity']='mature_7_complete_days' if days is not None and days>=7 else 'early' if days is not None else 'unavailable'
+    return row
+
+
+def validate_screenshot_observations(checks):
+    for check in checks.values():
+        observations=check.get('observations',[])
+        if not isinstance(observations,list):raise ValueError('截图 observations 必须为列表')
+        for item in observations:
+            if not isinstance(item,dict) or item.get('status') not in {'available','unavailable','not_applicable'}:
+                raise ValueError('截图指标缺少可用性状态')
+            for key in ('metric','scope','window','evidence','unit'):
+                if not isinstance(item.get(key),str) or not item[key].strip():raise ValueError('截图指标缺少来源依据、口径或周期')
+            value=item.get('value')
+            if item['status']=='available':
+                if isinstance(value,bool) or not isinstance(value,(str,int,float)) or (isinstance(value,(int,float)) and not math.isfinite(value)):
+                    raise ValueError('截图可用指标必须有可读值')
+            elif value is not None:raise ValueError('截图缺失指标不能填零或猜测值')
+
+
 def formal_snapshot(sources, channel):
     """Freeze measured facts using source-scoped arithmetic, not model output."""
     from datetime import datetime, timezone
@@ -68,12 +137,20 @@ def formal_snapshot(sources, channel):
     def dataset(key):
         value = datasets.get(key, {})
         return {'status': value.get('status', 'unavailable'), 'source': 'api/' + key,
-                'window': value.get('window'), 'reason':value.get('reason'), 'rows': value.get('rows', [])}
-    videos = dataset('28:videos')
-    ranked = sorted([row for row in videos['rows'] if number(row.get('views')) is not None],
-                    key=lambda row: number(row['views']), reverse=True)
-    # Per-video coverage is explicitly separate from all-content Studio totals.
-    total = sum(number(row['views']) for row in ranked) if ranked and videos['status']=='available' else None
+                'window': value.get('window'), 'reason':value.get('reason'), 'rows': value.get('rows', []), 'coverage':value.get('coverage')}
+    api_videos = dataset('28:videos')
+    studio_rows=[{'video':row['video_id'],**row['metrics'],'source':row['source'],
+        'scope':row['scope'],'published_at':row['values'].get('视频发布时间',row['values'].get('Video publish time'))}
+        for row in normalized['studio_content'] if number(row['metrics']['views']) is not None]
+    videos={'status':'available','source':'studio/content_table','scope':'studio_exported_content_rows',
+        'window':sources['windows']['28'],'rows':studio_rows} if studio_rows else api_videos
+    for row in videos['rows']:annotate_video_comparability(row,sources['windows']['28'].get('end'))
+    ranked=sorted([row for row in videos['rows'] if number(row.get('views')) is not None],key=lambda row:number(row['views']),reverse=True)
+    total=sum(number(row['views']) for row in ranked) if ranked and videos['status']=='available' else None
+    # Three disjoint relative performance bands, not repeated top-N lists.
+    width=max(1,len(ranked)//3)
+    top=ranked[:width];low=ranked[max(width,len(ranked)-width):]
+    middle=ranked[width:max(width,len(ranked)-width)]
     traffic = dataset('28:traffic')
     traffic_rows=[row for row in traffic['rows'] if number(row.get('views')) is not None]
     traffic_total = sum(number(row['views']) for row in traffic_rows)
@@ -82,10 +159,16 @@ def formal_snapshot(sources, channel):
          'value': (number(row.get('views')) or 0) / traffic_total * 100}
         for row in traffic_rows] if traffic_total else 'unavailable'}
     screenshots = sources.get('screenshots', [])
-    def screenshot_domain(kind):
+    def screenshot_domain(kind,retention_only=False):
         ids = [m['id'] for m in screenshots if m['kind'] == kind]
-        return {'status': 'unavailable', 'reason': '截图可供报告视觉分析；未形成程序可核实的数值',
+        observations=[{**item,'source':'screenshot/'+material['id'],'extraction':'visual_transcription','matches_formal_window':sources.get('screenshot_checks',{}).get(material['id'],{}).get('window_matches')}
+            for material in screenshots if material['kind']==kind
+            for item in sources.get('screenshot_checks',{}).get(material['id'],{}).get('observations',[]) if not retention_only or item['metric'].startswith('retention')]
+        if observations:return {'status':'available','source':'Studio screenshot','scope':'per-card scopes retained below','observations':observations,'screenshot_ids':ids}
+        return {'status': 'unavailable', 'reason': '截图结构化读取尚未完成；不把缺失值记为0',
                 'screenshot_ids': ids} if ids else 'not_applicable' if kind in {'posts','ab'} else 'unavailable'
+    comparable={}
+    for row in ranked:comparable.setdefault(row['duration_class']+'/'+row['maturity'],[]).append(row)
     details = {item['id']: item for group in sources.get('video_details', {}).values()
                for item in group.get('response', {}).get('items', [])}
     mapped = {row['youtube_video_id'] for row in sources.get('video_drama_mapping', []) if row.get('drama_code')}
@@ -97,12 +180,14 @@ def formal_snapshot(sources, channel):
         'trend': {'recent_28d': dataset('28:daily'), 'recent_90d': dataset('90:daily')},
         'audience_28d': {'country': dataset('28:country'), 'device': dataset('28:device'),
                          'studio_segments': screenshot_domain('audience')},
-        'traffic_28d_video_pct': traffic, 'retention_intro_30s_pct': screenshot_domain('videos'),
-        'top_videos_28d': {**videos, 'rows': ranked[:10]},
-        'low_videos_28d': {**videos, 'scope':'lowest within returned API video rows', 'rows': list(reversed(ranked[-10:]))},
-        'middle_videos_28d': {**videos, 'rows':ranked[max(0,len(ranked)//2-2):len(ranked)//2+3]},
-        'video_metric_coverage': 'API returned video rows; if 200 rows, weak cohort is relative to returned top 200, not all uploads',
-        'concentration_28d': {'scope': 'analytics_video_rows_only', 'source': 'api/28:videos',
+        'traffic_28d_video_pct': traffic, 'retention_intro_30s_pct': screenshot_domain('videos',True),'video_page_cards':screenshot_domain('videos'),
+        'top_videos_28d': {**videos, 'rows':top,'cohort':'upper relative view band; maturity must be considered separately'},
+        'low_videos_28d': {**videos, 'rows':list(reversed(low)),'cohort':'lower relative view band; not automatically mature weak content'},
+        'middle_videos_28d': {**videos, 'rows':middle,'cohort':'middle relative view band'},
+        'comparable_video_groups':comparable,
+        'video_metric_coverage': {'ranking_source':videos['source'],'ranking_scope':videos.get('scope'),'studio_rows':len(normalized['studio_content']),'ranked_studio_rows':len(studio_rows),'unranked_studio_ids':[row['video_id'] for row in normalized['studio_content'] if number(row['metrics']['views']) is None],'api_rows':len(api_videos['rows']),'api_daily_coverage':dataset('28:daily').get('coverage'),'ranked_view_sum':total,'studio_aggregate_views':normalized['channel_totals_28d']['metrics']['views'] if isinstance(normalized['channel_totals_28d'],dict) else 'unavailable'},
+        'api_video_sample':api_videos,
+        'concentration_28d': {'scope':videos.get('scope','analytics_video_rows_only'), 'source':videos['source'],
             'total_views': total, 'top_1_share_pct': (number(ranked[0].get('views')) or 0)/total*100 if total else 'unavailable',
             'top_5_share_pct': sum(number(row['views']) for row in ranked[:5])/total*100 if total else 'unavailable'} if total is not None else 'unavailable',
         'community_posts': screenshot_domain('posts'), 'ab_testing': screenshot_domain('ab'),
@@ -110,10 +195,11 @@ def formal_snapshot(sources, channel):
         'studio_content': normalized['studio_content'],
         'derived_video_metrics': normalized['derived_video_metrics'],
         'video_inventory': list(details.values()),
+        'video_source_coverage':[{'video_id':row['video_id'],'in_studio':True,'in_api_video_rows':row['video_id'] in {v.get('video') for v in api_videos['rows']},'in_inventory':row['video_id'] in details} for row in normalized['studio_content']],
         'video_inventory_coverage': {k:v for k,v in sources.get('uploads_inventory',{}).items() if k!='pages'},
         'video_detail_gaps': [{'source':key,'reason':group.get('reason')} for key,group in sources.get('video_details',{}).items() if group.get('status')!='available'],
         'unmatched_video_ids': sorted(set(details) - mapped),
-        'source_manifest': [{'source': 'api/' + key, 'status': value['status'], 'window': value.get('window'),'reason':value.get('reason')}
+        'source_manifest': [{'source': 'api/' + key, 'status': value['status'], 'window': value.get('window'),'reason':value.get('reason'),'coverage':value.get('coverage')}
                             for key, value in datasets.items()] +
             [{'source': 'studio/' + key, 'window': value} for key, value in sources.get('studio_windows', {}).items()] +
             [{'source': 'screenshot/' + m['id'], 'kind': m['kind']} for m in screenshots]}

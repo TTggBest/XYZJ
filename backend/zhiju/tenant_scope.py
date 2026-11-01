@@ -70,6 +70,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ('POST','/api/v3/analysis-runs/{run_id}/apply'),
     ('POST','/api/v3/channel-analysis/claims'),
     ('POST','/api/v3/analysis-runs/{run_id}/collect'),
+    ('POST','/api/v3/analysis-runs/{run_id}/screenshot-checks'),
     ('POST','/api/v3/analysis-runs/{run_id}/heartbeat'),
     ('PUT','/api/v3/analysis-runs/{run_id}/result'),
     ('POST','/api/v3/analysis-runs/{run_id}/mirror-complete'),

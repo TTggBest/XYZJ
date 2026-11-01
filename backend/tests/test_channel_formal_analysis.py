@@ -78,6 +78,7 @@ def test_formal_pipeline_paginates_inventory_and_delivers_without_apply(session,
             if path=='/channel-analysis/claims':return service.claim_run(s,self.host_id)
             if path.endswith('/collect'):return service.run_read(sources.collect(s,run.id,body['claim_id'],fetcher=fetch))
             if path.endswith('/heartbeat'):return {}
+            if path.endswith('/screenshot-checks'):return service.run_read(service.record_screenshot_checks(s,run.id,body['claim_id'],body['result']))
             if path.endswith('/result'):return service.run_read(service.submit_result(s,run.id,body['claim_id'],result=body.get('result'),error=body.get('error')))
             if path.endswith('/mirror-complete'):
                 run.mirror_status='completed';self.paths=body['paths'];s.commit();return {}
@@ -86,20 +87,24 @@ def test_formal_pipeline_paginates_inventory_and_delivers_without_apply(session,
     class Model:
         account_profile='current'
         def generate(self,stage,model):
+            if stage.node_type=='channel_analysis_screenshots':
+                checks=formal_result(run)['material_checks']
+                for material in run.materials:
+                    if material['kind']=='studio_zip':continue
+                    check=checks[material['id']]
+                    check['observations']=[{'metric':'visible_test_metric','subject':'test','value':123,
+                        'status':'available','unit':'count','scope':'test card','window':'selected window','evidence':'test fixture'}]
+                    if material['kind']=='ab':check['window_matches']=False
+                return {'checks':checks}
             assert 'columnHeaders' not in stage.prompt
             assert '展示点击率 (%)' in stage.prompt
             assert '900' in stage.prompt or '100' in stage.prompt
             assert 'sources.fact_snapshot' in stage.prompt
+            assert stage.images==[]
+            assert stage.schema['properties']['material_checks']['properties']=={}
             result=formal_result(run)
             result['normalized_snapshot']='{"fabricated":999}'
-            assert stage.schema['properties']['material_checks']['type']=='object'
-            checks=stage.schema['properties']['material_checks']
-            assert set(checks['required'])=={m['id'] for m in run.materials if m['kind']!='studio_zip'}
-            for check in checks['properties'].values():assert 'evidence' in check['required']
-            result['diagnosis']=result['diagnosis'].replace('channel_id: UCtest','channel_id: '+run.channel_id)
-            for material in run.materials:
-                if material['kind']=='ab':result['material_checks'][material['id']]['window_matches']=False
-
+            result['material_checks']={}
             return result
     cloud=Cloud();drain(cloud,Model(),{'analysis_workspace_root':str(tmp_path)},tmp_path/'cache',once=True)
     assert run.status=='ready',run.error
@@ -234,3 +239,45 @@ def test_main_screenshot_window_and_identity_remain_required(session):
     result['material_checks']['video']['window_matches']=True
     result['material_checks']['ab']['identity_matches']=False
     with pytest.raises(ConflictError,match='ab.png'):service.validate_result(run,result)
+
+
+def test_studio_aggregate_aliases_complete_ranking_and_api_observed_coverage():
+    from zhiju.services.channel_analysis_normalize import normalize_sources,formal_snapshot
+    row=lambda identity,views,impressions,ctr,duration,returning: {'内容':identity,'观看次数':str(views),
+        '缩略图展示次数':str(impressions),'缩略图点击率 (%)':str(ctr),'时长':str(duration),
+        '视频发布时间':'Oct 31, 2026','回访观看者人数':str(returning),'平均观看时长':'0:15:11'}
+    raw={'api':{'28:daily':{'status':'available','window':{'start':'2026-10-04','end':'2026-10-31'},
+        'pages':[{'columnHeaders':[{'name':'day'},{'name':'views'}],'rows':[['2026-10-30',100]]}]},
+        '28:videos':{'status':'available','pages':[{'columnHeaders':[{'name':'video'},{'name':'views'}],'rows':[['other',100]]}]}},
+        'windows':{'28':{'end':'2026-10-31'},'90':{}},
+        'studio':{'zip':{'表格数据.csv':[row('总计',1000,2000,10,0,0),row('largest',900,1800,11,2100,8),row('short',100,200,1,60,2)],
+            '总计.csv':[{'日期':'2026-10-04','回访观看者人数':'0'}]}}}
+    raw['normalized']=normalize_sources(raw,{'id':'test'},'periodic')
+    facts=formal_snapshot(raw,{'id':'test'})
+    assert facts['channel_totals_28d']['metrics']['views']==1000
+    assert facts['channel_totals_28d']['metrics']['average_view_duration_seconds']==911
+    assert facts['channel_totals_28d']['metrics']['returning_viewers']=='unavailable'
+    assert facts['channel_totals_28d']['metrics']['revenue']=='unavailable'
+    assert facts['impression_weighted_ctr']['value_percent']==10
+    assert facts['concentration_28d']['top_1_share_pct']==90
+    assert facts['top_videos_28d']['rows'][0]['video']=='largest'
+    ids=[{r['video'] for r in facts[k]['rows']} for k in ('top_videos_28d','middle_videos_28d','low_videos_28d')]
+    assert not any(ids[a]&ids[b] for a,b in [(0,1),(0,2),(1,2)])
+    assert facts['trend']['recent_28d']['coverage']['observed_end']=='2026-10-30'
+    assert facts['trend']['recent_28d']['coverage']['requested_end_returned'] is False
+    assert set(facts['comparable_video_groups'])=={'over_3_minutes/early','up_to_3_minutes/early'}
+
+
+def test_screenshot_numbers_keep_scope_and_missing_values_are_not_zero():
+    from zhiju.services.channel_analysis_normalize import normalize_sources,formal_snapshot,validate_screenshot_observations
+    check={'identity_matches':True,'page_matches':True,'window_matches':True,'evidence':'Female 86.8%',
+        'observations':[{'metric':'female_pct','subject':'female','value':86.8,'unit':'percent','status':'available',
+        'scope':'audience gender card','window':'2026-10-04/2026-10-31','evidence':'女性86.8%'}]}
+    raw={'api':{},'windows':{'28':{},'90':{}},'screenshots':[{'id':'shot','kind':'audience'}],'screenshot_checks':{'shot':check}}
+    validate_screenshot_observations(raw['screenshot_checks'])
+    raw['normalized']=normalize_sources(raw,{},'periodic');facts=formal_snapshot(raw,{})
+    record=facts['audience_28d']['studio_segments']['observations'][0]
+    assert record['value']==86.8 and record['source']=='screenshot/shot'
+    assert record['scope']=='audience gender card'
+    check['observations'][0]['status']='unavailable';check['observations'][0]['value']=0
+    with pytest.raises(ValueError,match='缺失指标'):validate_screenshot_observations({'shot':check})
