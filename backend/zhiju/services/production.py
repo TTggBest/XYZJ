@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from zhiju.services.identity import channel_order_columns
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
@@ -144,7 +145,7 @@ def list_tasks(
     channel_id: str | None = None,
     status: str | None = None,
 ) -> list[OperationTask]:
-    statement = select(OperationTask)
+    statement = select(OperationTask).join(Channel, Channel.id == OperationTask.channel_id)
     if task_date:
         statement = statement.where(OperationTask.task_date == task_date)
     if channel_id:
@@ -152,7 +153,7 @@ def list_tasks(
     if status:
         statement = statement.where(OperationTask.status == status)
     return list(session.scalars(statement.order_by(
-        OperationTask.task_date.desc(),
+        *channel_order_columns(), OperationTask.task_date.desc(),
         OperationTask.source_row_number.is_(None),
         OperationTask.source_row_number.asc(),
         OperationTask.created_at.asc(),
@@ -264,12 +265,12 @@ def dispatch_task(session: Session, task_id: str, *, commit: bool = True) -> dic
 
 
 def list_work_orders(session: Session, *, production_date=None, status: str | None = None) -> list[WorkOrder]:
-    statement = select(WorkOrder)
+    statement = select(WorkOrder).join(Channel, Channel.id == WorkOrder.channel_id)
     if production_date:
         statement = statement.where(WorkOrder.production_date == production_date)
     if status:
         statement = statement.where(WorkOrder.status == status)
-    return list(session.scalars(statement.order_by(WorkOrder.production_date.desc(), WorkOrder.created_at.desc())))
+    return list(session.scalars(statement.order_by(*channel_order_columns(), WorkOrder.production_date.desc(), WorkOrder.created_at)))
 
 
 def summarize_node_progress(nodes: list[ProductionNodeRun]) -> dict[str, object]:
@@ -374,7 +375,7 @@ def list_work_order_overview(
     rows = list(
         session.execute(
             statement.order_by(
-                WorkOrder.production_date.desc(),
+                *channel_order_columns(), WorkOrder.production_date.desc(),
                 OperationTask.source_row_number.is_(None),
                 OperationTask.source_row_number.asc(),
                 WorkOrder.created_at.asc(),
@@ -478,7 +479,7 @@ def list_task_overview(
     rows = list(
         session.execute(
             statement.order_by(
-                OperationTask.task_date.desc(),
+                *channel_order_columns(), OperationTask.task_date.desc(),
                 OperationTask.source_row_number.is_(None),
                 OperationTask.source_row_number.asc(),
                 OperationTask.created_at.asc(),

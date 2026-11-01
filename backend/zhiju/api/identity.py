@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from zhiju.database import get_db
 from zhiju.auth_context import get_tenant_db
-from zhiju.permissions import require_platform_permission
+from zhiju.permissions import require_platform_permission, require_permission
 from zhiju.schemas.identity import (
     AccountCreate,
     AccountRead,
@@ -14,6 +14,7 @@ from zhiju.schemas.identity import (
     ChannelAuthorizationVerify,
     ChannelCreate,
     ChannelOverview,
+    ChannelOrderUpdate,
     ChannelRead,
     ChannelStatusChange,
     DeviceRead,
@@ -33,6 +34,7 @@ from zhiju.services.identity import (
     list_accounts,
     list_channel_overview,
     list_channels,
+    reorder_channels,
     list_oauth_grants,
     register_device,
     register_oauth_grant,
@@ -69,6 +71,14 @@ def get_channels(
     session: Session = Depends(get_tenant_db),
 ) -> list[ChannelRead]:
     return list_channels(session, include_archived=include_archived)
+
+
+@router.put("/channels/order", response_model=list[ChannelRead], dependencies=[Depends(require_permission("channel.manage"))])
+def put_channel_order(payload: ChannelOrderUpdate, session: Session = Depends(get_tenant_db)):
+    try:
+        return reorder_channels(session, payload.channel_ids)
+    except ConflictError as exc:
+        raise _identity_error(exc) from exc
 
 
 @router.post("/channels", response_model=ChannelRead, status_code=status.HTTP_201_CREATED)

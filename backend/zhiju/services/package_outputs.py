@@ -657,8 +657,9 @@ def list_package_operation_overview(
         statement = statement.where(OperationPackage.channel_id == channel_id)
     if package_status:
         statement = statement.where(OperationPackage.status == package_status)
+    from zhiju.services.identity import channel_order_columns
     rows = list(session.execute(statement.order_by(
-        WorkOrder.production_date.desc(),
+        *channel_order_columns(), WorkOrder.production_date.desc(),
         OperationTask.source_row_number.is_(None),
         OperationTask.source_row_number.asc(),
         WorkOrder.created_at.asc(),

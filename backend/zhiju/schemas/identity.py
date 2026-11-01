@@ -36,6 +36,7 @@ class ChannelCreate(BaseModel):
     channel_type: str | None = Field(default=None, max_length=120)
     drama_type: str | None = Field(default=None, max_length=60)
     application_success_date: date | None = None
+    sort_order: int | None = None
     display_order: int | None = Field(default=None, ge=1)
     timezone: str = Field(default="Asia/Shanghai", max_length=64)
     daily_publish_count: int = Field(default=0, ge=0, le=24)
@@ -58,6 +59,7 @@ class ChannelRead(BaseModel):
     channel_type: str | None
     drama_type: str | None
     application_success_date: date | None
+    sort_order: int | None = None
     display_order: int | None
     timezone: str
     daily_publish_count: int
@@ -78,6 +80,7 @@ class ChannelAuthorizedAccountOverview(BaseModel):
 
 
 class ChannelOverview(BaseModel):
+    sort_order: int | None = None
     channel_id: str
     youtube_channel_id: str
     original_name: str
@@ -237,3 +240,7 @@ class AuthorizationEventRead(BaseModel):
     error_code: str | None
     error_message: str | None
     occurred_at: datetime
+
+
+class ChannelOrderUpdate(BaseModel):
+    channel_ids: list[str] = Field(min_length=1, max_length=32000)

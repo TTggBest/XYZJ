@@ -459,10 +459,11 @@ def _profile_read(profile: ChannelLogoProfile, channel: Channel) -> ChannelLogoP
 
 
 def list_channel_logo_profiles(session: Session) -> list[ChannelLogoProfileRead]:
+    from zhiju.services.identity import channel_order_columns
     rows = session.execute(
         select(ChannelLogoProfile, Channel)
         .join(Channel, Channel.id == ChannelLogoProfile.channel_id)
-        .order_by(Channel.country_name_zh, Channel.display_order, Channel.original_name)
+        .order_by(*channel_order_columns())
     ).all()
     return [_profile_read(profile, channel) for profile, channel in rows]
 

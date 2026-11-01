@@ -287,7 +287,8 @@ def prepare_channel_schedule_rows(
     as_of_date: date | None = None,
 ) -> tuple[list[dict[str, object]], int]:
     as_of_date = as_of_date or date.today()
-    channels = list(session.scalars(select(Channel).where(Channel.deleted_at.is_(None))))
+    from zhiju.services.identity import channel_order_columns
+    channels = list(session.scalars(select(Channel).where(Channel.deleted_at.is_(None)).order_by(*channel_order_columns())))
     directory_by_sheet: dict[str, Channel] = {}
     for row in directory_rows:
         row_number = int(row.get("__source_row_number") or 0)
@@ -325,7 +326,9 @@ def prepare_channel_schedule_rows(
     used_schedule_times: dict[tuple[str, date, str, time], tuple[str, int]] = {}
     corrected_count = 0
     beijing_zone = ZoneInfo("Asia/Shanghai")
-    for sheet_id, sheet_title, rows in sheet_rows:
+    channel_rank = {channel.id: index for index, channel in enumerate(channels)}
+    ordered_sheets = sorted(sheet_rows, key=lambda row: channel_rank.get(directory_by_sheet[row[0]].id, len(channels)) if row[0] in directory_by_sheet else len(channels))
+    for sheet_id, sheet_title, rows in ordered_sheets:
         channel = directory_by_sheet.get(sheet_id)
         if channel is None:
             raise FeishuSyncError(f"飞书频道工作表不在频道目录中：{sheet_title}")

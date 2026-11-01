@@ -211,3 +211,26 @@ def test_begin_attempt_marks_node_running_before_result_and_keeps_start_on_conte
         runs.begin_attempt(s,run.id,claim['claim_id'],'search')
         assert node.started_at==started
         assert node.completed_at is None
+
+
+def test_claim_uses_saved_channel_order_without_touching_running_work(store, monkeypatch):
+    from zhiju.services import v14_runs as runs
+    from zhiju.services.identity import reorder_channels
+    from zhiju.models.v14 import V14Run
+    from copy import deepcopy
+    from datetime import datetime, timezone, timedelta
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+        configure(s)
+        first = runs.create_run(s, "work-a")
+        s.add(Channel(id="channel-next", youtube_channel_id="UC-next", original_name="Next", status="active"))
+        s.add(OperationTask(id="task-next", batch_id="batch-a", channel_id="channel-next", drama_id="drama-a", source="manual", task_date=date(2026, 10, 17), target_publish_date=date(2026, 10, 20), idempotency_key="task-next", status="dispatched", community_count=1))
+        s.add(WorkOrder(id="work-next", task_id="task-next", batch_id="batch-a", channel_id="channel-next", drama_id="drama-a", production_date=date(2026, 10, 17), target_publish_date=date(2026, 10, 20), community_count=1))
+        second = V14Run(id="run-next", work_order_id="work-next", package_id="package-next", host_id="device-a", account_profile=first.account_profile, model=first.model, input_snapshot=deepcopy(first.input_snapshot), rules_snapshot=deepcopy(first.rules_snapshot), status="queued", created_at=datetime.now(timezone.utc) + timedelta(seconds=10))
+        s.add(second); s.commit()
+        reorder_channels(s, ["channel-next", "channel-a"])
+        monkeypatch.setattr(runs, "envelope", lambda session, run: {"run_id": run.id})
+        assert runs.claim_run(s, "device-a")["run_id"] == second.id
+        claim_id = second.claim_id
+        reorder_channels(s, ["channel-a", "channel-next"])
+        assert second.status == "running" and second.claim_id == claim_id
+        assert runs.claim_run(s, "device-a")["run_id"] == first.id

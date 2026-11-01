@@ -60,7 +60,20 @@ for(const view of ['workorders','packages','workorders','packages']){
   : [...html.matchAll(/<span class="cell-main">(old-early|old-late|new-early|new-late)<\/span>/g)].map(m=>m[1]);
  const unique=[...new Set(markers)].filter(x=>rows.some(r=>r.task_id===x));
  assert.deepEqual(unique,['old-early','old-late','new-early','new-late'],view+' changed order after navigation');
- assert.ok(html.includes('排序：频道录入先后 → 计划发布时间'));
+ assert.ok(html.includes('排序：频道自定义顺序 → 计划发布时间'));
  if(view==='packages')assert.ok(html.indexOf('value="old"')<html.indexOf('value="new"'),'channel dropdown differs from rows');
 }
+""")
+
+
+def test_saved_channel_order_overrides_creation_time_and_appends_new_channels():
+    run_node(r"""
+const order=require(process.argv[1]+'/assets/operations-page-data.js');
+const channels=[
+ {channel_id:'old',created_at:'2026-01-01',sort_order:2},
+ {channel_id:'new',created_at:'2026-10-01',sort_order:1},
+ {channel_id:'latest',created_at:'2026-11-01',sort_order:null},
+];
+assert.deepEqual(order.sortChannels(channels).map(c=>c.channel_id),['new','old','latest']);
+assert.deepEqual(order.sortChannelRecords([{channel_id:'old'},{channel_id:'new'},{channel_id:'latest'}],channels).map(c=>c.channel_id),['new','old','latest']);
 """)

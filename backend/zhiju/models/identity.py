@@ -134,6 +134,7 @@ class Channel(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     channel_type: Mapped[str | None] = mapped_column(String(120), comment="频道内容类型")
     drama_type: Mapped[str | None] = mapped_column(String(60), comment="短剧受众类型")
     application_success_date: Mapped[date | None] = mapped_column(Date, comment="频道申请成功日期")
+    sort_order: Mapped[int | None] = mapped_column(SmallInteger, comment="用户保存的统一频道顺序")
     display_order: Mapped[int | None] = mapped_column(SmallInteger, comment="频道总表展示序号")
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, server_default="Asia/Shanghai", comment="IANA时区")
     daily_publish_count: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0", comment="每日更新次数")

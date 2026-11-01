@@ -120,11 +120,26 @@ def create_channel(session: Session, payload: ChannelCreate) -> Channel:
     return channel
 
 
+def channel_order_columns():
+    return (Channel.sort_order.is_(None), Channel.sort_order, Channel.created_at, Channel.id)
+
+
+def reorder_channels(session: Session, channel_ids: list[str]) -> list[Channel]:
+    channels = list_channels(session)
+    if len(channel_ids) != len(set(channel_ids)) or set(channel_ids) != {c.id for c in channels}:
+        raise ConflictError("频道清单已变化，请刷新后重新调整顺序")
+    by_id = {c.id: c for c in channels}
+    for position, channel_id in enumerate(channel_ids, 1):
+        by_id[channel_id].sort_order = position
+    session.commit()
+    return list_channels(session)
+
+
 def list_channels(session: Session, *, include_archived: bool = False) -> list[Channel]:
     statement = select(Channel)
     if not include_archived:
         statement = statement.where(Channel.deleted_at.is_(None), Channel.status != "archived")
-    statement = statement.order_by(Channel.created_at.desc())
+    statement = statement.order_by(*channel_order_columns())
     return list(session.scalars(statement))
 
 
@@ -146,7 +161,7 @@ def list_channel_overview(
         statement = statement.where(Channel.default_language == language)
     channels = list(
         session.scalars(
-            statement.order_by(Channel.operational_name, Channel.original_name, Channel.id)
+            statement.order_by(*channel_order_columns())
         )
     )
     channel_ids = [channel.id for channel in channels]
@@ -266,6 +281,7 @@ def list_channel_overview(
         result.append(
             {
                 "channel_id": channel.id,
+                "sort_order": channel.sort_order,
                 "youtube_channel_id": channel.youtube_channel_id,
                 "original_name": channel.original_name,
                 "operational_name": channel.operational_name,

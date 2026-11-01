@@ -8,7 +8,8 @@
   // A channel keeps its place when names, uploads or production status change.
   function sortChannels(channels) {
     return [...channels].sort((a, b) =>
-      (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0)
+      (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER)
+      || (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0)
       || String(a.channel_id).localeCompare(String(b.channel_id)));
   }
 

@@ -1,3 +1,4 @@
+from zhiju.services.identity import channel_order_columns
 import re
 import unicodedata
 import uuid
@@ -499,7 +500,7 @@ def list_publish_slot_overview(session: Session) -> list[dict[str, object]]:
         session.scalars(
             select(Channel)
             .where(Channel.deleted_at.is_(None))
-            .order_by(Channel.operational_name, Channel.original_name)
+            .order_by(*channel_order_columns())
         )
     )
     slots = list(
@@ -659,12 +660,7 @@ def list_cadence_overview(
         session.scalars(
             select(Channel)
             .where(Channel.deleted_at.is_(None))
-            .order_by(
-                Channel.country_name_zh,
-                Channel.display_order,
-                Channel.operational_name,
-                Channel.original_name,
-            )
+            .order_by(*channel_order_columns())
         )
     )
     template_slots = list(
@@ -974,6 +970,7 @@ def list_schedule_overview(
     rows = list(
         session.execute(
             statement.order_by(
+                *channel_order_columns(),
                 ChannelScheduleEntry.planned_beijing_time,
                 ChannelScheduleEntry.priority,
                 ChannelScheduleEntry.created_at,
@@ -1297,7 +1294,7 @@ def list_schedules(
     publish_date_to=None,
     status: str | None = None,
 ) -> list[ChannelScheduleEntry]:
-    statement = select(ChannelScheduleEntry)
+    statement = select(ChannelScheduleEntry).join(Channel, Channel.id == ChannelScheduleEntry.channel_id)
     if channel_id:
         require_tenant_entity(session, Channel, channel_id)
         statement = statement.where(ChannelScheduleEntry.channel_id == channel_id)
@@ -1308,7 +1305,7 @@ def list_schedules(
     if status:
         statement = statement.where(ChannelScheduleEntry.status == status)
     return list(
-        session.scalars(statement.order_by(ChannelScheduleEntry.publish_date, ChannelScheduleEntry.planned_utc_time))
+        session.scalars(statement.order_by(*channel_order_columns(), ChannelScheduleEntry.publish_date, ChannelScheduleEntry.planned_utc_time))
     )
 
 

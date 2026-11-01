@@ -35,7 +35,7 @@
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
   const BUILDER_ONLY_VIEWS = new Set(["skills", "logs", "settings"]);
-  const state = { view: "dashboard", deviceRole: "", deployment: "local", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelSortOrder: "asc", channelAudience: "", channelLanguage: "", channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], v14Config: null, settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
+  const state = { view: "dashboard", deviceRole: "", deployment: "local", runtimeConfigFailed: false, date: localDate(), dateManuallySet: false, channels: [], channelAudience: "", channelLanguage: "", channelDetail: null, channelDetailId: "", channelDetailTab: "basic", channelImport: null, dramas: [], dramaLibrary: null, dramaLibraryPage: 1, dramaLibraryPageSize: 50, dramaLibrarySortBy: "drama_number", dramaLibrarySortOrder: "asc", dramaLibrarySearch: "", dramaLibraryStatus: "", dramaLibraryBatch: "", dramaProgress: null, dramaProgressPage: 1, dramaProgressPageSize: 50, dramaProgressSortOrder: "asc", dramaProgressSearch: "", dramaProgressBatch: "", dramaProgressStatus: "", dramaProgressNode: "", dramaProgressNodeStatus: "", dramaDetail: null, dramaDetailTab: "basic", schedules: [], scheduleChannelId: "", scheduleViewMode: "day", scheduleFullPage: 1, scheduleFullPageSize: 50, scheduleFullSortOrder: "asc", scheduleFullSearch: "", scheduleFull: null, publishSlots: [], cadenceTemplates: [], tasks: [], workorders: [], packageItems: [], packageWorkOrderTotal: 0, packageChannel: "", packageStatus: "", packageSearch: "", packageInspectionLastIndex: { generated: -1, images: -1, completed: -1 }, packageInspectionHighlightTimer: null, packageDetailOrigin: null, events: [], demo: null, copyValues: new Map(), logoProfiles: [], imageRuns: [], imageRunHistoryTotal: 0, mediaRunHistoryExpanded: false, mediaRunHistoryPage: 1, imageBatches: [], mediaAssets: [], mediaContexts: [], mediaCoverage: [], mediaGroups: [], visibleMediaGroups: [], mediaBatchId: "", mediaLanguage: "", mediaChannel: "", mediaStatus: "", mediaPackageId: "", mediaMissingPackageId: "", mediaPage: 1, mediaViewer: null, mediaStripHideTimer: null, channelDramaTypes: [], v14Config: null, settingsTab: "cadence", realtimeSource: null, realtimeConnecting: false, realtimeRefreshTimer: null };
   const el = id => document.getElementById(id);
   Object.assign(state, { ledgerChannelId: "", ledgerSearch: "", ledgerVisibility: "", ledgerScheduled: "",
     ledgerSortBy: "drama_code", ledgerSortOrder: "asc", ledgerPage: 1, ledgerPageSize: 50, ledgerReturnY: 0 });
@@ -320,7 +320,7 @@
     const nickname = item.operational_name && item.operational_name !== item.original_name
       ? `<span class="cell-sub">${esc(item.operational_name)}</span>`
       : "";
-    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}<button class="button button-secondary button-small channel-ledger-entry" data-action="channel-ledger" data-id="${esc(item.channel_id)}">${icon("list-checks")} 剧目台账</button></div></div>`;
+    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}</div></div>`;
   }
 
   function channelAudience(item) {
@@ -341,7 +341,6 @@
       .filter(item => !state.channelAudience || channelAudience(item) === state.channelAudience)
       .filter(item => !state.channelLanguage || String(item.default_language || "").toLowerCase() === state.channelLanguage.toLowerCase());
     const orderedChannels = window.ZhijuOperationsPageData.sortChannels(visibleChannels);
-    if (state.channelSortOrder === "desc") orderedChannels.reverse();
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
     const rows = orderedChannels.map(item => {
       const profile = profileByChannel.get(item.channel_id);
@@ -349,11 +348,10 @@
       const deleteButton = auth.can("channel.delete")
         ? `<button class="button button-danger button-small" data-action="delete-channel" data-id="${item.channel_id}">${icon("trash-2")} 删除</button>`
         : "";
-      return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${esc(channelAudience(item) === "male" ? "男频" : channelAudience(item) === "female" ? "女频" : "—")}</td><td>${fmtUtc(item.created_at)}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td>${item.production_material_issues?.length ? `<span class="is-red">资料未齐</span><span class="cell-sub">${esc(item.production_material_issues.join("、"))}</span>` : Array.isArray(item.production_material_issues) ? `<span class="is-green">资料已齐</span>` : "未检查"}</td><td><div class="row-actions">${state.deployment === "cloud" ? "" : `<button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button>`}<button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button>${deleteButton}<button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
+      return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${esc(channelAudience(item) === "male" ? "男频" : channelAudience(item) === "female" ? "女频" : "—")}</td><td>${fmtUtc(item.created_at)}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td>${item.production_material_issues?.length ? `<button class="icon-button channel-material-warning" data-action="channel-material-issues" data-id="${esc(item.channel_id)}" title="资料未齐，点击查看缺项" aria-label="查看${esc(item.original_name)}的资料缺项">${icon("triangle-alert")}</button>` : Array.isArray(item.production_material_issues) ? `<span class="is-green channel-material-ready" title="生产资料已齐" aria-label="生产资料已齐">${icon("circle-check")}</span>` : "未检查"}</td><td><div class="row-actions channel-actions"><button class="button button-secondary button-small" data-action="channel-ledger" data-id="${esc(item.channel_id)}">${icon("list-checks")} 剧目台账</button>${auth.can("channel.manage") ? `<button class="button button-secondary button-small" data-action="move-channel" data-id="${esc(item.channel_id)}">${icon("arrow-up-down")} 移动位置</button>` : ""}${state.deployment === "cloud" ? "" : `<button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button>`}<button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button>${deleteButton}<button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
     });
-    const filtersActive = Boolean(state.channelAudience || state.channelLanguage || state.channelSortOrder !== "asc");
+    const filtersActive = Boolean(state.channelAudience || state.channelLanguage);
     const actions = `<div class="toolbar channel-list-toolbar">
-      <label class="field channel-list-control"><span>频道排序</span><select class="select" id="channelSortOrder"><option value="desc" ${state.channelSortOrder === "desc" ? "selected" : ""}>最新录入优先</option><option value="asc" ${state.channelSortOrder === "asc" ? "selected" : ""}>固定顺序（按录入先后）</option></select></label>
       <label class="field channel-list-control"><span>频类</span><select class="select" id="channelAudienceFilter"><option value="">全部频类</option><option value="female" ${state.channelAudience === "female" ? "selected" : ""}>女频</option><option value="male" ${state.channelAudience === "male" ? "selected" : ""}>男频</option></select></label>
       <label class="field channel-list-control"><span>语言</span><select class="select" id="channelLanguageFilter"><option value="">全部语言</option>${languageOptions.map(code => `<option value="${esc(code)}" ${state.channelLanguage === code ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}</select></label>
       <button class="button button-secondary" data-action="apply-channel-list-filters">${icon("list-filter")} 筛选</button>
@@ -361,9 +359,9 @@
       <button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 新增频道</button>
     </div>`;
     const body = rows.length
-      ? table(["频道", "YouTube Channel ID", "语言", "频类", "录入时间", "日更", "授权", "Logo", "状态", "生产资料", ""], rows, 1260, "channel-list-table")
+      ? table(["频道", "YouTube Channel ID", "语言", "频类", "录入时间", "日更", "授权", "Logo", "状态", "资料", "操作"], rows, 1260, "channel-list-table")
       : empty(channels.length ? "没有符合筛选条件的频道" : "还没有频道", channels.length ? "请调整频类或语言筛选条件。" : "先授权 Google 账号，再选择要导入的 YouTube 频道。", channels.length ? "reset-channel-list-filters" : "start-youtube-channel-import", channels.length ? "重置筛选" : "新增频道");
-    root.innerHTML = `<div class="page-stack channel-list-page">${section("频道清单", `${channels.length} 个频道 · 当前显示 ${visibleChannels.length} 个 · 默认按录入先后排序，新频道追加在后 · Logo 素材按频道独立保存${oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : ""}`, body, actions)}</div>`;
+    root.innerHTML = `<div class="page-stack channel-list-page">${section("频道清单", `${channels.length} 个频道 · 当前显示 ${visibleChannels.length} 个 · 按已保存的频道顺序排列，新频道追加在后 · Logo 素材按频道独立保存${oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : ""}`, body, actions)}</div>`;
   }
 
   async function showChannels() {
@@ -790,7 +788,7 @@
     const tools = `<div class="toolbar schedule-toolbar">${viewSwitch}${channelFilter}<div class="field"><label>排期日期</label><input class="input" type="date" id="scheduleDate" value="${date}"></div><div class="toolbar-spacer"></div>${commonActions}</div>`;
     const headers = [selectionHeader, ...(allDayMode ? ["频道"] : []), "剧目", "Video ID / 链接", "档位", "北京时间", "播放列表", "社群", "排期状态", "工单"];
     const title = allDayMode ? "全部频道当日排期" : "频道排期";
-    const subtitle = allDayMode ? `${date} · ${schedules.length} 条安排 · 时间统一展示北京时间 · 排序：频道录入先后 → 计划发布时间` : `${esc(selectedChannel?.display_name || "尚未选择频道")} · ${schedules.length} 条当日安排 · 时间统一展示北京时间`;
+    const subtitle = allDayMode ? `${date} · ${schedules.length} 条安排 · 时间统一展示北京时间 · 排序：频道自定义顺序 → 计划发布时间` : `${esc(selectedChannel?.display_name || "尚未选择频道")} · ${schedules.length} 条当日安排 · 时间统一展示北京时间`;
     const noData = allDayMode ? empty("当天所有频道都没有排期", "可切换到单频道当日视图创建排期。") : empty("该频道当天没有排期", "只能从制剧已全部完成的剧目中创建排期。", "add-schedule", "新建排期");
     root.innerHTML = `<div class="page-stack">${section(title, subtitle, rows.length ? table(headers, rows, allDayMode ? 1220 : 1080, "channel-schedule-table") : noData, tools)}</div>`;
   }
@@ -1070,7 +1068,7 @@
     state.tasks = tasks;
     const rows = tasks.map((item, index) => { const launcherError = localExecutorError(launcherHealth, item.execution_host_id, item.execution_status); return `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${workorderState(item, launcherError)}${launcherError ? `<span class="cell-sub is-red">${esc(launcherError)}</span>` : ""}${item.execution_status === "interrupted" && item.execution_error ? `<span class="cell-sub is-red" title="${esc(item.execution_error)}">${esc(item.execution_error.slice(0, 120))}</span>` : ""}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${workorderActions(item, launcherError)}</div></td></tr>`; });
     const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button>${canRunV14() ? `<button class="button button-secondary" data-action="v14-resume-all" ${interruptedWorkorders().length ? "" : "disabled"}>${icon("rotate-ccw")} 一键恢复（${interruptedWorkorders().length}）</button>` : ""}</div>`;
-    const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks) + " · 排序：频道录入先后 → 计划发布时间";
+    const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks) + " · 排序：频道自定义顺序 → 计划发布时间";
     root.innerHTML = `<div class="page-stack">${versionPicker ? `<section class="section"><div class="toolbar">${versionPicker}${auth.canView("settings", state.deviceRole) ? '<button class="button button-secondary" data-action="workflow-settings">管理运营包流程版本</button>' : ""}<span class="settings-muted">生成运营包时使用所选版本；已有成品不变。</span></div></section>` : ''}${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
   function canRunV14() {
@@ -1248,7 +1246,7 @@
     const clearSearch = `<button class="package-search-clear" type="button" data-action="clear-package-search" title="清空搜索" aria-label="清空搜索" ${state.packageSearch ? "" : "hidden"}>${icon("x")}</button>`;
     const tools = `<div class="package-filter-bar" role="search"><div class="package-filter-item package-filter-search"><div class="package-search-control">${icon("search")}<input class="input" id="packageSearch" aria-label="搜索" value="${esc(state.packageSearch)}" placeholder="搜索剧名、剧目 ID、批次或频道">${clearSearch}</div></div><label class="package-filter-item package-filter-date"><span class="package-filter-label">${icon("calendar-days")} 生产日期</span><input class="input" type="date" id="packageDate" value="${state.date}"></label><label class="package-filter-item package-filter-channel"><span class="package-filter-label">${icon("radio-tower")} 频道</span><select class="select" id="packageChannel"><option value="">全部频道</option>${channels.map(([id, name]) => `<option value="${id}" ${state.packageChannel === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></label><label class="package-filter-item package-filter-status"><span class="package-filter-label">${icon("list-filter")} 状态</span><select class="select" id="packageStatus"><option value="">全部状态</option>${["review_pending", "changes_requested", "approved", "delivered"].map(status => `<option value="${status}" ${state.packageStatus === status ? "selected" : ""}>${label(status)}</option>`).join("")}</select></label><button class="button button-primary package-filter-sync" data-action="sync-feishu-packages">${icon("refresh-cw")}<span>一键同步飞书</span></button></div>`;
     const results = `<div id="packageListResults">${filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。")}</div>`;
-    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryMarkup + '<span class="cell-sub">排序：频道录入先后 → 计划发布时间</span>', results, tools, true)}</div>`;
+    root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryMarkup + '<span class="cell-sub">排序：频道自定义顺序 → 计划发布时间</span>', results, tools, true)}</div>`;
   }
   function fullOutputField(title, value, packageId, field, copyable = true, progress = null, emptyText = "暂无内容") {
     const key = copyable ? copyKey(packageId, field, value) : "";
@@ -1488,7 +1486,7 @@
     state.mediaPage = page.page;
     state.visibleMediaGroups = page.items;
     const imageCount = filteredGroups.reduce((total, group) => total + group.assets.length, 0);
-    summary.textContent = `${filteredGroups.length} 个剧目 · ${imageCount} 张可验收图片 · 第 ${page.page}/${page.totalPages} 页 · 排序：频道录入先后 → 计划发布时间`;
+    summary.textContent = `${filteredGroups.length} 个剧目 · ${imageCount} 张可验收图片 · 第 ${page.page}/${page.totalPages} 页 · 排序：频道自定义顺序 → 计划发布时间`;
     renderMediaBatchProgress();
     const focus = el("mediaPackageFocus");
     const focusMeta = state.visibleMediaGroups[0]?.meta || focusedGroups[0]?.meta;
@@ -1955,8 +1953,7 @@
 
   document.addEventListener("change", event => {
     if (!auth.current()) return;
-    if (event.target.id === "channelSortOrder") state.channelSortOrder = event.target.value || "asc";
-    else if (event.target.id === "channelAudienceFilter") state.channelAudience = event.target.value || "";
+    if (event.target.id === "channelAudienceFilter") state.channelAudience = event.target.value || "";
     else if (event.target.id === "channelLanguageFilter") state.channelLanguage = event.target.value || "";
     else return;
     renderChannels();
@@ -2007,18 +2004,27 @@
         authTab.focus();
       }
       else if (action === "apply-channel-list-filters") {
-        state.channelSortOrder = el("channelSortOrder")?.value || "asc";
         state.channelAudience = el("channelAudienceFilter")?.value || "";
         state.channelLanguage = el("channelLanguageFilter")?.value || "";
         renderChannels();
         renderIcons();
       }
       else if (action === "reset-channel-list-filters") {
-        state.channelSortOrder = "asc";
         state.channelAudience = "";
         state.channelLanguage = "";
         renderChannels();
         renderIcons();
+      }
+      else if (action === "channel-material-issues") {
+        const channel = state.channels.find(item => item.channel_id === id);
+        if (channel) openModal(`${channel.original_name} · 生产资料缺项`, `<p>补齐以下资料后可用于生产：</p><ul class="channel-issue-list">${(channel.production_material_issues || []).map(issue => `<li>${esc(issue)}</li>`).join("")}</ul>`);
+      }
+      else if (action === "move-channel") {
+        const channels = window.ZhijuOperationsPageData.sortChannels(state.channels);
+        const index = channels.findIndex(item => item.channel_id === id);
+        if (index < 0 || !auth.can("channel.manage")) return;
+        openModal("移动频道位置", `<form id="channelOrderForm" class="form-grid"><input type="hidden" name="channel_id" value="${esc(id)}"><div class="field field-wide"><label>将“${esc(channels[index].original_name)}”移动到</label><select class="select" name="position">${channels.map((channel, position) => `<option value="${position}" ${position === index ? "selected" : ""}>第 ${position + 1} 位${position === index ? "（当前位置）" : ` · ${esc(channel.original_name)}所在位置`}</option>`).join("")}</select></div><p class="field-wide">保存后，排期、工单、运营包等统一使用此顺序；新频道追加在最后。</p><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存顺序</button></div></form>`);
+        state.channelOrderIds = channels.map(channel => channel.channel_id);
       }
       else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
       else if (action === "add-drama") openModal("新增剧目", dramaForm());
@@ -2651,6 +2657,24 @@
     if (["loginForm", "tenantSwitchForm"].includes(event.target.id)) return;
     if (!auth.current()) { event.preventDefault(); return; }
     event.preventDefault(); const expectedRevision = auth.capture(); const form = event.target; const data = formData(form);
+    if (form.id === "channelOrderForm") {
+      if (form.dataset.busy === "true") return;
+      form.dataset.busy = "true";
+      try {
+        const ids = [...state.channelOrderIds];
+        const index = ids.indexOf(data.channel_id);
+        if (index < 0) throw new Error("频道清单已变化，请重新打开移动位置");
+        const [id] = ids.splice(index, 1);
+        ids.splice(Number(data.position), 0, id);
+        await api("/channels/order", { method: "PUT", body: JSON.stringify({ channel_ids: ids }), expectedRevision });
+        if (!auth.isCurrent(expectedRevision)) return;
+        closeModal();
+        await loadView("channels", { preservePosition: true });
+        notify("频道顺序已保存，相关页面及后续待领取任务按新顺序执行");
+      } catch (error) { notify(error.message, true); }
+      finally { form.dataset.busy = "false"; }
+      return;
+    }
     if (form.id === "accountAdminForm") {
       if (form.dataset.busy === "true") return;
       const submit = form.querySelector('button[type="submit"]');

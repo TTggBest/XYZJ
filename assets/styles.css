@@ -347,7 +347,15 @@ span.schedule-times { display: inline; color: inherit; font-size: inherit; font-
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, .72fr); gap: 14px; }
 
 .table-wrap { overflow-x: auto; }
-.channel-ledger-entry { margin-top: 6px; }
+/* Keep channel identities clean and production issues compact. */
+.channel-list-table td { padding-top: 14px; padding-bottom: 14px; }
+.channel-list-table td:nth-child(10), .channel-list-table th:nth-child(10) { width: 48px; min-width: 48px; text-align: center; }
+.channel-list-table .channel-actions { flex-wrap: wrap; }
+.channel-list-table td:last-child { width: 1%; white-space: nowrap; }
+.channel-material-warning { color: #b06b00; background: #fff5de; border-color: #f1d390; }
+.channel-material-ready { display: inline-flex; align-items: center; }
+.channel-material-ready svg { width: 18px; height: 18px; }
+.channel-issue-list { padding-left: 22px; line-height: 1.9; }
 .ledger-toolbar { padding: 16px; flex-wrap: wrap; align-items: flex-end; }
 .ledger-toolbar .field { min-width: 140px; flex: 1; }
 .ledger-toolbar .ledger-search { flex: 2; min-width: 220px; }
