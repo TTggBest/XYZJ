@@ -670,7 +670,7 @@ await clickAction(page,'start-youtube-channel-import');
 await settle(page);
 assert(paths.includes('/api/v3/youtube/channel-imports/start'));
 assert.deepEqual(openCalls,[['https://accounts.google.test/auth','_blank']]);
-assert.doesNotMatch(page.nodes.get('viewRoot').innerHTML,/data-action="authorize-youtube-channel"/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/data-action="authorize-youtube-channel"/,'cloud channels must expose existing-channel authorization recovery');
 assert.match(page.nodes.get('viewRoot').innerHTML,/channelLanguageFilter/);
 """)
 
