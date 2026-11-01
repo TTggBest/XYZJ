@@ -38,17 +38,20 @@ def run_read(run):
 
 
 def create_run(session, channel_id, *, mode, positioning='', posts_not_applicable=False,
-               ab_not_applicable=False):
+               ab_not_applicable=False, cold_start=False, initial_facts=None):
     channel = require_tenant_entity(session, Channel, channel_id, lock=True)
     if channel.deleted_at or mode not in {'initial','periodic'}:
         raise ConflictError('频道或分析类型无效')
     profile = session.scalar(select(ChannelProfile).where(ChannelProfile.channel_id == channel_id))
     positioning = positioning.strip() or (profile.positioning if profile else '') or ''
+    if cold_start:
+        assert_no_measured_report(session,channel_id)
+        positioning = positioning or '仅依据频道名称与已确认信息建立冷启动假设'
     if mode == 'initial' and not positioning:
         raise ConflictError('冷启动分析需要明确的初始定位')
-    if mode == 'initial' and (session.scalar(select(YoutubeVideo.id).where(
+    if mode == 'initial' and ((not cold_start and session.scalar(select(YoutubeVideo.id).where(
         YoutubeVideo.channel_id == channel_id, YoutubeVideo.privacy_status == 'public',
-        YoutubeVideo.deleted_at.is_(None)).limit(1)) or session.scalar(select(YoutubeChannelDailyMetric.id).where(
+        YoutubeVideo.deleted_at.is_(None)).limit(1))) or session.scalar(select(YoutubeChannelDailyMetric.id).where(
         YoutubeChannelDailyMetric.channel_id == channel_id, or_(
             *(getattr(YoutubeChannelDailyMetric,key)>0 for key in (
                 'views','watch_time_minutes','subscribers_gained','subscribers_lost','impressions','ctr'))
@@ -66,7 +69,7 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         ChannelAnalysisRun.status == 'applied').order_by(ChannelAnalysisRun.created_at.desc()).limit(1))
     previous=session.get(ChannelAnalysisRun,previous_id) if previous_id else None
     from zhiju.services.skill_catalog import analysis_snapshot
-    skill_version = analysis_snapshot(session)
+    skill_version = cold_start_skill(session) if cold_start else analysis_snapshot(session)
     snapshot = {'mode':mode, 'positioning':positioning,
         'channel':{k:getattr(channel,k) for k in ('id','youtube_channel_id','original_name','default_language',
             'country_name_zh','default_genre','drama_type','timezone')},
@@ -84,7 +87,16 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         snapshot['authorization_evidence']={'identity':identity,'verified_at':datetime.now(timezone.utc).isoformat()}
     run = ChannelAnalysisRun(channel_id=channel_id,host_id=setting.payload['host_id'],mode=mode,
         status='draft',phase='materials',input_snapshot=snapshot,materials=[])
-    if mode=='initial':
+    if cold_start:
+        facts=initial_facts or {}
+        snapshot['cold_start']=True
+        snapshot['initial_facts']={k:str(facts.get(k) or '').strip() for k in ('chinese_meaning','positioning','language','market')}
+        snapshot['initial_facts']['chinese_meaning'] = snapshot['initial_facts']['chinese_meaning'] or channel.chinese_meaning or ''
+        snapshot['initial_facts']['positioning'] = snapshot['initial_facts']['positioning'] or (profile.positioning if profile else '') or channel.default_genre or ''
+        for field,key in (('default_language','language'),('country_name_zh','market')):
+            if snapshot['initial_facts'][key]:snapshot['channel'][field]=snapshot['initial_facts'][key]
+        snapshot['rules']['channel-initial-audience.md']=skill_version['files']['SKILL.md']
+    if mode=='initial' and not cold_start:
         snapshot['rules']={k:v for k,v in snapshot['rules'].items() if k in {'output-contract.md','generation-spec-contract.md'}}
         snapshot['rules']['cold-start.md']='只依据已确认的初始定位、语言、市场和固定资料建立假设。不得推断真实年龄性别或高CTR结论。三文件均保留数据缺口与冷启动标记，尚无API、ZIP、截图标记为not_applicable，不伪造正式运营诊断。'
     session.add(run); session.commit(); session.refresh(run)
@@ -181,6 +193,8 @@ def validate_result(run,result):
         if len(re.findall(r'^##\s+',result[key],re.M))!=count:
             raise ConflictError(f'{key} 必须包含完整{count}节')
     channel=run.input_snapshot['channel']
+    if run.input_snapshot.get('cold_start'):
+        validate_cold_start_result(run,result)
     issues=validate_text(result['generation_spec'],expected_channel_name=channel['original_name'],
         expected_language=channel['default_language'],expected_market=channel.get('country_name_zh') or '未配置')
     if issues:raise ConflictError('生成规范校验失败：'+'；'.join(issues))
@@ -222,6 +236,8 @@ def submit_result(session,run_id,claim_id,*,result=None,error=None):
     if run.status in {'ready','applied','superseded'} and run.claim_id==claim_id and result is not None:
         if run.result==validate_result(run,result):return run
     run=claimed(session,run_id,claim_id)
+    if run.input_snapshot.get('cold_start') and not error:
+        assert_no_measured_report(session,run.channel_id)
     if error:
         run.status='failed';run.error=error[:4000]
     else:
@@ -236,6 +252,7 @@ def apply_result(session,run_id):
     if run.status=='applied':return run
     if run.status!='ready':raise ConflictError('分析结果尚未完成')
     channel=require_tenant_entity(session,Channel,run.channel_id,lock=True)
+    if run.input_snapshot.get('cold_start'):assert_no_measured_report(session,run.channel_id)
     newer=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id==channel.id,
         ChannelAnalysisRun.status=='applied',ChannelAnalysisRun.created_at>run.created_at).limit(1))
     if newer:raise ConflictError('已有更新的分析版本生效，不能覆盖')
@@ -268,3 +285,58 @@ def apply_result(session,run_id):
     setting.payload=payload;run.report_id=report.id;run.dna_id=dna.id;run.status='applied'
     _audit(session,'channel_analysis.applied','channel',channel.id)
     session.commit();return run
+
+
+PROFILE_SECTIONS = ('Channel basics','Overall performance','Audience profile','Traffic profile','Content profile',
+                    'Packaging profile','Consumption profile','Stable audience preferences','Current channel positioning','Long-term strategy')
+DIAGNOSIS_SECTIONS = ('Current-stage diagnosis','What the current audience rewards','Current content priority','Current title guidance',
+                      'Current cover guidance','Current description/community/hashtag guidance','Current decision summary')
+COLD_DOMAINS = ('channel_totals_28d','trend','audience_28d','traffic_28d_video_pct','retention_intro_30s_pct',
+                'top_videos_28d','low_videos_28d','concentration_28d','community_posts','ab_testing','unmatched_video_ids')
+
+
+def assert_no_measured_report(session,channel_id):
+    measured=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id==channel_id,
+        ChannelAnalysisRun.mode=='periodic',ChannelAnalysisRun.status.in_(['ready','applied','superseded'])).limit(1))
+    report=session.scalar(select(ChannelAnalysisReport.id).where(ChannelAnalysisReport.channel_id==channel_id,
+        ChannelAnalysisReport.report_type!='initial',ChannelAnalysisReport.status=='completed').limit(1))
+    if measured or report:raise ConflictError('已有实测分析报告，不能使用冷启动覆盖，请使用正式频道分析')
+
+
+def cold_start_skill(session):
+    from zhiju.models import Skill,SkillVersion
+    from zhiju.services.skill_catalog import BUNDLE,files
+    skill=session.scalar(select(Skill).where(Skill.code=='channel-initial-audience'))
+    version=session.scalar(select(SkillVersion).where(SkillVersion.skill_id==skill.id,SkillVersion.is_current.is_(True))) if skill else None
+    base=files(BUNDLE.read_bytes())
+    content={k:v for k,v in base.items() if k in {'references/output-contract.md','references/generation-spec-contract.md',
+        'assets/generation-spec-template.md','scripts/validate_generation_spec.py'}}
+    content['SKILL.md']=version.body_original if version else (Path(__file__).resolve().parents[1]/'skill_catalog_bundles/channel-initial-audience.md').read_text()
+    return {'id':version.id if version else 'builtin-channel-initial-audience','label':'channel-initial-audience',
+            'revision':version.version_number if version else 1,'files':content}
+
+
+def cold_start_snapshot(channel,facts,sources=None):
+    return {'schema_version':2,'snapshot_status':'cold_start_no_analytics','generated_at':datetime.now(timezone.utc).isoformat(),
+        'channel':channel,'initial_facts':facts,'data_windows':{'recent_28d':'unavailable','recent_90d':'unavailable'},
+        'availability_rules':['unavailable is not zero','cold-start assumptions are not measured facts'],
+        **{key:'unavailable' for key in COLD_DOMAINS},
+        'source_manifest':sources or [{'type':'confirmed_platform_channel','channel_id':channel['id']} ]}
+
+
+def validate_cold_start_result(run,result):
+    for key,expected in (('profile',PROFILE_SECTIONS),('diagnosis',DIAGNOSIS_SECTIONS)):
+        sections=re.split(r'^##\s+',result.get(key,''),flags=re.M)[1:]
+        titles=[re.sub(r'^\d+[.、)．]\s*','',part.splitlines()[0].strip()) for part in sections]
+        if titles!=list(expected) or any(len(part.split('\n',1))<2 or not part.split('\n',1)[1].strip() for part in sections):
+            raise ConflictError('冷启动报告章节名称、顺序或正文不完整：'+key)
+    snapshot=result.get('normalized_snapshot',{})
+    if snapshot.get('snapshot_status')!='cold_start_no_analytics' or any(snapshot.get(key)!='unavailable' for key in COLD_DOMAINS):
+        raise ConflictError('冷启动事实快照必须标记无实测数据，指标域只能为 unavailable')
+    block=re.search(r'```(?:yaml|yml)\s*\n(.*?)```',result['diagnosis'],re.S)
+    try:
+        strategy=yaml.safe_load(block[1])['channel_strategy']
+        if strategy['strategy_confidence']!='low' or strategy['channel_stage']!='exploration':raise ValueError()
+        if strategy['audience_core']!='unavailable' or strategy['traffic_type']!='unavailable':raise ValueError()
+        if strategy['data_window']!={'recent_28d':'unavailable','recent_90d':'unavailable'}:raise ValueError()
+    except Exception as exc:raise ConflictError('冷启动策略须为低置信度探索期，受众/流量/窗口不可编造') from exc

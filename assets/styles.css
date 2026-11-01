@@ -603,7 +603,7 @@ a.schedule-video-id:hover { color: var(--blue); text-decoration: underline; }
 .search-field { flex: 1 1 260px; }
 
 .modal-backdrop, .drawer-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(12,18,16,.46); }
-.modal-backdrop { display: grid; place-items: center; padding: 20px; }
+.modal-backdrop { z-index: 110; display: grid; place-items: center; padding: 20px; }
 .modal { width: min(680px, 100%); max-height: calc(100vh - 40px); overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 24px 70px rgba(0,0,0,.22); }
 .modal-head, .drawer-head { min-height: 59px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
 .modal-head h2, .drawer-head h2 { margin: 0; font-size: 17px; }

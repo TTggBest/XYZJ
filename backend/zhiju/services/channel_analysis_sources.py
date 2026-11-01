@@ -62,6 +62,16 @@ def verify_authorization(session,channel,fetcher=_youtube_request_json):
 
 def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
     run=claimed(session,run_id,claim_id)
+    if run.input_snapshot.get('cold_start'):
+        from zhiju.services.channel_analysis import cold_start_snapshot,assert_no_measured_report
+        assert_no_measured_report(session,run.channel_id)
+        snapshot=dict(run.input_snapshot)
+        if not snapshot['channel'].get('default_language') or not snapshot['channel'].get('country_name_zh'):
+            raise ConflictError('冷启动资料缺少目标语言或市场，请补充后重试')
+        snapshot['sources']={'api':{'status':'not_applicable','reason':'channel-initial-audience 无 Analytics 冷启动'},
+            'normalized':cold_start_snapshot(snapshot['channel'],snapshot['initial_facts'])}
+        snapshot['sources_complete']=True;run.input_snapshot=snapshot;run.phase='analysis'
+        session.commit();return run
     if run.input_snapshot.get('sources_complete'):return run
     snapshot=dict(run.input_snapshot);channel=snapshot['channel']
     sources=snapshot.get('sources') or {}

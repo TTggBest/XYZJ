@@ -27,6 +27,8 @@ class Execution(BaseModel):
     claim_id: str
     result: dict | None = None
     error: str | None = None
+    paths: dict[str,str] | None = None
+    initial_context: dict | None = None
 
 
 class Resume(BaseModel):
@@ -103,7 +105,18 @@ def checked(s,p,run_id,claim_id):
 
 @router.post('/analysis-runs/{run_id}/collect')
 def gather(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
-    checked(s,p,run_id,body.claim_id)
+    run=checked(s,p,run_id,body.claim_id)
+    if run.input_snapshot.get('cold_start') and body.initial_context:
+        snapshot=dict(run.input_snapshot);context=body.initial_context
+        channel=dict(snapshot['channel'])
+        for key in ('default_language','country_name_zh'):
+            if not channel.get(key):channel[key]=context.get('channel',{}).get(key)
+        if not channel.get('default_language') or not channel.get('country_name_zh'):
+            from fastapi import HTTPException
+            raise HTTPException(409,'本机注册资料仍缺目标语言或市场，请补充后重建冷启动任务')
+        snapshot['channel']=channel
+        snapshot['local_initial_context']=context
+        run.input_snapshot=snapshot;s.commit()
     return service.run_read(call(collect,s,run_id,body.claim_id))
 
 
@@ -126,4 +139,19 @@ def mirrored(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depend
         from fastapi import HTTPException
         raise HTTPException(409,'镜像结果不属于当前领取')
     row.mirror_status='failed' if body.error else 'completed'
+    if body.paths or body.error:
+        row.result={**(row.result or {}),'delivery':{'paths':body.paths or {},'error':body.error}}
     s.commit();return {'status':row.mirror_status}
+
+
+class ColdStartInput(BaseModel):
+    chinese_meaning: str = ''
+    positioning: str = ''
+    language: str = ''
+    market: str = ''
+
+@router.post('/channels/{channel_id}/cold-start')
+def cold_start(channel_id:str,body:ColdStartInput,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    run=call(service.create_run,s,channel_id,mode='initial',positioning=body.positioning,
+             cold_start=True,initial_facts=body.model_dump())
+    return service.run_read(call(service.start_run,s,run.id))

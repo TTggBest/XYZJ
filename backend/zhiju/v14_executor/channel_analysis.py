@@ -28,6 +28,36 @@ def safe_name(name):
 def mirror(run,root,workspace):
     """Keep originals and final snapshots; a local mirror is not cloud authority."""
     channel=run['input_snapshot']['channel'];name=safe_name(channel['original_name'])
+    channel_dir=resolve_channel_directory(run,workspace)
+    cold=run['input_snapshot'].get('cold_start',False)
+    if cold:protect_measured_files(channel_dir)
+    history=channel_dir/'分析数据'/(datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()+('_频道冷启动_' if cold else '_频道分析V2_')+run['id'])
+    history.mkdir(parents=True,exist_ok=True)
+    folders=('分析产物原始版本','更新前文件','最终文件快照') if cold else ('API原始数据','Studio导出数据','截图','分析产物原始版本','更新前文件','最终文件快照')
+    for folder in folders:(history/folder).mkdir(exist_ok=True)
+    if not cold:
+        sources=run['input_snapshot'].get('sources',{})
+        (history/'API原始数据/sources.json').write_text(json.dumps(sources,ensure_ascii=False,indent=2))
+        for material in run['materials']:
+            source=root/'materials'/(material['id']+material['suffix'])
+            if source.exists():
+                folder='Studio导出数据' if material['kind']=='studio_zip' else '截图'
+                shutil.copyfile(source,history/folder/(material['id']+'_'+safe_name(material['name'])))
+    result=run['result']
+    (history/'分析产物原始版本/频道Analytics原始快照.json').write_text(json.dumps(result['normalized_snapshot'],ensure_ascii=False,indent=2))
+    files={'profile':'频道用户画像与长期经营档案.md','diagnosis':'频道当前运营诊断与运营包指导.md','generation_spec':name+'_生成规范.md'}
+    paths={'normalized_snapshot':str(history/'分析产物原始版本/频道Analytics原始快照.json')}
+    for key,filename in files.items():
+        (history/'最终文件快照'/filename).write_text(result[key])
+        if cold or run['status']=='applied':
+            target=channel_dir/filename; archived=history/'更新前文件'/filename
+            if target.exists() and not archived.exists():shutil.copyfile(target,archived)
+            target.write_text(result[key]);paths[key]=str(target)
+    return paths
+
+
+def resolve_channel_directory(run,workspace):
+    channel=run['input_snapshot']['channel'];name=safe_name(channel['original_name'])
     channel_dir=None
     registry=workspace/'运营/工作流运营/公用/频道注册表.json'
     if registry.is_file():
@@ -41,29 +71,55 @@ def mirror(run,root,workspace):
     if channel_dir is None:
         # The workspace is administrator-configured, never supplied by a cloud job.
         channel_dir=workspace/'频道分析'/channel['default_language']/name
-    history=channel_dir/'分析数据'/(datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()+'_频道分析V2_'+run['id'])
-    history.mkdir(parents=True,exist_ok=True)
-    for folder in ('API原始数据','Studio导出数据','截图','分析产物原始版本','更新前文件','最终文件快照'):
-        (history/folder).mkdir(exist_ok=True)
-    sources=run['input_snapshot'].get('sources',{})
-    (history/'API原始数据/sources.json').write_text(json.dumps(sources,ensure_ascii=False,indent=2))
-    for material in run['materials']:
-        source=root/'materials'/(material['id']+material['suffix'])
-        if source.exists():
-            folder='Studio导出数据' if material['kind']=='studio_zip' else '截图'
-            shutil.copyfile(source,history/folder/(material['id']+'_'+safe_name(material['name'])))
-    result=run['result']
-    (history/'分析产物原始版本/频道Analytics原始快照.json').write_text(json.dumps(result['normalized_snapshot'],ensure_ascii=False,indent=2))
-    files={'profile':'频道用户画像与长期经营档案.md','diagnosis':'频道当前运营诊断与运营包指导.md',
-           'generation_spec':name+'_生成规范.md'}
-    for key,filename in files.items():
-        (history/'最终文件快照'/filename).write_text(result[key])
-        # Live files change only after the cloud version was explicitly applied.
-        if run['status']=='applied':
-            target=channel_dir/filename
-            archived=history/'更新前文件'/filename
-            if target.exists() and not archived.exists():shutil.copyfile(target,archived)
-            target.write_text(result[key])
+    if run['input_snapshot'].get('cold_start') and channel_dir == workspace/'频道分析'/channel['default_language']/name:
+        raise OSError('冷启动频道目录未在本机注册表中确认，请先登记频道目录')
+    return channel_dir
+
+
+def protect_measured_files(channel_dir):
+    for filename in ('频道用户画像与长期经营档案.md','频道当前运营诊断与运营包指导.md'):
+        path=channel_dir/filename
+        if path.exists():
+            body=path.read_text()
+            if '冷启动' not in body or '未经数据验证' not in body:
+                raise OSError('频道目录已有非冷启动报告，保留原文件，不能覆盖：'+str(path))
+    for path in (channel_dir/'分析数据').glob('*/分析产物原始版本/频道Analytics原始快照.json'):
+        data=json.loads(path.read_text())
+        if data.get('snapshot_status') not in {'cold_start_no_analytics','cold_start'}:
+            raise OSError('频道目录已有实测或未确认类型的分析快照，不能冷启动覆盖')
+
+
+def prepare_cold_start(run,workspace):
+    from zhiju.services.channel_analysis import cold_start_snapshot
+    directory=resolve_channel_directory(run,workspace)
+    if not directory.is_dir():raise OSError('本机频道目录不存在：'+str(directory))
+    protect_measured_files(directory)
+    snapshot=run['input_snapshot'];facts=dict(snapshot['initial_facts'])
+    positioning=directory/'频道初始定位.md'
+    sources=[{'type':'confirmed_platform_channel','channel_id':snapshot['channel']['id']}]
+    if positioning.is_file():
+        facts['existing_positioning_document']=positioning.read_text()
+        sources.append({'type':'local_positioning','path':str(positioning)})
+    registry=workspace/'运营/工作流运营/公用/频道注册表.json'
+    row={}
+    if registry.is_file():
+        row=next((r for r in json.loads(registry.read_text()).get('channels',[]) if r.get('url','').rstrip('/').endswith('/'+snapshot['channel']['youtube_channel_id'])),{})
+        sources.append({'type':'local_registry','path':str(registry)})
+    for field,key,heading in (('default_language','language','目标语言'),('country_name_zh','market','目标市场')):
+        if not snapshot['channel'].get(field):
+            value=row.get(key)
+            if not value and positioning.is_file():
+                match=re.search(r'(?:'+heading+r'|'+heading[2:]+r')[：:]\s*([^\n]+)',facts['existing_positioning_document'])
+                value=match[1].strip() if match else None
+            snapshot['channel'][field]=value
+    if not snapshot['channel'].get('default_language') or not snapshot['channel'].get('country_name_zh'):
+        raise OSError('注册表与频道初始定位仍缺目标语言或市场，请补充后重建冷启动任务')
+    facts['registered_positioning']=row.get('position') or row.get('direction') or 'unavailable'
+    facts['precedence']='本次用户输入优先，旧定位仅作来源；名称翻译与题材推断须区分'
+    normalized=cold_start_snapshot(snapshot['channel'],facts,sources)
+    snapshot['sources']={'normalized':normalized}
+    snapshot['initial_facts']=facts
+    return normalized
 
 
 def stage_for(run,root):
@@ -79,6 +135,13 @@ def stage_for(run,root):
         'material_checks 为JSON字符串，按附件id逐项给出identity_matches/page_matches/window_matches布尔值和依据；无法核实则false。冷启动填写{}。'
         '冷启动报告必须写明冷启动与未经数据验证，不得编造观众指标。'
         '\n本次冻结规则与数据：\n'+json.dumps(snapshot,ensure_ascii=False,default=str))
+    if snapshot.get('cold_start'):
+        prompt=('执行冻结的 channel-initial-audience Skill 正文和输出契约。无需 OAuth、API、ZIP、截图或外部搜索。'
+            '仅按已确认资料建立冷启动假设，正文写明冷启动及未经数据验证。'
+            'profile 和 diagnosis 的 H2 必须逐字采用输出契约列出的英文章节名，保留十节和七节及实质正文。'
+            'channel_strategy 的 strategy_confidence=low，channel_stage=exploration；data_window的recent_28d/recent_90d、audience_core、traffic_type均为unavailable。'
+            'normalized_snapshot 使用所给 sources.normalized，不增造指标；material_checks为{}。'
+            '输出schema中的三个文档及两个JSON字符串。不要写文件，由平台校验后在已确认频道目录交付。\n'+json.dumps(snapshot,ensure_ascii=False,default=str))
     images=[root/'materials'/(m['id']+m['suffix']) for m in run['materials'] if m['kind']!='studio_zip']
     return SimpleNamespace(prompt=prompt,schema=OUTPUT_SCHEMA,skill_bundle=None,node_type='channel_analysis',
         rules={'execution':{'reasoning_effort':'high'}},images=images)
@@ -98,9 +161,10 @@ def drain(client,model,config,cache_root,once=False):
     for accepted in cache_root.glob('*/submitted.json'):
         entry=json.loads(accepted.read_text());run=client.request('GET',f"/analysis-runs/{entry['run_id']}")
         if run['status'] in {'ready','applied'}:
+            if run['input_snapshot'].get('cold_start') and run.get('mirror_status')=='completed':continue
             try:
-                mirror(run,accepted.parent,workspace)
-                if run['status']=='applied':client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id']})
+                paths=mirror(run,accepted.parent,workspace)
+                if run['status']=='applied' or run['input_snapshot'].get('cold_start'):client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'paths':paths})
             except OSError as exc:
                 client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'error':str(exc)})
     while True:
@@ -119,7 +183,12 @@ def drain(client,model,config,cache_root,once=False):
         thread=Thread(target=heartbeat,daemon=True);thread.start();model.cancelled=cancelled.is_set
         body={'claim_id':run['claim_id']}
         try:
+            normalized=prepare_cold_start(run,workspace) if run['input_snapshot'].get('cold_start') else None
+            if normalized is not None:body['initial_context']={'channel':run['input_snapshot']['channel'],'facts':run['input_snapshot']['initial_facts'],'source_manifest':normalized['source_manifest']}
             run=client.request('POST',f"/analysis-runs/{run['id']}/collect",body,timeout=900)
+            if normalized is not None:
+                run['input_snapshot']['sources']={'normalized':normalized}
+                run['input_snapshot']['initial_facts']=normalized['initial_facts']
             for material in run['materials']:
                 target=root/'materials'/(material['id']+material['suffix']);target.parent.mkdir(exist_ok=True)
                 if not target.exists():target.write_bytes(client.download_analysis_material(run['id'],material['id']))
@@ -127,7 +196,7 @@ def drain(client,model,config,cache_root,once=False):
             client.request('POST',f"/analysis-runs/{run['id']}/heartbeat",body)
             if cancelled.is_set():raise RuntimeError('分析已取消')
             result=model.generate(stage_for(run,root),run['input_snapshot']['model'])
-            result['normalized_snapshot']=json.loads(result['normalized_snapshot'])
+            result['normalized_snapshot']=normalized if normalized is not None else json.loads(result['normalized_snapshot'])
             result['material_checks']=json.loads(result['material_checks'])
             body['result']=result
         except (RuntimeError,ValueError,OSError) as exc:
@@ -146,7 +215,10 @@ def drain(client,model,config,cache_root,once=False):
             pending.write_text(json.dumps({'run_id':run['id'],'body':failure},ensure_ascii=False))
             response=submit_cached(client,pending)
         if response['status'] in {'ready','applied'}:
-            try:mirror(response,root,workspace)
+            try:
+                paths=mirror(response,root,workspace)
+                if response['input_snapshot'].get('cold_start'):
+                    client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'paths':paths})
             except OSError as exc:
                 client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'error':str(exc)})
         if once:return

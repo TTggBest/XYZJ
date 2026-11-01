@@ -506,7 +506,7 @@
       renderYouTubeReauthorizationNotice();
     }
     const phases = {materials:"待补材料",authorization:"核验授权与采集",analysis:"分析与生成规范",ready:"分析完成，待应用"};
-    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : "待同步"}</p><div class="row-actions">${run.status === "draft" ? `<button class="button button-secondary" data-action="edit-analysis-materials" data-id="${run.id}">上传材料并开始</button>` : ""}${["running","failed"].includes(run.status) ? `<button class="button button-secondary" data-action="resume-channel-analysis" data-id="${run.id}">继续分析</button>` : ""}${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary" data-action="cancel-channel-analysis" data-id="${run.id}">取消</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}${["queued","applied"].includes(run.status) ? `<button class="button button-secondary" data-action="wake-channel-analysis" data-id="${run.id}">${run.status === "applied" ? "同步本地文件" : "重试唤起"}</button>` : ""}</div></article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
+    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : "待同步"}</p><div class="row-actions">${run.status === "draft" ? `<button class="button button-secondary" data-action="edit-analysis-materials" data-id="${run.id}">上传材料并开始</button>` : ""}${["running","failed"].includes(run.status) ? `<button class="button button-secondary" data-action="resume-channel-analysis" data-id="${run.id}">继续分析</button>` : ""}${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary" data-action="cancel-channel-analysis" data-id="${run.id}">取消</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}${(["queued","applied"].includes(run.status) || (run.status === 'ready' && run.mirror_status !== 'completed')) ? `<button class="button button-secondary" data-action="wake-channel-analysis" data-id="${run.id}">${run.status === 'ready' ? '重试交付文件' : run.status === "applied" ? "同步本地文件" : "重试唤起"}</button>` : ""}</div></article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
   }
   function analysisMaterialsForm(run) {
     const slots = [["studio_zip","Studio 最近28天内容导出 ZIP",".zip"],["videos","内容 → 视频截图","image/png,image/jpeg,image/webp"],["audience","观众页截图","image/png,image/jpeg,image/webp"],["posts","帖子页截图","image/png,image/jpeg,image/webp"],["ab","已完成 A/B 测试截图（可多选）","image/png,image/jpeg,image/webp"]];
@@ -2421,7 +2421,7 @@
       }
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "new-channel-analysis") {
-        openModal("开始频道分析", `<form id="channelAnalysisCreateForm" data-channel-id="${esc(id)}"><div class="field"><label>分析类型</label><select name="mode" class="select"><option value="periodic">正式数据分析（已运营）</option><option value="initial">冷启动初诊断（尚未运营）</option></select></div><div class="field"><label>初始定位（冷启动必填）</label><textarea name="positioning" class="textarea">${esc(state.channelDetail?.profile?.positioning || "")}</textarea></div><label><input type="checkbox" name="posts_not_applicable"> 从未使用帖子，帖子截图不适用</label><br><label><input type="checkbox" name="ab_not_applicable"> 没有已完成的 A/B 测试，测试截图不适用</label><p>正式分析将核验授权、读取近期28/90天API数据，并结合你上传的Studio材料。生成完成后需点击应用才生效。</p><button class="button button-primary" type="submit">建立分析任务</button></form>`);
+        openModal("开始频道分析", `<form id="channelAnalysisCreateForm" data-channel-id="${esc(id)}"><div class="field"><label>分析类型</label><select name="mode" class="select"><option value="periodic" ${button.dataset.mode !== "initial" ? "selected" : ""}>正式数据分析（已运营）</option><option value="initial" ${button.dataset.mode === "initial" ? "selected" : ""}>新频道冷启动 · channel-initial-audience</option></select></div><div class="field"><label>初始题材或定位（冷启动选填）</label><textarea name="positioning" class="textarea">${esc(state.channelDetail?.profile?.positioning || "")}</textarea></div><div class="field"><label>频道中文含义（冷启动选填）</label><input class="input" name="chinese_meaning" value="${esc(state.channelDetail?.channel?.chinese_meaning || "")}"></div><div class="field"><label>目标语言（可补充，否则读取本机注册资料）</label><input class="input" name="language" value="${esc(state.channelDetail?.channel?.default_language || "")}"></div><div class="field"><label>目标市场（可补充，否则读取本机注册资料）</label><input class="input" name="market" value="${esc(state.channelDetail?.channel?.country_name_zh || "")}"></div><div data-periodic-material-flags ${button.dataset.mode === "initial" ? "hidden" : ""}><label><input type="checkbox" name="posts_not_applicable"> 从未使用帖子，帖子截图不适用</label><br><label><input type="checkbox" name="ab_not_applicable"> 没有已完成的 A/B 测试，测试截图不适用</label></div><p>正式分析需授权和 Studio 材料；新频道冷启动无需 OAuth、API、ZIP 或截图。冷启动完成后交付三份文档和事实快照；应用生产策略仍需单独操作。</p><button class="button button-primary" type="submit">建立分析任务</button></form>`);
       }
       else if (action === "edit-analysis-materials") {
         const run=await api(`/analysis-runs/${id}`);openModal("分析材料",analysisMaterialsForm(run));
@@ -2443,7 +2443,9 @@
       else if (action === "view-analysis-result") {
         const run=await api(`/analysis-runs/${id}`);
         const blocks=[["profile","频道用户画像与长期经营档案"],["diagnosis","频道当前运营诊断与运营包指导"],["generation_spec","生成规范"]].map(([key,title])=>`<div class="field"><label>${title}</label><textarea class="textarea" readonly>${esc(run.result[key])}</textarea><button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="${key}">下载文件</button></div>`);
-        openModal("频道分析结果",blocks.join("")+`<button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="normalized_snapshot">下载 JSON 原始快照</button>`);
+        const delivery=run.result.delivery;
+        const deliveryHtml=delivery ? `<div class="detail-block"><h3>本机交付文件</h3>${delivery.error ? `<p class="is-red">${esc(delivery.error)}</p>` : Object.entries(delivery.paths || {}).map(([key,path])=>`<p class="mono">${esc(path)}</p>`).join('')}</div>` : '';
+        openModal("频道分析结果",deliveryHtml+blocks.join("")+`<button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="normalized_snapshot">下载 JSON 原始快照</button>`);
       }
       else if (action === "download-analysis-document") {
         const run=await api(`/analysis-runs/${id}`),key=button.dataset.key;
@@ -2716,6 +2718,9 @@
 
   document.addEventListener("change", async event => {
     if (event.target.id === "ledgerChannel") { state.ledgerChannelId = event.target.value; state.ledgerPage = 1; await loadView("channelLedger"); }
+    if (event.target.name === 'mode' && event.target.closest('#channelAnalysisCreateForm')) {
+      event.target.closest('form').querySelector('[data-periodic-material-flags]').hidden = event.target.value === 'initial';
+    }
     if (event.target.id === 'catalogFileSelect') { await catalogFiles(state.catalogFileVersionId, event.target.value); return; }
     if (event.target.matches('[data-workflow-selector]')) state.workflowVersionId = event.target.value;
     if (event.target.matches('[data-workflow-file]')) await workflowFiles(event.target.dataset.id, event.target.value);
@@ -2825,6 +2830,15 @@
       if (form.id === "channelAnalysisCreateForm") {
         if (form.dataset.busy) return; form.dataset.busy="true";
         try {
+          if (data.mode === 'initial') {
+            const config={...await prepareV14Executor(expectedRevision),task_type:'channel_analysis'};
+            const run=await api(`/channels/${form.dataset.channelId}/cold-start`, {method:'POST',expectedRevision,
+              body:JSON.stringify({chinese_meaning:data.chinese_meaning,positioning:data.positioning,language:data.language,market:data.market})});
+            closeModal();
+            try {await localV14Request('/start',config);} catch(error) {throw new Error(`冷启动已排队，但本机唤起失败：${error.message}，请重试唤起`);}
+            await showChannelDetail(state.channelDetailId,'analysis');notify('新频道冷启动已排队，无需上传运营材料');
+            return;
+          }
           const run=await api(`/channels/${form.dataset.channelId}/analysis-runs`,{method:"POST",body:JSON.stringify({mode:data.mode,positioning:data.positioning,posts_not_applicable:!!form.elements.posts_not_applicable.checked,ab_not_applicable:!!form.elements.ab_not_applicable.checked}),expectedRevision});
           openModal("分析材料",analysisMaterialsForm(run));await showChannelDetail(state.channelDetailId,"analysis");
         } finally {delete form.dataset.busy;}
