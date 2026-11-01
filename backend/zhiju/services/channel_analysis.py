@@ -203,12 +203,14 @@ def validate_result(run,result):
     try:
         block=re.search(r'```(?:yaml|yml)\s*\n(.*?)```',result['diagnosis'],re.S)
         strategy=yaml.safe_load(block[1])['channel_strategy']
-        if strategy['channel_id'] != channel['youtube_channel_id']:raise ValueError()
-        required={'channel_id','updated_at','data_window','strategy_confidence','channel_stage','audience_core','traffic_type',
-            'content_priority','content_secondary','content_explore','content_avoid','title_priority','title_reduce',
-            'cover_priority','cover_reduce','description_focus','community_focus','hashtag_focus','scheduling_notes'}
-        if required-set(strategy):raise ValueError()
-    except Exception as exc:raise ConflictError('诊断 YAML 缺失或频道身份不符') from exc
+        if not isinstance(strategy,dict):raise ValueError()
+    except Exception as exc:raise ConflictError('诊断 YAML 缺失或格式错误') from exc
+    if strategy.get('channel_id') != channel['youtube_channel_id']:
+        raise ConflictError('诊断 YAML 频道身份不符：channel_id 必须使用当前 YouTube Channel ID，不能使用智矩内部 ID')
+    required={'channel_id','updated_at','data_window','strategy_confidence','channel_stage','audience_core','traffic_type',
+        'content_priority','content_secondary','content_explore','content_avoid','title_priority','title_reduce',
+        'cover_priority','cover_reduce','description_focus','community_focus','hashtag_focus','scheduling_notes'}
+    if required-set(strategy):raise ConflictError('诊断 YAML 缺少字段：'+', '.join(sorted(required-set(strategy))))
     if run.mode=='initial' and not all('冷启动' in result[k] and '未经数据验证' in result[k] for k in ('profile','diagnosis')):
         raise ConflictError('冷启动报告必须明确标注冷启动及未经数据验证')
     snap=result['normalized_snapshot']
@@ -226,7 +228,9 @@ def validate_result(run,result):
         for material in run.materials:
             if material['kind']=='studio_zip':continue
             check=checks.get(material['id'],{})
-            if not all(check.get(key) is True for key in ('identity_matches','page_matches','window_matches')) or not isinstance(check.get('evidence'),str) or not check['evidence'].strip():
+            identity_and_page=all(check.get(key) is True for key in ('identity_matches','page_matches'))
+            window_verified=isinstance(check.get('window_matches'),bool) if material['kind']=='ab' else check.get('window_matches') is True
+            if not identity_and_page or not window_verified or not isinstance(check.get('evidence'),str) or not check['evidence'].strip():
                 raise ConflictError('截图频道、页面或周期未核实：'+material['name'])
     result=copy.deepcopy(result)
     if run.mode!='periodic':

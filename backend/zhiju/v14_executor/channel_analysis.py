@@ -7,11 +7,52 @@ from threading import Event, Thread
 import json
 import re
 import shutil
+import copy
+import yaml
 from .client import CloudConflict
 
 OUTPUT_SCHEMA={'type':'object','additionalProperties':False,
     'properties':{k:{'type':'string'} for k in ('profile','diagnosis','generation_spec','normalized_snapshot','material_checks')},
     'required':['profile','diagnosis','generation_spec','normalized_snapshot','material_checks']}
+
+
+def analysis_output_schema(run):
+    schema=copy.deepcopy(OUTPUT_SCHEMA)
+    checks={material['id']:{'type':'object','additionalProperties':False,
+        'properties':{'identity_matches':{'type':'boolean'},'page_matches':{'type':'boolean'},
+            'window_matches':{'type':'boolean'},'evidence':{'type':'string'}},
+        'required':['identity_matches','page_matches','window_matches','evidence']}
+        for material in run['materials'] if material['kind']!='studio_zip'}
+    schema['properties']['material_checks']={'type':'object','additionalProperties':False,
+        'properties':checks,'required':list(checks)}
+    return schema
+
+
+def bind_analysis_result(result,run):
+    """Bind the known platform/YouTube identity pair; never accept an unrelated channel."""
+    result=copy.deepcopy(result)
+    channel=run['input_snapshot']['channel']
+    block=re.search(r'```(?:yaml|yml)\s*\n(.*?)```',result['diagnosis'],re.S)
+    if block:
+        try:document=yaml.safe_load(block[1])
+        except yaml.YAMLError as exc:raise ValueError('诊断 YAML 格式错误') from exc
+        strategy=document.get('channel_strategy') if isinstance(document,dict) else None
+        if isinstance(strategy,dict):
+            expected=channel['youtube_channel_id']
+            actual=strategy.get('channel_id')
+            if actual not in {expected,channel['id']}:
+                raise ValueError('诊断 YAML 频道身份不符：必须使用当前频道的 YouTube Channel ID')
+            if actual!=expected:
+                strategy['channel_id']=expected
+                result['diagnosis']=result['diagnosis'][:block.start(1)]+yaml.safe_dump(document,allow_unicode=True,sort_keys=False)+result['diagnosis'][block.end(1):]
+    checks=result.get('material_checks',{})
+    if isinstance(checks,str):checks=json.loads(checks)
+    # Existing failed outputs used the same observed evidence under `basis`.
+    for check in checks.values():
+        if isinstance(check,dict) and not check.get('evidence') and isinstance(check.get('basis'),str):
+            check['evidence']=check['basis']
+    result['material_checks']=checks
+    return result
 
 
 def submit_cached(client,path):
@@ -172,12 +213,14 @@ def stage_for(run,root):
         'profile/diagnosis章节名称与顺序逐字采用output-contract.md的英文标题。'
         '关键结论写明所依据的API数据集、Studio表或截图id；数值以sources.fact_snapshot为准，不重算或编造。'
         '截图中的年龄性别等仅能据可读卡片描述，JSON未知指标保留unavailable；A/B百分比是观看时长份额，不是CTR。'
+        'channel_strategy.channel_id 必须填写 channel.youtube_channel_id（YouTube频道ID），绝不能填写 channel.id（智矩内部ID）。'
         'data_window逐字采用fact_snapshot.data_windows；strategy_confidence只能high/medium/low；所有priority/reduce/focus及scheduling_notes均为字符串列表。'
         'GLOBAL 的目标语言使用平台语言代码，目标市场使用平台 country_name_zh；未知市场填写未配置。'
         '正式分析normalized_snapshot填写JSON字符串{}，程序会注入已核实事实，不要复制整份JSON。'
         '本次API/Studio窗口已按最近完整Studio28天对齐；若不是昨日截止，应标明实际截止日。'
         '比较视频时结合发布时间，未满7完整日标记早期样本，不认定为成熟表现。'
-        'material_checks 为JSON字符串，按附件id逐项给出identity_matches/page_matches/window_matches布尔值和依据；无法核实则false。冷启动填写{}。'
+        'material_checks 是结构化对象，按附件id给出identity_matches/page_matches/window_matches布尔值及非空evidence字符串；字段名必须与schema一致。无法核实则false。无截图填写{}。'
+        'A/B测试按自身测试起止时间核实；跨出28天统计窗口时window_matches=false并在evidence和报告中说明，仅作补充，不合并进28天指标。'
         '冷启动报告必须写明冷启动与未经数据验证，不得编造观众指标。'
         '\n本次冻结规则与数据：\n'+json.dumps(snapshot,ensure_ascii=False,default=str))
     if snapshot.get('cold_start'):
@@ -185,10 +228,10 @@ def stage_for(run,root):
             '仅按已确认资料建立冷启动假设，正文写明冷启动及未经数据验证。'
             'profile 和 diagnosis 的 H2 必须逐字采用输出契约列出的英文章节名，保留十节和七节及实质正文。'
             'channel_strategy 的 strategy_confidence=low，channel_stage=exploration；data_window的recent_28d/recent_90d、audience_core、traffic_type均为unavailable。'
-            'normalized_snapshot 使用所给 sources.normalized，不增造指标；material_checks为{}。'
+            'normalized_snapshot 使用所给 sources.normalized，不增造指标；material_checks为结构化空对象{}。channel_strategy.channel_id使用当前YouTube频道ID，不用智矩内部ID。'
             '输出schema中的三个文档及两个JSON字符串。不要写文件，由平台校验后在已确认频道目录交付。\n'+json.dumps(snapshot,ensure_ascii=False,default=str))
     images=[root/'materials'/(m['id']+m['suffix']) for m in run['materials'] if m['kind']!='studio_zip']
-    return SimpleNamespace(prompt=prompt,schema=OUTPUT_SCHEMA,skill_bundle=None,node_type='channel_analysis',
+    return SimpleNamespace(prompt=prompt,schema=analysis_output_schema(run),skill_bundle=None,node_type='channel_analysis',
         rules={'execution':{'reasoning_effort':'high'}},images=images)
 
 
@@ -245,7 +288,7 @@ def drain(client,model,config,cache_root,once=False):
             if cancelled.is_set():raise RuntimeError('分析已取消')
             result=model.generate(stage_for(run,root),run['input_snapshot']['model'])
             result['normalized_snapshot']=normalized if normalized is not None else run['input_snapshot']['sources']['fact_snapshot'] if run['mode']=='periodic' else json.loads(result['normalized_snapshot'])
-            result['material_checks']=json.loads(result['material_checks'])
+            result=bind_analysis_result(result,run)
             body['result']=result
         except (RuntimeError,ValueError,OSError) as exc:
             if isinstance(exc,(PermissionError,ConnectionError)):raise

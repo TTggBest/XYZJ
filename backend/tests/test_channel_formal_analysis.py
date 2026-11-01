@@ -12,7 +12,7 @@ from test_channel_analysis_runs import session,valid_result
 from test_channel_cold_start import registered_workspace
 from zhiju.services import channel_analysis as service,channel_analysis_sources as sources
 from zhiju.services.identity import ConflictError
-from zhiju.v14_executor.channel_analysis import drain,stage_for
+from zhiju.v14_executor.channel_analysis import drain,stage_for,bind_analysis_result
 
 
 def zip_data(end,complete=True):
@@ -92,11 +92,20 @@ def test_formal_pipeline_paginates_inventory_and_delivers_without_apply(session,
             assert 'sources.fact_snapshot' in stage.prompt
             result=formal_result(run)
             result['normalized_snapshot']='{"fabricated":999}'
-            result['material_checks']=json.dumps(result['material_checks'])
+            assert stage.schema['properties']['material_checks']['type']=='object'
+            checks=stage.schema['properties']['material_checks']
+            assert set(checks['required'])=={m['id'] for m in run.materials if m['kind']!='studio_zip'}
+            for check in checks['properties'].values():assert 'evidence' in check['required']
+            result['diagnosis']=result['diagnosis'].replace('channel_id: UCtest','channel_id: '+run.channel_id)
+            for material in run.materials:
+                if material['kind']=='ab':result['material_checks'][material['id']]['window_matches']=False
+
             return result
     cloud=Cloud();drain(cloud,Model(),{'analysis_workspace_root':str(tmp_path)},tmp_path/'cache',once=True)
     assert run.status=='ready',run.error
     assert run.mirror_status=='completed'
+    block=__import__('re').search(r'```yaml\s*\n(.*?)```',run.result['diagnosis'],__import__('re').S)
+    assert yaml.safe_load(block[1])['channel_strategy']['channel_id']=='UCtest'
     assert set(cloud.paths)=={'profile','diagnosis','generation_spec','normalized_snapshot'}
     assert (directory/'频道用户画像与长期经营档案.md').read_text()==run.result['profile']
     history=next((directory/'分析数据').iterdir())
@@ -193,3 +202,35 @@ def test_apply_cancels_other_pending_delivery_and_drain_keeps_selection(session,
             return service.run_read(run)
     drain(Cloud(),SimpleNamespace(),{'analysis_workspace_root':str(tmp_path)},tmp_path/'cache')
     assert (directory/'频道用户画像与长期经营档案.md').read_text().endswith('版本A')
+
+
+def test_result_binding_rejects_foreign_channel_and_keeps_program_facts():
+    run={'input_snapshot':{'channel':{'id':'platform-id','youtube_channel_id':'UCcorrect'}}}
+    original={'diagnosis':'## Strategy\n```yaml\nchannel_strategy:\n  channel_id: platform-id\n```',
+        'material_checks':{'shot':{'basis':'Observed channel name and dates','identity_matches':True}},
+        'normalized_snapshot':{'views':123}}
+    result=bind_analysis_result(original,run)
+    assert 'channel_id: UCcorrect' in result['diagnosis']
+    assert 'channel_id: platform-id' in original['diagnosis']
+    assert result['normalized_snapshot']==original['normalized_snapshot']
+    assert result['material_checks']['shot']['evidence']=='Observed channel name and dates'
+    original['diagnosis']=original['diagnosis'].replace('platform-id','UCforeign')
+    with pytest.raises(ValueError,match='频道身份不符'):bind_analysis_result(original,run)
+
+
+def test_main_screenshot_window_and_identity_remain_required(session):
+    s,c=session
+    run=service.create_run(s,c.id,mode='initial',positioning='新频道')
+    run.mode='periodic'
+    facts=valid_result(run)['normalized_snapshot']
+    facts['data_windows']={'recent_28d':'test-window','recent_90d':'test-window'}
+    run.input_snapshot={**run.input_snapshot,'sources_complete':True,'sources':{'fact_snapshot':facts}}
+    run.materials=[{'id':'video','kind':'videos','name':'video.png'},{'id':'ab','kind':'ab','name':'ab.png'}]
+    result=formal_result(run)
+    result['material_checks']['ab']['window_matches']=False
+    assert service.validate_result(run,result)
+    result['material_checks']['video']['window_matches']=False
+    with pytest.raises(ConflictError,match='video.png'):service.validate_result(run,result)
+    result['material_checks']['video']['window_matches']=True
+    result['material_checks']['ab']['identity_matches']=False
+    with pytest.raises(ConflictError,match='ab.png'):service.validate_result(run,result)
