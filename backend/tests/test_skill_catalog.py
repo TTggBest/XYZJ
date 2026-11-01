@@ -20,7 +20,7 @@ def test_builtin_categories_share_production_versions_and_analysis_files(client)
     result=client.get('/api/v3/skill-categories')
     assert result.status_code==200,result.text
     categories={c['id']:c for c in result.json()}
-    assert list(categories)==['channel-analysis','package-production']
+    assert list(categories)==['channel-analysis','package-production','channel-initialization']
     assert len(categories['channel-analysis']['versions'])==1
     legacy=client.get('/api/v3/workflow-versions').json()
     assert categories['package-production']['versions']==legacy['versions']
@@ -59,7 +59,7 @@ def test_new_category_versions_publish_defaults_and_tenant_isolation(client,stor
     client.post(f'/api/v3/skill-categories/{cid}/default',json={'version_id':vid}).raise_for_status()
     assert client.get('/api/v3/skill-categories').json()[-1]['default_id']==vid
     with TenantSession(store,info={'tenant_id':'tenant-b'}) as s:
-        assert len(skill_catalog.catalog(s))==2
+        assert len(skill_catalog.catalog(s))==3
         import pytest
         from fastapi import HTTPException
         with pytest.raises(HTTPException):skill_catalog.archive(s,cid,vid)
@@ -144,3 +144,23 @@ def test_production_catalog_places_builtin_v14_last_and_preserves_default(client
         ('V17',1),('V16',4),('V16',3),('V15',1),('V14',1)]
     assert production['default_id']=='order-4'
     assert client.get('/api/v3/workflow-versions').json()['versions']==production['versions']
+
+
+def test_initialization_syncs_nine_modules_without_inventing_versions(client,store):
+    from zhiju.models import Skill,SkillVersion
+    admin(client)
+    response=client.post('/api/v3/skill-categories/channel-initialization/sync')
+    assert response.status_code==200,response.text
+    modules=response.json()
+    assert len(modules)==9
+    assert not {'initial_analysis','operating_reference'} & {m['module_key'] for m in modules}
+    assert all(m['skill_id'] and m['current_version_id'] is None for m in modules)
+    assert all(m['readiness']=='missing_published_version' for m in modules)
+    assert client.post('/api/v3/skill-categories/channel-initialization/sync').json()==modules
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        assert len(list(s.scalars(select(Skill))))==9
+        assert list(s.scalars(select(SkillVersion)))==[]
+    group=next(c for c in client.get('/api/v3/skill-categories').json() if c['id']=='channel-initialization')
+    assert len(group['modules'])==9
+    assert group['versions']==[]
+    assert client.post('/api/v3/skill-categories/channel-initialization/versions',data={'label':'bad'},files={'file':('skills.zip',skill_catalog.BUNDLE.read_bytes())}).status_code==409

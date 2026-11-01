@@ -1652,9 +1652,13 @@
     const production = categories.find(c => c.id === 'package-production');
     if (production) state.workflowRegistry = {versions: production.versions, default_id: production.default_id};
     const admin = auth.current()?.platform_role === 'super_admin';
-    const sidebar = categories.map(c => `<button class="skill-category ${c.id === current?.id ? 'is-active' : ''}" data-action="skill-category" data-id="${esc(c.id)}">${icon(c.id === 'package-production' ? 'package' : c.id === 'channel-analysis' ? 'chart-no-axes-combined' : 'folder')}<span><strong>${esc(c.name)}</strong><small>${c.versions.length} 个版本</small></span>${icon('chevron-right')}</button>`).join('');
+    const sidebar = categories.map(c => `<button class="skill-category ${c.id === current?.id ? 'is-active' : ''}" data-action="skill-category" data-id="${esc(c.id)}">${icon(c.id === 'package-production' ? 'package' : c.id === 'channel-analysis' ? 'chart-no-axes-combined' : 'folder')}<span><strong>${esc(c.name)}</strong><small>${c.modules ? c.modules.length + " 项规则" : c.versions.length + " 个版本"}</small></span>${icon('chevron-right')}</button>`).join('');
     const rows = (current?.versions || []).map(v => `<tr><td><strong>${esc(v.label)}</strong><span class="cell-sub">修订 ${v.revision}${v.id === current.default_id ? ' · 当前默认' : ''}</span></td><td>${tag(v.status)}</td><td class="skill-change-summary">${esc(v.change_summary || '—')}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="catalog-files" data-id="${esc(v.id)}">查看文件</button><a class="button button-secondary button-small" href="/api/v3/skill-categories/${encodeURIComponent(current.id)}/versions/${encodeURIComponent(v.id)}/download" download>下载</a>${v.status === 'published' ? v.id === current.default_id ? '<span class="skill-default-badge">'+icon('circle-check')+'当前默认</span>' : `<button class="button button-secondary button-small" data-action="catalog-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-primary button-small" data-action="catalog-publish" data-id="${esc(v.id)}">发布版本</button>` : ''}</div></td></tr>`);
-    const content = current ? `<header class="skill-category-head"><div><h3>${esc(current.name)}</h3><p>${esc(current.description)}${!current.execution ? ' · 尚未绑定业务执行入口' : ''}</p></div>${admin ? `<button class="button button-primary" data-action="catalog-add-version">${icon('plus')} 添加版本</button>` : ''}</header><p class="skill-version-hint">指定默认版本后，仅之后新建的任务使用该版本；已有任务与成品保留原版本。</p>${current.id === 'channel-analysis' ? '<p class="skill-version-hint">已收录完整 xy-yt-report-v2。频道分析执行链路仍待原流程一致性验收。</p>' : ''}${rows.length ? table(['版本', '状态', '变更说明', '操作'], rows, 780) : empty('尚无版本', '上传包含 SKILL.md 的完整 ZIP，发布后即可指定默认版本。')}` : '';
+    let content = current ? `<header class="skill-category-head"><div><h3>${esc(current.name)}</h3><p>${esc(current.description)}${!current.execution ? ' · 尚未绑定业务执行入口' : ''}</p></div>${admin ? `<button class="button button-primary" data-action="catalog-add-version">${icon('plus')} 添加版本</button>` : ''}</header><p class="skill-version-hint">指定默认版本后，仅之后新建的任务使用该版本；已有任务与成品保留原版本。</p>${current.id === 'channel-analysis' ? '<p class="skill-version-hint">已收录完整 xy-yt-report-v2。频道分析执行链路仍待原流程一致性验收。</p>' : ''}${rows.length ? table(['版本', '状态', '变更说明', '操作'], rows, 780) : empty('尚无版本', '上传包含 SKILL.md 的完整 ZIP，发布后即可指定默认版本。')}` : '';
+    if (current?.modules) {
+      const moduleRows = current.modules.map(m => `<tr><td><strong>${esc(m.module_name)}</strong><span class="cell-sub mono">${esc(m.skill_code)}</span></td><td>${esc(m.output_description)}</td><td>${m.current_version_number ? 'v' + m.current_version_number : '—'}</td><td>${m.readiness === 'ready' ? tag('ready') : '<span class="tag">待配置</span>'}</td><td><button class="button button-secondary button-small" data-action="initialization-skill-detail" data-id="${esc(m.skill_code)}">管理规则 / 版本</button></td></tr>`);
+      content = `<header class="skill-category-head"><div><h3>频道初始化</h3><p>9 项基础规则；初始分析报告、运营参考已由频道分析管理，不重复收录。</p></div></header><p class="skill-version-hint">没有正文的模块保留为待配置。每项规则单独维护版本，发布后供频道初始化使用。</p>${table(['规则模块','输出内容','当前版本','状态','操作'], moduleRows, 780)}`;
+    }
     root.innerHTML = `<div class="page-stack">${section('Skills 管理', '按业务分类管理完整技能包、版本与默认选择', `<div class="skill-catalog"><nav class="skill-category-nav" aria-label="技能分类">${sidebar}</nav><div class="skill-category-content">${content}</div></div>`, admin ? `<button class="button button-secondary" data-action="catalog-add-category">${icon('folder-plus')} 新增分类</button>` : '')}</div>`;
     renderIcons();
   }
@@ -1752,7 +1756,7 @@
       const rules = await api("/settings/channel-initialization-rules");
       const rows = rules.map(item => `<tr><td><span class="cell-main">${esc(item.module_name)}</span><span class="cell-sub mono">${esc(item.module_key)}</span></td><td>${esc(item.output_description)}</td><td class="mono">${esc(item.skill_code)}</td><td>${item.current_version_number ? `v${item.current_version_number}` : "—"}</td><td>${item.readiness === "ready" ? tag("ready") : item.readiness === "missing_skill" ? tag("missing") : tag("draft")}</td></tr>`);
       const ready = rules.filter(item => item.readiness === "ready").length;
-      body = `<header class="settings-content-head"><div><h2>频道初始化规则</h2><p>初始化生成只使用当前已发布版本；模板正文与版本在 Skills 中维护。</p></div><button class="button button-primary" data-action="go-skills">${icon("arrow-right")} 进入 Skills</button></header><div class="setting-grid">${settingValue("模块总数", rules.length)}${settingValue("已就绪", ready)}${settingValue("待配置", rules.length - ready)}</div>${table(["初始化模块", "输出内容", "Skill 代码", "当前版本", "状态"], rows, 900)}`;
+      body = `<header class="settings-content-head"><div><h2>频道初始化规则</h2><p>初始化生成只使用当前已发布版本；模板正文与版本在 Skills 中维护。</p></div><button class="button button-primary" data-action="go-initialization-skills">${icon("arrow-right")} 进入 Skills</button></header><div class="setting-grid">${settingValue("模块总数", rules.length)}${settingValue("已就绪", ready)}${settingValue("待配置", rules.length - ready)}</div>${table(["初始化模块", "输出内容", "Skill 代码", "当前版本", "状态"], rows, 900)}`;
     } else if (state.settingsTab === "images") {
       const workspace = await api("/settings/image-workspace");
       const defaultRoot = `tenants/${auth.current().tenant_id}/images`;
@@ -2483,6 +2487,15 @@
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
+      else if (action === 'initialization-skill-detail') {
+        let module = state.skillCategories.find(c => c.id === 'channel-initialization')?.modules.find(m => m.skill_code === id);
+        if (!module?.skill_id) {
+          const modules = await api('/skill-categories/channel-initialization/sync', {method:'POST'});
+          module = modules.find(m => m.skill_code === id);
+          await showSkills();
+        }
+        if (module?.skill_id) await skillDetail(module.skill_id);
+      }
       else if (action === 'skill-category') { state.skillCategoryId = id; await showSkills(); }
       else if (action === 'catalog-files') { if (state.skillCategoryId === 'package-production') await workflowFiles(id); else await catalogFiles(id); }
       else if (action === 'catalog-add-category') {
@@ -2500,6 +2513,7 @@
         await api(`/skill-categories/${state.skillCategoryId}/versions/${id}/publish`, {method:'POST'});
         notify('版本已发布，请按需指定默认版本'); await showSkills();
       }
+      else if (action === 'go-initialization-skills') { state.skillCategoryId = 'channel-initialization'; await loadView('skills'); }
       else if (action === "skill-detail") await skillDetail(id);
       else if (action === "view-demo-workorders") { state.date = state.demo?.batch?.start_date || localDate(); state.dateManuallySet = true; await loadView("workorders"); }
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }

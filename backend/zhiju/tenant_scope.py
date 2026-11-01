@@ -75,6 +75,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ('POST','/api/v3/analysis-runs/{run_id}/mirror-complete'),
     ('POST', '/api/v3/v14/runs/{run_id}/workflow-upgrade'),
     ('POST', '/api/v3/v14/runs/{run_id}/workflow-recovery'),
+    ('POST', '/api/v3/skill-categories/channel-initialization/sync'),
     ('GET', '/api/v3/skill-categories'),
     ('POST', '/api/v3/skill-categories'),
     ('POST', '/api/v3/skill-categories/{category_id}/versions'),

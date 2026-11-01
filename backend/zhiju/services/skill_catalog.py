@@ -11,6 +11,7 @@ from zhiju.tenant_repository import require_tenant_entity
 
 ANALYSIS = 'channel-analysis'
 PRODUCTION = 'package-production'
+INITIALIZATION = 'channel-initialization'
 ANALYSIS_VERSION = 'builtin-xy-yt-report-v2'
 BUNDLE = Path(__file__).resolve().parents[1] / 'skill_catalog_bundles/xy-yt-report-v2.zip'
 
@@ -40,7 +41,26 @@ def files(data):
         raise ValueError('无法读取 Skills ZIP') from exc
 
 
+def initialization_modules(s):
+    from zhiju.services.settings import list_channel_initialization_rules
+    return [m for m in list_channel_initialization_rules(s)
+            if m['module_key'] not in {'initial_analysis', 'operating_reference'}]
+
+
+def sync_initialization(s):
+    from zhiju.schemas.skill import SkillCreate
+    from zhiju.services.skill import create_skill
+    for module in initialization_modules(s):
+        if not module['skill_id']:
+            create_skill(s, SkillCreate(code=module['skill_code'],name=module['module_name'],
+                purpose=module['output_description'],category='channel-initialization'))
+    return initialization_modules(s)
+
+
 def category(s, key):
+    if key == INITIALIZATION:
+        return {'id':key, 'name':'频道初始化', 'description':'频道基础资料与运营配置，共 9 项规则模块',
+                'execution':'channel_initialization', 'modules':initialization_modules(s)}
     if key in {ANALYSIS, PRODUCTION}:
         return {'id':key, 'name':'频道分析' if key == ANALYSIS else '运营包生产',
                 'description':'频道画像、运营诊断与生成规范' if key == ANALYSIS else '搜索、标题、封面、说明、社群与合成',
@@ -50,6 +70,7 @@ def category(s, key):
 
 
 def default_id(s, key):
+    if key == INITIALIZATION:return None
     if key in {PRODUCTION, ANALYSIS}:
         setting = s.scalar(select(V14Setting))
         payload = setting.payload if setting else {}
@@ -63,6 +84,7 @@ def version_read(row):
 
 def versions(s, key):
     category(s,key)
+    if key == INITIALIZATION:return []
     if key == PRODUCTION:
         return workflow_versions.list_versions(s)
     rows = [version_read(r) for r in s.scalars(select(SkillBundleVersion).where(
@@ -74,14 +96,14 @@ def versions(s, key):
 
 
 def catalog(s):
-    keys = [ANALYSIS, PRODUCTION, *s.scalars(select(SkillCategory.id).order_by(SkillCategory.created_at, SkillCategory.id))]
+    keys = [ANALYSIS, PRODUCTION, INITIALIZATION, *s.scalars(select(SkillCategory.id).order_by(SkillCategory.created_at, SkillCategory.id))]
     return [{**category(s,k), 'versions':versions(s,k), 'default_id':default_id(s,k)} for k in keys]
 
 
 def create_category(s, name, description):
     name=name.strip()
     if not name or len(name)>80:raise ValueError('分类名称须为 1～80 字')
-    if name in {'频道分析','运营包生产'} or s.scalar(select(SkillCategory.id).where(SkillCategory.name==name)):
+    if name in {'频道分析','运营包生产','频道初始化'} or s.scalar(select(SkillCategory.id).where(SkillCategory.name==name)):
         raise ConflictError('分类名称已存在')
     row=SkillCategory(name=name,description=description.strip())
     s.add(row);s.commit();s.refresh(row)
@@ -90,6 +112,7 @@ def create_category(s, name, description):
 
 def archive(s,key,version_id):
     category(s,key)
+    if key==INITIALIZATION:raise ConflictError('请在对应初始化模块内管理规则版本')
     if key==PRODUCTION:return workflow_versions.get_archive(s,version_id)
     if key==ANALYSIS and version_id==ANALYSIS_VERSION:return BUNDLE.read_bytes()
     row=require_tenant_entity(s,SkillBundleVersion,version_id)
@@ -99,6 +122,7 @@ def archive(s,key,version_id):
 
 def upload(s,key,label,summary,data):
     category(s,key)
+    if key==INITIALIZATION:raise ConflictError('请在对应初始化模块内添加规则版本')
     if key==PRODUCTION:return workflow_versions.describe(workflow_versions.upload(s,label,summary,data))
     content=files(data)
     if key==ANALYSIS:

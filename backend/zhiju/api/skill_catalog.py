@@ -57,3 +57,8 @@ def detail(category_id:str,version_id:str,path:str|None=None,s:Session=Depends(g
     content=invoke(service.files,data)
     if path and path not in content:raise HTTPException(422,'文件不在此版本中')
     return {'files':sorted(content),'content':content.get(path) if path else None}
+
+
+@router.post('/channel-initialization/sync',dependencies=[Depends(require_platform_permission)])
+def sync_initialization(s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    return invoke(service.sync_initialization,s)
