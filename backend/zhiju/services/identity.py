@@ -170,8 +170,9 @@ def list_channel_overview(
 
     authorization_rows = list(
         session.execute(
-            select(AccountChannelAuthorization, GoogleAccount)
+            select(AccountChannelAuthorization, GoogleAccount, OAuthGrant.status)
             .join(GoogleAccount, GoogleAccount.id == AccountChannelAuthorization.account_id)
+            .outerjoin(OAuthGrant, OAuthGrant.id == AccountChannelAuthorization.oauth_grant_id)
             .where(
                 AccountChannelAuthorization.channel_id.in_(channel_ids),
                 AccountChannelAuthorization.status == "active",
@@ -184,7 +185,11 @@ def list_channel_overview(
         )
     )
     accounts_by_channel: dict[str, list[dict[str, object]]] = {}
-    for authorization, account in authorization_rows:
+    latest_grants_by_channel: dict[str, tuple[datetime, str | None]] = {}
+    for authorization, account, grant_status in authorization_rows:
+        previous = latest_grants_by_channel.get(authorization.channel_id)
+        if previous is None or authorization.verified_at > previous[0]:
+            latest_grants_by_channel[authorization.channel_id] = (authorization.verified_at, grant_status)
         accounts_by_channel.setdefault(authorization.channel_id, []).append(
             {
                 "authorization_id": authorization.id,
@@ -298,6 +303,10 @@ def list_channel_overview(
                 "deleted_at": channel.deleted_at,
                 "production_material_issues": production_material_issues(session, channel),
                 "authorized_account_count": len(accounts),
+                "youtube_authorization_status": (
+                    "authorized" if latest_grants_by_channel.get(channel.id, (None, None))[1] == "active"
+                    else "reauthorization_required" if accounts else "pending"
+                ),
                 "authorized_accounts": accounts,
                 "profile_id": profile.id if profile else None,
                 "profile_status": profile.status if profile else None,

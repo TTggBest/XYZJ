@@ -67,12 +67,17 @@ def ensure_grant_access_token(
     refresher: Callable[[str], Mapping[str, object]] | None = None,
 ) -> str:
     current_time = now or datetime.now(timezone.utc)
+    def require_reauthorization(message):
+        # An explicit token rejection is durable; temporary network/quota errors are not.
+        grant.status = 'expired'
+        session.commit()
+        raise YouTubeAuthorizationRequired(message)
     from zhiju.services.oauth_secret_store import EncryptedDatabaseSecretStore
     from zhiju.config import get_settings
     cloud_store = isinstance(store, EncryptedDatabaseSecretStore)
     token = store.get(grant.id) if cloud_store else load_oauth_token(store, grant.id)
     if token is None:
-        raise YouTubeAuthorizationRequired("YouTube授权令牌不存在，请重新授权频道")
+        require_reauthorization("YouTube授权令牌不存在，请重新授权频道")
     access_token = str(token.get("access_token") or "").strip()
     expires_at = _as_utc(grant.token_expires_at)
     if access_token and (expires_at is None or expires_at > current_time + timedelta(seconds=60)):
@@ -80,11 +85,14 @@ def ensure_grant_access_token(
 
     refresh_token = str(token.get("refresh_token") or "").strip()
     if not refresh_token:
-        raise YouTubeAuthorizationRequired("YouTube授权缺少刷新令牌，请重新授权频道")
+        require_reauthorization("YouTube授权缺少刷新令牌，请重新授权频道")
     if refresher is None:
         config = cloud_oauth_client_config(get_settings()) if cloud_store else load_oauth_client_config(store)
         refresher = lambda value: refresh_oauth_access_token(config, value)
-    refreshed = dict(refresher(refresh_token))
+    try:
+        refreshed = dict(refresher(refresh_token))
+    except YouTubeAuthorizationRequired as exc:
+        require_reauthorization(str(exc))
     new_access_token = str(refreshed.get("access_token") or "").strip()
     if not new_access_token:
         raise ValueError("Google刷新授权后未返回访问令牌")

@@ -48,3 +48,36 @@ if(VISIBLE){
  assert.equal(notice.hidden,true);
 }
 """.replace("FAILURE", json.dumps(failure, ensure_ascii=False)).replace("VISIBLE", str(visible).lower()))
+
+
+def test_cloud_channel_menu_exposes_reauthorization_without_first_failing_an_operation():
+    run_node(r"""
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const requests=[],popup={location:{},focus(){},close(){}};
+const user={...principal,permissions:[...principal.permissions,'channel.manage']};
+const page=start(process.argv[1],auth,async(path,options)=>{
+ requests.push(path);
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(user));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"deployment":"cloud","device_role":"worker"}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","original_name":"测试频道","authorized_account_count":1,"youtube_authorization_status":"reauthorization_required","status":"authorized"}]');
+ if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
+ if(path.endsWith('/youtube-authorization/start'))return new Response('{"authorization_url":"https://accounts.google.com/test"}');
+ return new Response('[]');
+},{windowOpen:()=>popup});
+for(let i=0;i<5;i++)await page.tick();
+async function click(action,id){const button={dataset:{action,id},closest:()=>null};await page.document.emit('click',{target:{closest:s=>s==='[data-action]'?button:null}});}
+const nav={dataset:{view:'channels'}};
+await page.document.emit('click',{target:{closest:s=>s==='[data-view]'?nav:null}});
+for(let i=0;i<5;i++)await page.tick();
+assert.match(page.nodes.get('viewRoot').innerHTML,/需重新授权/);
+assert.match(page.nodes.get('viewRoot').innerHTML,/已接入/);
+assert.equal(page.nodes.get('youtubeReauthorizationNotice').hidden,false);
+await click('channel-more','c1');
+assert.match(page.nodes.get('modalBody').innerHTML,/authorize-youtube-channel/);
+assert.match(page.nodes.get('modalBody').innerHTML,/重新授权/);
+await click('authorize-youtube-channel','c1');
+assert.equal(popup.location.href,'https://accounts.google.com/test');
+assert.ok(auth.current());
+""")

@@ -98,6 +98,7 @@ class ChannelOverview(BaseModel):
     deleted_at: datetime | None
     production_material_issues: list[str] = Field(default_factory=list)
     authorized_account_count: int
+    youtube_authorization_status: str = "pending"
     authorized_accounts: list[ChannelAuthorizedAccountOverview]
     profile_id: str | None
     profile_status: str | None

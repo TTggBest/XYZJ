@@ -8,12 +8,12 @@
   const NODE_TYPES = ["search", "title", "cover_scene", "cover", "description", "community_scene", "community", "merge"];
   const NODE_LABELS = { search: "搜索", title: "标题", cover_scene: "封面场景规划", community_scene: "社群场景规划", cover: "封面", description: "说明", community: "社群", merge: "合成" };
   const STATUS_LABELS = {
-    active: "启用", enabled: "启用", inactive: "停用", suspended: "停用", revoked: "已撤销", retired: "已退役", new: "待配置", archived: "已归档", paused: "已暂停", authorized: "已授权", analyzed: "已分析", branded: "已装修", configured: "已配置", scheduled: "已排期",
+    active: "启用", enabled: "启用", inactive: "停用", suspended: "停用", revoked: "已撤销", retired: "已退役", new: "待配置", archived: "已归档", paused: "已暂停", authorized: "已授权", connected: "已接入", analyzed: "已分析", branded: "已装修", configured: "已配置", scheduled: "已排期",
     pending_dispatch: "待下发", dispatched: "已下发", running: "进行中", completed: "已完成", failed: "失败", cancelled: "已取消", pending: "待处理",
     reserved: "已预留", confirmed: "已确认", published: "已发布", draft: "草稿", ready: "已就绪", review_pending: "待审核", approved: "已通过",
     changes_requested: "需重做", delivered: "已交付", waiting: "等待中", in_progress: "进行中", succeeded: "已完成", skipped: "已跳过", retrying: "重试中",
     private: "私享", public: "公开", unlisted: "不公开", upload: "已上传", processed: "已处理", disabled: "停用", deprecated: "已弃用",
-    missing: "缺失", partial: "部分就绪", expired: "已过期", blocked: "禁用", calibrated: "已校准",
+    missing: "缺失", partial: "部分就绪", expired: "已过期", reauthorization_required: "需重新授权", blocked: "禁用", calibrated: "已校准",
     processing: "处理中", classified: "分类完成", partially_classified: "部分匹配", logo_ready: "Logo 已生成", partially_generated: "部分生成",
     not_started: "未开始", not_producing: "不制作", queued: "已排队", interrupted: "执行中断", needs_user_review: "需要人工审核", text_ready: "文本已完成"
   };
@@ -62,6 +62,9 @@
   function esc(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
   }
+  function channelAuthorizationStatus(channel) {
+    return channel.youtube_authorization_status || (channel.authorized_account_count > 0 ? "authorized" : "pending");
+  }
   function sourceLanguageBadge(language) {
     const code = String(language || "").trim().toLowerCase();
     const text = code === "zh" ? "中文" : code === "en" ? "英语" : "";
@@ -88,8 +91,8 @@
   function shortId(value) { return value ? `${String(value).slice(0, 8)}…` : "—"; }
   function label(value) { return STATUS_LABELS[value] || value || "—"; }
   function statusClass(value) {
-    if (["active", "authorized", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed", "calibrated", "classified", "logo_ready", "text_ready"].includes(value)) return "is-green";
-    if (["failed", "cancelled", "blocked", "changes_requested", "expired", "not_producing", "interrupted", "needs_user_review"].includes(value)) return "is-red";
+    if (["active", "authorized", "connected", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed", "calibrated", "classified", "logo_ready", "text_ready"].includes(value)) return "is-green";
+    if (["failed", "cancelled", "blocked", "changes_requested", "expired", "reauthorization_required", "not_producing", "interrupted", "needs_user_review"].includes(value)) return "is-red";
     if (["running", "in_progress", "dispatched", "review_pending", "retrying"].includes(value)) return "is-blue";
     if (["pending", "pending_dispatch", "reserved", "draft", "partial", "partially_classified", "partially_generated", "waiting"].includes(value)) return "is-amber";
     return "";
@@ -345,7 +348,8 @@
     const channelPositions = new Map(window.ZhijuOperationsPageData.sortChannels(channels).map((channel, index) => [channel.channel_id, index + 1]));
     const rows = orderedChannels.map(item => {
       const profile = profileByChannel.get(item.channel_id);
-      const authorized = item.authorized_account_count > 0;
+      const authorizationStatus = channelAuthorizationStatus(item);
+      const authorized = authorizationStatus === "authorized";
       const audience = channelAudience(item);
       const recorded = fmtUtc(item.created_at).split(" ");
       const position = String(channelPositions.get(item.channel_id)).padStart(2, "0");
@@ -359,9 +363,9 @@
         <td class="channel-language-cell"><span>${esc(languageLabel(item.default_language).split("（")[0])}</span><span class="cell-sub">${esc(item.default_language || "—")}${audience ? ` · ${audience === "male" ? "男频" : "女频"}` : ""}</span></td>
         <td class="channel-created-cell"><span>${esc(recorded[0])}</span><span class="cell-sub mono">${esc(recorded.slice(1).join(" "))}</span></td>
         <td class="channel-count-cell mono">${item.daily_publish_count}</td>
-        <td class="channel-status-cell">${authorized ? tag("authorized") : tag("pending")}</td>
+        <td class="channel-status-cell">${(auth.can("channel.manage") || auth.current()?.platform_role === "super_admin") && oauthStatus.configured ? `<button class="tag ${statusClass(authorizationStatus)}" data-action="authorize-youtube-channel" data-id="${esc(item.channel_id)}" title="${authorized ? "重新授权 YouTube" : "授权 YouTube"}">${esc(label(authorizationStatus))}</button>` : tag(authorizationStatus)}</td>
         <td class="channel-status-cell"><button class="channel-logo-control" data-action="configure-channel-logo" data-id="${esc(item.channel_id)}" title="${profile ? "更新 Logo" : "配置 Logo"}">${profile ? tag(profile.status) : tag("missing")}</button></td>
-        <td class="channel-status-cell">${tag(item.status)}</td>
+        <td class="channel-status-cell">${tag(item.status === "authorized" ? "connected" : item.status)}</td>
         <td class="channel-material-cell">${material}</td>
         <td class="channel-ledger-cell"><button class="channel-ledger-link" data-action="channel-ledger" data-id="${esc(item.channel_id)}">${icon("list-checks")} 剧目台账</button></td>
         <td class="channel-action-cell"><div class="channel-actions"><button class="channel-detail-link" data-action="channel-detail" data-id="${esc(item.channel_id)}">详情</button><button class="icon-button channel-more-button" title="更多操作" aria-label="${esc(item.original_name)}的更多操作" data-action="channel-more" data-id="${esc(item.channel_id)}">${icon("ellipsis")}</button></div></td>
@@ -391,6 +395,11 @@
       })
     ]);
     Object.assign(state, { channels, logoProfiles, oauthStatus });
+    for (const channel of channels) {
+      if (channelAuthorizationStatus(channel) === "reauthorization_required") youtubeReauthorizationChannels.add(channel.channel_id);
+      else youtubeReauthorizationChannels.delete(channel.channel_id);
+    }
+    renderYouTubeReauthorizationNotice();
     renderChannels();
   }
 
@@ -2077,7 +2086,7 @@
         const oauth = state.oauthStatus || {};
         openModal(`${channel.original_name} · 频道管理`, `<div class="channel-management-menu">
           <button class="channel-management-item" data-action="configure-channel-logo" data-id="${esc(id)}">${icon("image-up")}<span>${profile ? "更新 Logo" : "配置 Logo"}</span>${icon("chevron-right")}</button>
-          ${state.deployment === "cloud" ? "" : `<button class="channel-management-item" data-action="authorize-youtube-channel" data-id="${esc(id)}" ${oauth.can_manage && oauth.configured ? "" : "disabled"}>${icon("key-round")}<span>${authorized ? "重新授权" : "授权 YouTube"}</span>${icon("chevron-right")}</button><button class="channel-management-item" data-action="sync-youtube-videos" data-id="${esc(id)}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")}<span>同步视频</span>${icon("chevron-right")}</button>`}
+          <button class="channel-management-item" data-action="authorize-youtube-channel" data-id="${esc(id)}" ${oauth.can_manage && oauth.configured && (auth.can("channel.manage") || auth.current()?.platform_role === "super_admin") ? "" : "disabled"}>${icon("key-round")}<span>${channel.authorized_account_count > 0 ? "重新授权" : "授权 YouTube"}</span>${icon("chevron-right")}</button>${state.deployment === "cloud" ? "" : `<button class="channel-management-item" data-action="sync-youtube-videos" data-id="${esc(id)}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")}<span>同步视频</span>${icon("chevron-right")}</button>`}
           ${auth.can("channel.delete") ? `<button class="channel-management-item is-danger" data-action="delete-channel" data-id="${esc(id)}">${icon("trash-2")}<span>删除频道</span>${icon("chevron-right")}</button>` : ""}
         </div>`);
       }
