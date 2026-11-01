@@ -11,11 +11,15 @@ BOOT_ORDER = BOOT.replace("'youtube.manage'", "'youtube.manage','channel.manage'
 )
 
 
-def test_channel_layout_keeps_ledger_in_actions_and_opens_issue_details():
+def test_channel_layout_gives_ledger_its_own_column_and_opens_issue_details():
     run_node(BOOT_ORDER + r'''
 let html=page.nodes.get('viewRoot').innerHTML;
 assert.ok(!html.includes('channelSortOrder'),'there is one authoritative saved channel order');
-assert.match(html,/channel-actions[\s\S]*data-action="channel-ledger"/);
+assert.match(html,/channel-ledger-cell[\s\S]*data-action="channel-ledger"/);
+const actionCells=[...html.matchAll(/<td class="channel-action-cell">([\s\S]*?)<\/td>/g)].map(m=>m[1]);
+assert.equal(actionCells.length,2);
+assert.ok(actionCells.every(cell=>!cell.includes('channel-ledger') && !cell.includes('move-channel') && !cell.includes('delete-channel')));
+assert.match(html,/channel-position-cell[\s\S]*data-action="move-channel"/);
 assert.doesNotMatch(html,/identity-cell[\s\S]*channel-ledger-entry/);
 assert.match(html,/data-action="channel-material-issues"/);
 assert.ok(!html.includes('标题模板'),'missing material details must not stretch the row');
@@ -42,4 +46,18 @@ await click('back-ledger-channels');
 html=page.nodes.get('viewRoot').innerHTML;
 assert.ok(html.indexOf('data-value="英语频道"')<html.indexOf('data-value="法语频道"'),'saved order survives reloading the channel page');
 assert.equal(form.dataset.busy,'false');
+''')
+
+
+def test_channel_maintenance_actions_open_from_more_instead_of_expanding_the_row():
+    run_node(BOOT_ORDER + r'''
+let html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/data-action="channel-more"/);
+assert.ok(!html.includes('data-action="delete-channel"'));
+await click('channel-more',{id:'c1'});
+const menu=page.nodes.get('modalBody').innerHTML;
+assert.match(menu,/channel-management-menu/);
+assert.match(menu,/data-action="configure-channel-logo"/);
+await click('configure-channel-logo',{id:'c1'});
+assert.match(page.nodes.get('modalTitle').textContent,/频道 Logo 配置/);
 ''')

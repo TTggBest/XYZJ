@@ -342,13 +342,30 @@
       .filter(item => !state.channelLanguage || String(item.default_language || "").toLowerCase() === state.channelLanguage.toLowerCase());
     const orderedChannels = window.ZhijuOperationsPageData.sortChannels(visibleChannels);
     const profileByChannel = new Map(logoProfiles.map(profile => [profile.channel_id, profile]));
+    const channelPositions = new Map(window.ZhijuOperationsPageData.sortChannels(channels).map((channel, index) => [channel.channel_id, index + 1]));
     const rows = orderedChannels.map(item => {
       const profile = profileByChannel.get(item.channel_id);
       const authorized = item.authorized_account_count > 0;
-      const deleteButton = auth.can("channel.delete")
-        ? `<button class="button button-danger button-small" data-action="delete-channel" data-id="${item.channel_id}">${icon("trash-2")} 删除</button>`
-        : "";
-      return `<tr><td>${channelIdentity(item)}</td><td class="mono">${esc(item.youtube_channel_id)}</td><td>${esc(languageLabel(item.default_language))}</td><td>${esc(channelAudience(item) === "male" ? "男频" : channelAudience(item) === "female" ? "女频" : "—")}</td><td>${fmtUtc(item.created_at)}</td><td>${item.daily_publish_count}</td><td>${authorized ? tag("authorized") : tag("pending")}</td><td>${profile ? tag(profile.status) : tag("missing")}</td><td>${tag(item.status)}</td><td>${item.production_material_issues?.length ? `<button class="icon-button channel-material-warning" data-action="channel-material-issues" data-id="${esc(item.channel_id)}" title="资料未齐，点击查看缺项" aria-label="查看${esc(item.original_name)}的资料缺项">${icon("triangle-alert")}</button>` : Array.isArray(item.production_material_issues) ? `<span class="is-green channel-material-ready" title="生产资料已齐" aria-label="生产资料已齐">${icon("circle-check")}</span>` : "未检查"}</td><td><div class="row-actions channel-actions"><button class="button button-secondary button-small" data-action="channel-ledger" data-id="${esc(item.channel_id)}">${icon("list-checks")} 剧目台账</button>${auth.can("channel.manage") ? `<button class="button button-secondary button-small" data-action="move-channel" data-id="${esc(item.channel_id)}">${icon("arrow-up-down")} 移动位置</button>` : ""}${state.deployment === "cloud" ? "" : `<button class="button button-secondary button-small" data-action="authorize-youtube-channel" data-id="${item.channel_id}" ${oauthStatus.can_manage && oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} ${authorized ? "重新授权" : "授权 YouTube"}</button><button class="button button-secondary button-small" data-action="sync-youtube-videos" data-id="${item.channel_id}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")} 同步视频</button>`}<button class="button button-secondary button-small" data-action="configure-channel-logo" data-id="${item.channel_id}">${icon("image-up")} ${profile ? "更新 Logo" : "配置 Logo"}</button>${deleteButton}<button class="icon-button" title="查看频道" aria-label="查看频道" data-action="channel-detail" data-id="${item.channel_id}">${icon("arrow-right")}</button></div></td></tr>`;
+      const audience = channelAudience(item);
+      const recorded = fmtUtc(item.created_at).split(" ");
+      const position = String(channelPositions.get(item.channel_id)).padStart(2, "0");
+      const material = item.production_material_issues?.length
+        ? `<button class="icon-button channel-material-warning" data-action="channel-material-issues" data-id="${esc(item.channel_id)}" title="资料未齐，点击查看缺项" aria-label="查看${esc(item.original_name)}的资料缺项">${icon("triangle-alert")}</button>`
+        : Array.isArray(item.production_material_issues) ? `<span class="is-green channel-material-ready" title="生产资料已齐" aria-label="生产资料已齐">${icon("circle-check")}</span>` : "—";
+      return `<tr>
+        <td class="channel-position-cell"><div class="channel-position"><span class="mono">${position}</span>${auth.can("channel.manage") ? `<button class="channel-move-button" data-action="move-channel" data-id="${esc(item.channel_id)}" title="移动位置" aria-label="移动${esc(item.original_name)}的位置">${icon("arrow-up-down")}</button>` : ""}</div></td>
+        <td class="channel-identity-cell">${channelIdentity(item)}</td>
+        <td class="channel-id-cell mono" title="${esc(item.youtube_channel_id)}">${esc(item.youtube_channel_id)}</td>
+        <td class="channel-language-cell"><span>${esc(languageLabel(item.default_language).split("（")[0])}</span><span class="cell-sub">${esc(item.default_language || "—")}${audience ? ` · ${audience === "male" ? "男频" : "女频"}` : ""}</span></td>
+        <td class="channel-created-cell"><span>${esc(recorded[0])}</span><span class="cell-sub mono">${esc(recorded.slice(1).join(" "))}</span></td>
+        <td class="channel-count-cell mono">${item.daily_publish_count}</td>
+        <td class="channel-status-cell">${authorized ? tag("authorized") : tag("pending")}</td>
+        <td class="channel-status-cell"><button class="channel-logo-control" data-action="configure-channel-logo" data-id="${esc(item.channel_id)}" title="${profile ? "更新 Logo" : "配置 Logo"}">${profile ? tag(profile.status) : tag("missing")}</button></td>
+        <td class="channel-status-cell">${tag(item.status)}</td>
+        <td class="channel-material-cell">${material}</td>
+        <td class="channel-ledger-cell"><button class="channel-ledger-link" data-action="channel-ledger" data-id="${esc(item.channel_id)}">${icon("list-checks")} 剧目台账</button></td>
+        <td class="channel-action-cell"><div class="channel-actions"><button class="channel-detail-link" data-action="channel-detail" data-id="${esc(item.channel_id)}">详情</button><button class="icon-button channel-more-button" title="更多操作" aria-label="${esc(item.original_name)}的更多操作" data-action="channel-more" data-id="${esc(item.channel_id)}">${icon("ellipsis")}</button></div></td>
+      </tr>`;
     });
     const filtersActive = Boolean(state.channelAudience || state.channelLanguage);
     const actions = `<div class="toolbar channel-list-toolbar">
@@ -359,9 +376,9 @@
       <button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 新增频道</button>
     </div>`;
     const body = rows.length
-      ? table(["频道", "YouTube Channel ID", "语言", "频类", "录入时间", "日更", "授权", "Logo", "状态", "资料", "操作"], rows, 1260, "channel-list-table")
+      ? table(["排序", "频道", "YouTube Channel ID", "语言 / 频类", "录入时间", "日更", "授权", "Logo", "状态", "资料", "剧目台账", "操作"], rows, 0, "channel-list-table")
       : empty(channels.length ? "没有符合筛选条件的频道" : "还没有频道", channels.length ? "请调整频类或语言筛选条件。" : "先授权 Google 账号，再选择要导入的 YouTube 频道。", channels.length ? "reset-channel-list-filters" : "start-youtube-channel-import", channels.length ? "重置筛选" : "新增频道");
-    root.innerHTML = `<div class="page-stack channel-list-page">${section("频道清单", `${channels.length} 个频道 · 当前显示 ${visibleChannels.length} 个 · 按已保存的频道顺序排列，新频道追加在后 · Logo 素材按频道独立保存${oauthStatus.unavailable ? " · 云端 YouTube 授权尚未接入" : ""}`, body, actions)}</div>`;
+    root.innerHTML = `<div class="page-stack channel-list-page">${section("频道清单", `${channels.length} 个频道${visibleChannels.length !== channels.length ? ` · 当前显示 ${visibleChannels.length} 个` : ""} · 按已保存顺序排列，新频道追加在后`, body, actions)}</div>`;
   }
 
   async function showChannels() {
@@ -2026,6 +2043,18 @@
         openModal("移动频道位置", `<form id="channelOrderForm" class="form-grid"><input type="hidden" name="channel_id" value="${esc(id)}"><div class="field field-wide"><label>将“${esc(channels[index].original_name)}”移动到</label><select class="select" name="position">${channels.map((channel, position) => `<option value="${position}" ${position === index ? "selected" : ""}>第 ${position + 1} 位${position === index ? "（当前位置）" : ` · ${esc(channel.original_name)}所在位置`}</option>`).join("")}</select></div><p class="field-wide">保存后，排期、工单、运营包等统一使用此顺序；新频道追加在最后。</p><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存顺序</button></div></form>`);
         state.channelOrderIds = channels.map(channel => channel.channel_id);
       }
+      else if (action === "channel-more") {
+        const channel = state.channels.find(item => item.channel_id === id);
+        if (!channel) return;
+        const profile = state.logoProfiles.find(item => item.channel_id === id);
+        const authorized = channel.authorized_account_count > 0;
+        const oauth = state.oauthStatus || {};
+        openModal(`${channel.original_name} · 频道管理`, `<div class="channel-management-menu">
+          <button class="channel-management-item" data-action="configure-channel-logo" data-id="${esc(id)}">${icon("image-up")}<span>${profile ? "更新 Logo" : "配置 Logo"}</span>${icon("chevron-right")}</button>
+          ${state.deployment === "cloud" ? "" : `<button class="channel-management-item" data-action="authorize-youtube-channel" data-id="${esc(id)}" ${oauth.can_manage && oauth.configured ? "" : "disabled"}>${icon("key-round")}<span>${authorized ? "重新授权" : "授权 YouTube"}</span>${icon("chevron-right")}</button><button class="channel-management-item" data-action="sync-youtube-videos" data-id="${esc(id)}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")}<span>同步视频</span>${icon("chevron-right")}</button>`}
+          ${auth.can("channel.delete") ? `<button class="channel-management-item is-danger" data-action="delete-channel" data-id="${esc(id)}">${icon("trash-2")}<span>删除频道</span>${icon("chevron-right")}</button>` : ""}
+        </div>`);
+      }
       else if (action === "configure-channel-logo") { const channel = state.channels.find(item => item.channel_id === id); if (channel) openModal("频道 Logo 配置", channelLogoForm(channel)); }
       else if (action === "add-drama") openModal("新增剧目", dramaForm());
       else if (action === "bulk-add-dramas") openModal("批量录入剧目", dramaBulkForm());
@@ -2315,6 +2344,7 @@
         if (!channel || !auth.can("channel.delete")) return;
         if (!window.confirm(`确认从智矩中删除频道“${channel.original_name}”？\n\n该操作会停止此频道后续任务并从正常列表隐藏；历史数据会保留。`)) return;
         await api(`/channels/${id}${query({ reason: "用户在频道管理页删除频道" })}`, { method: "DELETE" });
+        closeModal();
         notify("频道已从智矩列表删除，历史数据已保留");
         await loadView("channels");
       }
