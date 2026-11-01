@@ -158,7 +158,7 @@ def test_zip_retains_native_csvs_and_rejects_invalid_materials():
     stream=BytesIO()
     with ZipFile(stream,'w') as archive:
         archive.writestr('表格数据.csv','视频 ID,观看次数\nv1,23\n')
-        archive.writestr('图表数据.csv','日期,观看次数\n2026-10-01,1\n2026-10-28,23\n')
+        archive.writestr('图表数据.csv','日期,观看次数\n'+''.join(f'2026-10-{i:02d},1\n' for i in range(1,29)))
     assert parse_studio_zip(stream.getvalue())['表格数据.csv'][0]['观看次数']=='23'
     with pytest.raises(ConflictError):parse_studio_zip(b'not a zip')
 
@@ -210,7 +210,7 @@ def test_formal_collection_preserves_successful_datasets_after_auth_interruption
     stream=BytesIO()
     with ZipFile(stream,'w') as archive:
         archive.writestr('表格数据.csv','视频 ID,展示次数,展示点击率 (%)\nv1,100,10\nv2,900,1\n')
-        archive.writestr('图表数据.csv',f'日期,观看次数\n{end-timedelta(days=27)},1\n{end},1\n')
+        archive.writestr('图表数据.csv','日期,观看次数\n'+''.join(f'{end-timedelta(days=i)},1\n' for i in range(28)))
     service.add_material(s,run.id,'studio_zip','内容.zip',stream.getvalue())
     image=BytesIO();Image.new('RGB',(2,2)).save(image,format='PNG')
     for kind in ('videos','audience'):service.add_material(s,run.id,kind,kind+'.png',image.getvalue())

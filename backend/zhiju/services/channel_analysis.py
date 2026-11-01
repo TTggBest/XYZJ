@@ -217,16 +217,18 @@ def validate_result(run,result):
     if snap.get('channel',{}).get('youtube_channel_id')!=channel['youtube_channel_id']:
         raise ConflictError('归一快照频道身份不符')
     if run.mode=='periodic':
+        validate_formal_result(run,result,strategy)
         if not run.input_snapshot.get('sources_complete'):
             raise ConflictError('正式分析尚未完成数据采集')
         checks=result.get('material_checks',{})
         for material in run.materials:
             if material['kind']=='studio_zip':continue
             check=checks.get(material['id'],{})
-            if not all(check.get(key) is True for key in ('identity_matches','page_matches','window_matches')):
+            if not all(check.get(key) is True for key in ('identity_matches','page_matches','window_matches')) or not isinstance(check.get('evidence'),str) or not check['evidence'].strip():
                 raise ConflictError('截图频道、页面或周期未核实：'+material['name'])
     result=copy.deepcopy(result)
-    result['normalized_snapshot']['authoritative_sources']=run.input_snapshot.get('sources',{})
+    if run.mode!='periodic':
+        result['normalized_snapshot']['authoritative_sources']=run.input_snapshot.get('sources',{})
     return result
 
 
@@ -242,6 +244,11 @@ def submit_result(session,run_id,claim_id,*,result=None,error=None):
         run.status='failed';run.error=error[:4000]
     else:
         run.result=validate_result(run,result or {});run.status='ready';run.phase='ready'
+        # A failed older delivery must not overwrite a later completed report on retry.
+        for older in session.scalars(select(ChannelAnalysisRun).where(
+            ChannelAnalysisRun.channel_id==run.channel_id,ChannelAnalysisRun.id!=run.id,
+            ChannelAnalysisRun.status=='ready',ChannelAnalysisRun.created_at<run.created_at)):
+            if older.mirror_status!='completed':older.mirror_status='superseded'
     run.attempts=list(run.attempts or [])+[{'claim_id':claim_id,'outcome':run.status,
         'error':run.error,'raw_result':result,'at':datetime.now(timezone.utc).isoformat()}]
     session.commit();return run
@@ -283,6 +290,10 @@ def apply_result(session,run_id):
     material['generation_spec']=result['generation_spec']
     material['analysis_version']={'run_id':run.id,'report_id':report.id,'dna_id':dna.id,'report_type':run.mode}
     setting.payload=payload;run.report_id=report.id;run.dna_id=dna.id;run.status='applied'
+    run.mirror_status='pending'  # Explicit selection must deliver this version even if delivered before.
+    for other in session.scalars(select(ChannelAnalysisRun).where(
+        ChannelAnalysisRun.channel_id==channel.id,ChannelAnalysisRun.id!=run.id,ChannelAnalysisRun.status=='ready')):
+        if other.mirror_status!='completed':other.mirror_status='superseded'
     _audit(session,'channel_analysis.applied','channel',channel.id)
     session.commit();return run
 
@@ -340,3 +351,22 @@ def validate_cold_start_result(run,result):
         if strategy['audience_core']!='unavailable' or strategy['traffic_type']!='unavailable':raise ValueError()
         if strategy['data_window']!={'recent_28d':'unavailable','recent_90d':'unavailable'}:raise ValueError()
     except Exception as exc:raise ConflictError('冷启动策略须为低置信度探索期，受众/流量/窗口不可编造') from exc
+
+
+def validate_formal_result(run,result,strategy):
+    for key,expected in (('profile',PROFILE_SECTIONS),('diagnosis',DIAGNOSIS_SECTIONS)):
+        sections=re.split(r'^##\s+',result[key],flags=re.M)[1:]
+        titles=[re.sub(r'^\d+[.、)．]\s*','',part.splitlines()[0].strip()) for part in sections]
+        if titles!=list(expected) or any(not part.partition('\n')[2].strip() for part in sections):
+            raise ConflictError('正式报告章节名称、顺序或正文不完整：'+key)
+    facts=run.input_snapshot.get('sources',{}).get('fact_snapshot')
+    if not facts or result['normalized_snapshot']!=facts:
+        raise ConflictError('正式分析事实快照与采集来源不一致，不能使用模型生成指标')
+    if strategy.get('data_window')!=facts['data_windows']:
+        raise ConflictError('诊断 YAML 数据周期与采集周期不一致')
+    if strategy.get('strategy_confidence') not in {'low','medium','high'}:
+        raise ConflictError('诊断 YAML 置信度无效')
+    for key in ('content_priority','content_secondary','content_explore','content_avoid','title_priority','title_reduce',
+                'cover_priority','cover_reduce','description_focus','community_focus','hashtag_focus','scheduling_notes'):
+        if not isinstance(strategy.get(key),list) or any(not isinstance(item,str) for item in strategy[key]):
+            raise ConflictError('诊断 YAML 策略字段必须为字符串列表：'+key)

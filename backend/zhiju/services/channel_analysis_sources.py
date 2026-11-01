@@ -32,7 +32,7 @@ def parse_studio_zip(content):
             if not headings.intersection({'内容','视频 ID','Content','Video','Video ID'}):
                 raise ValueError('未识别到原生 Studio 内容/视频表')
             period=studio_period(result)
-            if not period or period['complete_days']!=28:
+            if not period or (period['complete_days']!=28 or period['span_days']!=28):
                 raise ValueError('必须提供带实际日期的最近28天内容导出')
             return result
     except (BadZipFile,UnicodeError,ValueError,RuntimeError) as exc:
@@ -84,8 +84,17 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         # YouTube Analytics calendar days follow Pacific time, including DST.
         created=date.fromisoformat(verified['snippet']['publishedAt'][:10])
         sources['identity']=profile;sources.setdefault('api',{})
+        sources['studio']={m['id']:parse_studio_zip(material_path(run,m['id']).read_bytes())
+            for m in run.materials if m['kind']=='studio_zip'}
+        sources['studio_windows']={key:studio_period(value) for key,value in sources['studio'].items()}
+        last_complete=datetime.now(ZoneInfo('America/Los_Angeles')).date()-timedelta(days=1)
+        period=next(iter(sources['studio_windows'].values()))
+        studio_end=date.fromisoformat(period['end'])
+        if studio_end>last_complete or (last_complete-studio_end).days>7:
+            raise ConflictError('Studio 导出周期不是近期完整28天，请上传近期导出')
         if not sources.get('windows'):
-            end=datetime.now(ZoneInfo('America/Los_Angeles')).date()-timedelta(days=1)
+            end=studio_end
+            # Studio and API use the same completed period.
             windows={}
             for days in (28,90):
                 start=max(created,end-timedelta(days=days-1))
@@ -103,7 +112,7 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         for days in (28,90):
             window=sources['windows'][str(days)]
             start=date.fromisoformat(window['start'])
-            specs=[('daily','day','views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost','day'),
+            specs=[('daily','day','views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares','day'),
                 ('videos','video','views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained','-views'),
                 ('country','country','views,estimatedMinutesWatched','-views'),
                 ('traffic','insightTrafficSourceType','views,estimatedMinutesWatched','-views'),
@@ -132,9 +141,26 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
                 checkpoint()
         if not any(x.get('pages') and any(p.get('rows') for p in x['pages']) for x in sources['api'].values()):
             raise ConflictError('Analytics 无可用数据；不能以冷启动代替正式数据分析')
-        sources['studio']={m['id']:parse_studio_zip(material_path(run,m['id']).read_bytes())
-            for m in run.materials if m['kind']=='studio_zip'}
         video_ids=set(session.scalars(select(YoutubeVideo.youtube_video_id).where(YoutubeVideo.channel_id==run.channel_id)))
+        uploads=verified.get('contentDetails',{}).get('relatedPlaylists',{}).get('uploads')
+        if uploads and sources.get('uploads_inventory',{}).get('status')!='available':
+            pages=[];page_token=None
+            try:
+                while True:
+                    params={'part':'contentDetails','playlistId':uploads,'maxResults':50}
+                    if page_token:params['pageToken']=page_token
+                    page=fetcher(_api_url('playlistItems',**params),token);pages.append(page)
+                    page_token=page.get('nextPageToken')
+                    if not page_token:break
+                sources['uploads_inventory']={'status':'available','pages':pages}
+            except (ValueError,RuntimeError) as exc:
+                sources['uploads_inventory']={'status':'unavailable','reason':str(exc),'pages':pages}
+            checkpoint()
+        if not uploads:
+            sources['uploads_inventory']={'status':'unavailable','reason':'授权身份未返回 uploads 播放列表','pages':[]}
+        for page in sources.get('uploads_inventory',{}).get('pages',[]):
+            video_ids.update(item['contentDetails']['videoId'] for item in page.get('items',[]))
+
         for dataset in sources['api'].values():
             for page in dataset.get('pages',[]):
                 columns=[h['name'] for h in page.get('columnHeaders',[])]
@@ -167,6 +193,9 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         if date.fromisoformat(period['end'])>end or (end-date.fromisoformat(period['end'])).days>7:
             raise ConflictError('Studio 导出周期不是近期完整28天，请重新建立分析任务并上传近期导出')
     sources['normalized']=normalize_sources(sources,channel,run.mode)
+    if run.mode=='periodic':
+        from zhiju.services.channel_analysis_normalize import formal_snapshot
+        sources['fact_snapshot']=formal_snapshot(sources,channel)
     claimed(session,run_id,claim_id)
     snapshot['sources']=sources;snapshot['sources_complete']=True;run.input_snapshot=snapshot;run.phase='analysis'
     session.commit();return run
