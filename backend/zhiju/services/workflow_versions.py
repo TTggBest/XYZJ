@@ -16,7 +16,7 @@ def describe(row):
 def list_versions(session):
     rows = session.scalars(select(WorkflowSkillVersion).where(
         WorkflowSkillVersion.tenant_id == session.info['tenant_id']).order_by(WorkflowSkillVersion.created_at.desc()))
-    return [BUILTIN, *(describe(r) for r in rows)]
+    return [*(describe(r) for r in rows), BUILTIN]
 
 
 def get_archive(session, version_id):

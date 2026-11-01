@@ -125,3 +125,22 @@ def test_catalog_migration_preserves_existing_tables():
         assert conn.exec_driver_sql('SELECT value FROM existing').scalar()=='preserved'
         migration.downgrade()
         assert sa.inspect(conn).get_table_names()==['existing']
+
+
+def test_production_catalog_places_builtin_v14_last_and_preserves_default(client,store):
+    from datetime import datetime, timezone
+    from zhiju.models.v14 import WorkflowSkillVersion
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        for index,(label,revision) in enumerate([('V15',1),('V16',3),('V16',4),('V17',1)],1):
+            s.add(WorkflowSkillVersion(id=f'order-{index}',label=label,revision=revision,
+                status='published',archive=BASELINE.read_bytes(),change_summary='',
+                created_at=datetime(2026,10,index,tzinfo=timezone.utc)))
+        setting=s.scalar(select(V14Setting))
+        setting.payload={**setting.payload,'workflow_version_id':'order-4'}
+        s.commit()
+    catalog=client.get('/api/v3/skill-categories').json()
+    production=next(c for c in catalog if c['id']=='package-production')
+    assert [(v['label'],v['revision']) for v in production['versions']]==[
+        ('V17',1),('V16',4),('V16',3),('V15',1),('V14',1)]
+    assert production['default_id']=='order-4'
+    assert client.get('/api/v3/workflow-versions').json()['versions']==production['versions']
