@@ -213,3 +213,5 @@ __all__ = [
     "YouTubeChannelImportCandidate",
     "YouTubeChannelImportSession",
 ]
+
+from zhiju.models.skill_catalog import SkillCategory, SkillBundleVersion

@@ -12,6 +12,7 @@ class V14SettingsWrite(BaseModel):
     rules: dict = Field(default_factory=dict)
     channel_inputs: dict[str, dict] = Field(default_factory=dict)
     workflow_version_id: str = 'builtin-v14'
+    analysis_skill_version_id: str = 'builtin-xy-yt-report-v2'
 
 
 class ClaimRequest(BaseModel):

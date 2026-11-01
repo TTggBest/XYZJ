@@ -356,3 +356,20 @@ def test_analysis_migration_adds_only_run_table_and_can_downgrade():
             migration.downgrade()
             assert set(inspect(connection).get_table_names())==before
     engine.dispose()
+
+
+def test_analysis_task_freezes_selected_catalog_version(session):
+    from zhiju.services import skill_catalog
+    s,c=session
+    first=service.create_run(s,c.id,mode='initial',positioning='定位')
+    assert first.input_snapshot['skill_version']['id']==skill_catalog.ANALYSIS_VERSION
+    frozen=first.input_snapshot.copy()
+    service.cancel_run(s,first.id)
+    uploaded=skill_catalog.upload(s,skill_catalog.ANALYSIS,'next','new analysis',skill_catalog.BUNDLE.read_bytes())
+    skill_catalog.publish(s,skill_catalog.ANALYSIS,uploaded['id'])
+    skill_catalog.select_default(s,skill_catalog.ANALYSIS,uploaded['id'])
+    second=service.create_run(s,c.id,mode='initial',positioning='定位')
+    assert second.input_snapshot['skill_version']['id']==uploaded['id']
+    assert 'output-contract.md' in second.input_snapshot['rules']
+    assert 'scripts/validate_generation_spec.py' in second.input_snapshot['skill_version']['files']
+    assert first.input_snapshot==frozen

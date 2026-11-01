@@ -16,7 +16,6 @@ from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.channel_analysis_rules.validate_generation_spec import validate_text
 
-RULES_ROOT = Path(__file__).resolve().parents[1] / 'channel_analysis_rules/references'
 KINDS = {'studio_zip', 'videos', 'audience', 'posts', 'ab'}
 
 
@@ -66,6 +65,8 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
     previous_id = session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id == channel_id,
         ChannelAnalysisRun.status == 'applied').order_by(ChannelAnalysisRun.created_at.desc()).limit(1))
     previous=session.get(ChannelAnalysisRun,previous_id) if previous_id else None
+    from zhiju.services.skill_catalog import analysis_snapshot
+    skill_version = analysis_snapshot(session)
     snapshot = {'mode':mode, 'positioning':positioning,
         'channel':{k:getattr(channel,k) for k in ('id','youtube_channel_id','original_name','default_language',
             'country_name_zh','default_genre','drama_type','timezone')},
@@ -75,7 +76,8 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         'existing_material':copy.deepcopy(setting.payload.get('channel_inputs',{}).get(channel_id,{})),
         'posts_not_applicable':posts_not_applicable, 'ab_not_applicable':ab_not_applicable,
         'model':setting.payload['default_model'],'account_profile':setting.payload['account_profile'],
-        'rules':{p.name:p.read_text() for p in RULES_ROOT.glob('*.md')}}
+        'skill_version':skill_version,
+        'rules':{Path(name).name:body for name,body in skill_version['files'].items() if name.startswith('references/') and name.endswith('.md')}}
     if mode=='periodic':
         from zhiju.services.channel_analysis_sources import verify_authorization
         _,identity,_=verify_authorization(session,snapshot['channel'])

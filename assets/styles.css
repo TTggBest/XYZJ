@@ -928,3 +928,24 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .package-asset-link .asset-download-status[hidden] { display: none; }
 .asset-download-status svg { width: 20px; height: 20px; }
 .toast-stack { top: 18px; right: auto; left: 50%; transform: translateX(-50%); }
+
+/* Skill catalog: business categories and complete version archives. */
+.skill-catalog { display:grid; grid-template-columns:230px minmax(0,1fr); min-height:420px; }
+.skill-category-nav { padding:18px 12px; border-right:1px solid var(--border, #dce5e1); background:#f8faf9; }
+.skill-category { display:flex; align-items:center; gap:12px; width:100%; padding:15px 12px; border:0; background:transparent; border-radius:8px; text-align:left; cursor:pointer; color:inherit; margin-bottom:6px; }
+.skill-category > svg { width:20px; height:20px; flex-shrink:0; }
+.skill-category > svg:last-child { width:15px; margin-left:auto; }
+.skill-category span { display:grid; gap:5px; }
+.skill-category small { color:#75847e; }
+.skill-category.is-active { background:#e4f3ec; color:#087d57; }
+.skill-category:hover { background:#edf5f1; }
+.skill-category-content { min-width:0; padding:24px; }
+.skill-category-head { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:18px; }
+.skill-category-head h3 { margin:0 0 8px; font-size:19px; }
+.skill-category-head p,.skill-version-hint { color:#718079; font-size:13px; }
+.skill-version-hint { margin:10px 0 18px; }
+.skill-change-summary { max-width:400px; white-space:normal; line-height:1.6; }
+.skill-default-badge { display:inline-flex; align-items:center; gap:5px; color:#087d57; font-size:13px; white-space:nowrap; }
+.skill-default-badge svg { width:17px;height:17px; }
+.skill-source-preview { max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f5f8f6; border-radius:8px; padding:18px; line-height:1.6; font-size:13px; }
+@media(max-width:900px) { .skill-catalog { grid-template-columns:1fr; } .skill-category-nav { display:flex; overflow:auto; gap:8px; border-right:0; border-bottom:1px solid #dce5e1; } .skill-category { min-width:180px; margin:0; } .skill-category-content {padding:16px;} .skill-category-head {flex-wrap:wrap;} }

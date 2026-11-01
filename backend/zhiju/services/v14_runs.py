@@ -24,6 +24,8 @@ def save_settings(session: Session, payload: dict) -> V14Setting:
     setting = get_settings(session)
     if setting is not None and 'workflow_version_id' not in payload:
         data['workflow_version_id'] = setting.payload.get('workflow_version_id', 'builtin-v14')
+    if setting is not None and 'analysis_skill_version_id' not in payload:
+        data['analysis_skill_version_id'] = setting.payload.get('analysis_skill_version_id', 'builtin-xy-yt-report-v2')
     if setting is None:
         setting = V14Setting(tenant_id=session.info["tenant_id"], payload=data)
         session.add(setting)

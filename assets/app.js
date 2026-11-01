@@ -1645,11 +1645,27 @@
   }
 
   async function showSkills() {
-    const skills = await api("/skills");
-    const rows = skills.map(s => `<tr><td><span class="cell-main">${esc(s.name)}</span><span class="cell-sub mono">${esc(s.code)}</span></td><td>${esc(s.category)}</td><td><span class="cell-main">${esc(s.purpose)}</span></td><td>${tag(s.status)}</td><td>${fmtUtc(s.updated_at)}</td><td><button class="button button-secondary button-small" data-action="skill-detail" data-id="${s.id}">查看版本</button></td></tr>`);
-    root.innerHTML = `<div class="page-stack">${section("Skills 管理", "业务规则正文与版本均存储在数据库；不直接读取外部工作流文件", rows.length ? table(["Skill", "分类", "用途", "状态", "更新时间", ""], rows, 900) : empty("还没有 Skills", "创建 Skill 后再维护中英文版本与发布状态。", "add-skill", "新建 Skill"), `<button class="button button-primary" data-action="add-skill">${icon("plus")} 新建 Skill</button>`)}</div>`;
+    state.skillCategories = await api('/skill-categories');
+    const categories = state.skillCategories;
+    if (!categories.some(c => c.id === state.skillCategoryId)) state.skillCategoryId = categories[0]?.id;
+    const current = categories.find(c => c.id === state.skillCategoryId);
+    const production = categories.find(c => c.id === 'package-production');
+    if (production) state.workflowRegistry = {versions: production.versions, default_id: production.default_id};
+    const admin = auth.current()?.platform_role === 'super_admin';
+    const sidebar = categories.map(c => `<button class="skill-category ${c.id === current?.id ? 'is-active' : ''}" data-action="skill-category" data-id="${esc(c.id)}">${icon(c.id === 'package-production' ? 'package' : c.id === 'channel-analysis' ? 'chart-no-axes-combined' : 'folder')}<span><strong>${esc(c.name)}</strong><small>${c.versions.length} 个版本</small></span>${icon('chevron-right')}</button>`).join('');
+    const rows = (current?.versions || []).map(v => `<tr><td><strong>${esc(v.label)}</strong><span class="cell-sub">修订 ${v.revision}${v.id === current.default_id ? ' · 当前默认' : ''}</span></td><td>${tag(v.status)}</td><td class="skill-change-summary">${esc(v.change_summary || '—')}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="catalog-files" data-id="${esc(v.id)}">查看文件</button><a class="button button-secondary button-small" href="/api/v3/skill-categories/${encodeURIComponent(current.id)}/versions/${encodeURIComponent(v.id)}/download" download>下载</a>${v.status === 'published' ? v.id === current.default_id ? '<span class="skill-default-badge">'+icon('circle-check')+'当前默认</span>' : `<button class="button button-secondary button-small" data-action="catalog-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-primary button-small" data-action="catalog-publish" data-id="${esc(v.id)}">发布版本</button>` : ''}</div></td></tr>`);
+    const content = current ? `<header class="skill-category-head"><div><h3>${esc(current.name)}</h3><p>${esc(current.description)}${!current.execution ? ' · 尚未绑定业务执行入口' : ''}</p></div>${admin ? `<button class="button button-primary" data-action="catalog-add-version">${icon('plus')} 添加版本</button>` : ''}</header><p class="skill-version-hint">指定默认版本后，仅之后新建的任务使用该版本；已有任务与成品保留原版本。</p>${current.id === 'channel-analysis' ? '<p class="skill-version-hint">已收录完整 xy-yt-report-v2。频道分析执行链路仍待原流程一致性验收。</p>' : ''}${rows.length ? table(['版本', '状态', '变更说明', '操作'], rows, 780) : empty('尚无版本', '上传包含 SKILL.md 的完整 ZIP，发布后即可指定默认版本。')}` : '';
+    root.innerHTML = `<div class="page-stack">${section('Skills 管理', '按业务分类管理完整技能包、版本与默认选择', `<div class="skill-catalog"><nav class="skill-category-nav" aria-label="技能分类">${sidebar}</nav><div class="skill-category-content">${content}</div></div>`, admin ? `<button class="button button-secondary" data-action="catalog-add-category">${icon('folder-plus')} 新增分类</button>` : '')}</div>`;
+    renderIcons();
   }
-  function skillForm() { return `<form class="form-grid" id="skillForm"><div class="field"><label>代码</label><input class="input mono" name="code" pattern="[a-z0-9][a-z0-9_-]*" required placeholder="xy-title"></div><div class="field"><label>名称</label><input class="input" name="name" required></div><div class="field"><label>分类</label><input class="input" name="category" required placeholder="production"></div><div class="field"><label>状态</label><select class="select" name="status"><option value="active">启用</option><option value="disabled">停用</option></select></div><div class="field field-wide"><label>用途</label><textarea class="textarea" name="purpose" required></textarea></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">创建 Skill</button></div></form>`; }
+  async function catalogFiles(id, path = '') {
+    state.catalogFileVersionId = id;
+    const base = `/skill-categories/${encodeURIComponent(state.skillCategoryId)}/versions/${encodeURIComponent(id)}`;
+    const detail = await api(base + query({path: path || null}));
+    const chosen = path || detail.files[0];
+    if (!path && chosen) return catalogFiles(id, chosen);
+    openModal('Skill 版本文件', `<div class="field"><label>文件</label><select class="select" id="catalogFileSelect">${detail.files.map(name => `<option value="${esc(name)}" ${name === chosen ? 'selected' : ''}>${esc(name)}</option>`).join('')}</select></div><pre class="skill-source-preview">${esc(detail.content ?? '此文件为二进制资源，请下载完整技能包查看。')}</pre>`);
+  }
   function skillVersionForm(skillId, version = {}) {
     return `<form class="form-grid" id="skillVersionForm"><input type="hidden" name="skill_id" value="${esc(skillId)}"><input type="hidden" name="version_id" value="${esc(version.id || "")}"><div class="field field-wide"><label>中文正文</label><textarea class="textarea code-preview" name="body_zh_cn" required>${esc(version.body_zh_cn || "")}</textarea></div><div class="field field-wide"><label>正式执行原文</label><textarea class="textarea code-preview" name="body_original" required>${esc(version.body_original || "")}</textarea></div><div class="field field-wide"><label>变更说明</label><textarea class="textarea" name="change_summary">${esc(version.change_summary || "")}</textarea></div><div class="field field-wide"><label>创建人</label><input class="input" name="created_by" value="${esc(version.created_by || "")}" maxlength="120"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存草稿</button></div></form>`;
   }
@@ -1719,7 +1735,7 @@
     }
     let body;
     if (state.settingsTab === "workflowVersions") {
-      body = await workflowVersionsPanel();
+      body = `<header class="settings-content-head"><div><h2>运营包流程版本</h2><p>版本管理已统一到 Skills → 运营包生产。</p></div><button class="button button-primary" data-action="workflow-settings">管理 Skills 版本</button></header>`;
     } else if (state.settingsTab === "v14") {
       state.v14Config = await api("/v14/settings");
       body = v14SettingsForm(state.v14Config || {});
@@ -2244,7 +2260,7 @@
         renderPackageListResults();
       }
       else if (action === "work-detail") await workDetail(id);
-      else if (action === 'workflow-settings') { state.settingsTab = 'workflowVersions'; await loadView('settings'); }
+      else if (action === 'workflow-settings') { state.skillCategoryId = 'package-production'; await loadView('skills'); }
       else if (action === 'workflow-files') await workflowFiles(id);
       else if (action === 'workflow-default') {
         await api('/workflow-versions/default', {method: 'POST', body: JSON.stringify({workflow_version_id: id})});
@@ -2467,6 +2483,23 @@
       else if (action === "drama-detail") await showDramaDetail(id);
       else if (action === "drama-tab") await showDramaDetail(id, button.dataset.dramaTab);
       else if (action === "edit-drama") { const drama = state.dramaDetail?.id === id ? state.dramaDetail : await api(`/dramas/${id}`); openModal("编辑剧目", dramaForm(drama)); }
+      else if (action === 'skill-category') { state.skillCategoryId = id; await showSkills(); }
+      else if (action === 'catalog-files') { if (state.skillCategoryId === 'package-production') await workflowFiles(id); else await catalogFiles(id); }
+      else if (action === 'catalog-add-category') {
+        openModal('新增 Skill 分类', `<form id="skillCategoryCreateForm" class="form-grid"><div class="field field-wide"><label>分类名称</label><input class="input" name="name" maxlength="80" required></div><div class="field field-wide"><label>用途说明</label><textarea class="textarea" name="description" maxlength="2000"></textarea></div><div class="form-actions"><button class="button button-primary" type="submit">创建分类</button></div></form>`);
+      }
+      else if (action === 'catalog-add-version') {
+        openModal('添加 Skill 版本', `<form id="skillCatalogVersionForm" class="form-grid" data-category-id="${esc(state.skillCategoryId)}"><div class="field"><label>版本名称</label><input class="input" name="label" maxlength="80" placeholder="例如 V18 或 xy-yt-report-v3" required></div><div class="field"><label>完整 Skills ZIP</label><input class="input" name="file" type="file" accept=".zip" required></div><div class="field field-wide"><label>变更说明</label><textarea class="textarea" name="change_summary" required></textarea></div><p class="settings-muted field-wide">${state.skillCategoryId === 'package-production' ? '沿用运营包完整技能包格式，保留 zhiju-workflow.json。' : 'ZIP 根目录包含 SKILL.md，以及引用的 references、scripts 等完整文件。'} 新版本先保存为草稿，发布后再指定默认。</p><div class="form-actions"><button class="button button-primary" type="submit">保存为草稿</button></div></form>`);
+      }
+      else if (action === 'catalog-default') {
+        await api(`/skill-categories/${state.skillCategoryId}/default`, {method:'POST', body:JSON.stringify({version_id:id})});
+        if (state.skillCategoryId === 'package-production') state.workflowVersionId = id;
+        notify('默认版本已更新；已有任务不变'); await showSkills();
+      }
+      else if (action === 'catalog-publish') {
+        await api(`/skill-categories/${state.skillCategoryId}/versions/${id}/publish`, {method:'POST'});
+        notify('版本已发布，请按需指定默认版本'); await showSkills();
+      }
       else if (action === "skill-detail") await skillDetail(id);
       else if (action === "view-demo-workorders") { state.date = state.demo?.batch?.start_date || localDate(); state.dateManuallySet = true; await loadView("workorders"); }
       else if (action === "delete-demo") { if (window.confirm("确认删除飞书前 20 条演示数据？正式数据不会被删除。")) { await api("/demo-data/feishu-first20", { method: "DELETE" }); state.demo = null; state.date = localDate(); state.dateManuallySet = false; closeDrawer(); notify("演示数据已全部删除"); await loadView("dashboard"); } }
@@ -2669,6 +2702,7 @@
 
   document.addEventListener("change", async event => {
     if (event.target.id === "ledgerChannel") { state.ledgerChannelId = event.target.value; state.ledgerPage = 1; await loadView("channelLedger"); }
+    if (event.target.id === 'catalogFileSelect') { await catalogFiles(state.catalogFileVersionId, event.target.value); return; }
     if (event.target.matches('[data-workflow-selector]')) state.workflowVersionId = event.target.value;
     if (event.target.matches('[data-workflow-file]')) await workflowFiles(event.target.dataset.id, event.target.value);
     if (event.target.matches('[data-workflow-compare]')) { state.workflowCompareId = event.target.value; await workflowFiles(event.target.dataset.id); }
@@ -2759,6 +2793,21 @@
       return;
     }
     try {
+      if (form.id === 'skillCategoryCreateForm' || form.id === 'skillCatalogVersionForm') {
+        if (form.dataset.busy) return;
+        form.dataset.busy = 'true';
+        const submit = form.querySelector('[type="submit"]'); submit.disabled = true;
+        try {
+          if (form.id === 'skillCategoryCreateForm') {
+            const category = await api('/skill-categories', {method:'POST', body:JSON.stringify(data), expectedRevision});
+            state.skillCategoryId = category.id;
+          } else {
+            await api(`/skill-categories/${encodeURIComponent(form.dataset.categoryId)}/versions`, {method:'POST', body:new FormData(form), expectedRevision});
+          }
+          closeModal(); await showSkills(); notify('已保存');
+        } finally { delete form.dataset.busy; submit.disabled = false; }
+        return;
+      }
       if (form.id === "channelAnalysisCreateForm") {
         if (form.dataset.busy) return; form.dataset.busy="true";
         try {
