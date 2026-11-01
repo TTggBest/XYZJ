@@ -320,7 +320,7 @@
     const nickname = item.operational_name && item.operational_name !== item.original_name
       ? `<span class="cell-sub">${esc(item.operational_name)}</span>`
       : "";
-    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-copy cell-main" data-action="copy-channel-name" data-value="${esc(item.original_name)}" title="点击复制频道名" aria-label="复制频道名：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}</div></div>`;
+    return `<div class="identity-cell">${avatar}<div><button type="button" class="channel-name-link cell-main" data-action="channel-detail" data-id="${esc(item.channel_id)}" data-value="${esc(item.original_name)}" title="查看频道详情" aria-label="查看频道详情：${esc(item.original_name)}">${esc(item.original_name)}</button>${nickname}</div></div>`;
   }
 
   function channelAudience(item) {
@@ -352,7 +352,7 @@
       const material = item.production_material_issues?.length
         ? `<button class="icon-button channel-material-warning" data-action="channel-material-issues" data-id="${esc(item.channel_id)}" title="资料未齐，点击查看缺项" aria-label="查看${esc(item.original_name)}的资料缺项">${icon("triangle-alert")}</button>`
         : Array.isArray(item.production_material_issues) ? `<span class="is-green channel-material-ready" title="生产资料已齐" aria-label="生产资料已齐">${icon("circle-check")}</span>` : "—";
-      return `<tr>
+      return `<tr data-channel-id="${esc(item.channel_id)}">
         <td class="channel-position-cell"><div class="channel-position"><span class="mono">${position}</span>${auth.can("channel.manage") ? `<button class="channel-move-button" data-action="move-channel" data-id="${esc(item.channel_id)}" title="移动位置" aria-label="移动${esc(item.original_name)}的位置">${icon("arrow-up-down")}</button>` : ""}</div></td>
         <td class="channel-identity-cell">${channelIdentity(item)}</td>
         <td class="channel-id-cell mono" title="${esc(item.youtube_channel_id)}">${esc(item.youtube_channel_id)}</td>
@@ -540,7 +540,7 @@
   function channelDetailBody(detail, tab = "basic") {
     let body = "";
     if (tab === "operations") {
-      const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong><div class="row-actions">${tag(item.status)}${item.status !== "active" ? `<button class="button button-quiet button-small" data-action="activate-pinned-comment" data-id="${item.id}" data-channel-id="${detail.channel.id}">启用</button>` : ""}</div></header><p>${esc(item.body)}</p></article>`).join("");
+      const comments = detail.pinned_comment_templates.map(item => `<article class="hub-record"><header><strong>${esc(item.language)} · v${item.version_number}</strong><div class="row-actions">${tag(item.status)}${item.status !== "active" ? `<button class="button button-quiet button-small" data-action="activate-pinned-comment" data-id="${item.id}" data-channel-id="${detail.channel.id}">启用</button>` : ""}</div></header><button class="channel-pinned-copy" type="button" data-action="copy-channel-comment" data-id="${esc(item.id)}" title="点击复制置顶评论">${esc(item.body)}</button></article>`).join("");
       const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}${!item.youtube_playlist_id ? `<button class="button button-secondary button-small" data-action="create-youtube-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">创建到 YouTube</button>` : ""}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
       body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><header class="settings-content-head"><h3>置顶评论</h3><button class="button button-secondary button-small" data-action="add-pinned-comment" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${comments || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>播放列表</h3><button class="button button-secondary button-small" data-action="add-channel-playlist" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
@@ -1131,7 +1131,7 @@
   }
   function packageAssetTile(asset, labelText) {
     if (!asset) return `<div class="package-asset-missing"><span>${esc(labelText)}</span><strong>待出图</strong></div>`;
-    return `<button class="package-asset-link" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="${mediaLocationLabel()}"><img src="/api/v3/media-assets/${encodeURIComponent(asset.id)}/thumbnail" alt="${esc(labelText)}" loading="lazy"><span>${icon(state.deployment === "cloud" ? "image" : "folder-open")} ${esc(labelText)} · ${mediaLocationLabel()}</span></button>`;
+    return `<button class="package-asset-link" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="${mediaLocationLabel()}"><img src="/api/v3/media-assets/${encodeURIComponent(asset.id)}/thumbnail" alt="${esc(labelText)}" loading="lazy"><span>${icon(state.deployment === "cloud" ? "image" : "folder-open")} ${esc(labelText)} · ${mediaLocationLabel()}</span><span class="asset-download-status" ${asset.downloaded_at ? "" : "hidden"} title="已下载过原图" aria-label="已下载过原图">${icon("circle-check")}</span></button>`;
   }
   function applyCopyProgress(progress) {
     const item = state.packageItems.find(row => row.package_id === progress.package_id);
@@ -2007,6 +2007,12 @@
       document.querySelectorAll("[data-log-tab]").forEach(x => x.classList.toggle("is-active", x === tab));
       const box = el("logTable"), type = tab.dataset.logTab, items = JSON.parse(type === "status" ? box.dataset.events : box.dataset.audits); box.innerHTML = logTable(items, type); renderIcons(); return;
     }
+    const channelRow = event.target.closest(".channel-list-table tr[data-channel-id]");
+    if (channelRow && !event.target.closest("button, a, input, select, textarea, label, [role=button]")) {
+      try { await showChannelDetail(channelRow.dataset.channelId); }
+      catch (error) { if (error.name !== "AbortError") notify(error.message, true); }
+      return;
+    }
     const button = event.target.closest("[data-action]"); if (!button) return;
     if (button.closest(".source-incomplete")) return;
     const action = button.dataset.action, id = button.dataset.id;
@@ -2320,12 +2326,23 @@
         await copyText(value);
         notify(`已复制频道名：${value}`);
       }
+      else if (action === "copy-channel-comment") {
+        const revision = auth.capture();
+        const comment = state.channelDetail?.pinned_comment_templates.find(item => item.id === id);
+        if (!comment?.body) return;
+        await copyText(comment.body);
+        if (!auth.isCurrent(revision)) return;
+        notify("已复制置顶评论");
+        button.classList.add("is-copied");
+        setTimeout(() => button.classList.remove("is-copied"), 900);
+      }
       else if (action === "copy-package-field") {
         const expectedRevision = auth.capture();
         const value = state.copyValues.get(button.dataset.copyKey);
         if (!value) return;
         await copyText(value);
         if (!auth.isCurrent(expectedRevision)) return;
+        notify(`已复制${button.querySelector(".copy-cell-label")?.textContent || button.querySelector("h3")?.textContent || "内容"}`);
         if (button.dataset.outputType && button.dataset.outputId && button.dataset.packageId) {
           const copyProgress = await api(`/packages/${button.dataset.packageId}/copy-progress`, {
             method: "PUT", expectedRevision,
@@ -2481,7 +2498,25 @@
       }
       else if (action === "reveal-media-asset") {
         if (state.deployment === "cloud") {
-          window.open(`/api/v3/media-assets/${encodeURIComponent(id)}/content?download=true`, "_blank", "noopener,noreferrer");
+          const revision = auth.capture();
+          button.disabled = true;
+          try {
+            const { blob, contentDisposition } = await api(`/media-assets/${encodeURIComponent(id)}/content?download=true`, {responseType: "blob", expectedRevision: revision});
+            if (!blob.size) throw new Error("下载失败：原图内容为空");
+            const encodedName = contentDisposition.match(/filename\*=utf-8''([^;]+)/i)?.[1];
+            const filename = encodedName ? decodeURIComponent(encodedName) : contentDisposition.match(/filename="([^"]+)"/i)?.[1] || `${id}.${blob.type === "image/jpeg" ? "jpg" : "png"}`;
+            const url = URL.createObjectURL(blob), link = document.createElement("a");
+            link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+            notify("原图已交给浏览器下载");
+            try {
+              const result = await api(`/media-assets/${encodeURIComponent(id)}/download-complete`, {method: "POST", expectedRevision: revision});
+              state.packageItems.forEach(item => (item.media_assets || []).forEach(asset => { if (asset.id === id) asset.downloaded_at = result.downloaded_at; }));
+              document.querySelectorAll('.package-asset-link[data-id]').forEach(tile => {
+                if (tile.dataset.id === id) { const status = tile.querySelector(".asset-download-status"); if (status) status.hidden = false; }
+              });
+            } catch (error) { if (auth.isCurrent(revision)) notify(`原图已交给浏览器，但下载状态未保存：${error.message}`, true); }
+          } finally { button.disabled = false; }
           return;
         }
         const result = await api(`/media-assets/${id}/reveal`, { method: "POST" });

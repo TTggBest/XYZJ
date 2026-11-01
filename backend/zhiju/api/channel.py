@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from typing import Literal
@@ -357,6 +359,22 @@ def get_media_asset_detail(
         return get_media_asset(session, asset_id)
     except NotFoundError as exc:
         raise _http_error(exc) from exc
+
+
+@router.post("/media-assets/{asset_id}/download-complete")
+def post_media_asset_download_complete(asset_id: str, session: Session = Depends(get_tenant_db)):
+    try:
+        asset, _ = resolve_media_asset_file(session, asset_id)
+        asset.downloaded_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(asset)
+        return {"asset_id": asset.id, "downloaded_at": asset.downloaded_at}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise _http_error(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/media-assets/{asset_id}/content", response_class=FileResponse)

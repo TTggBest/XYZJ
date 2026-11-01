@@ -55,6 +55,7 @@ class MediaAsset(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     height: Mapped[int | None] = mapped_column(Integer, comment="图片或视频高度像素")
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, comment="文件大小字节数")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending", comment="资产状态")
+    downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="原图最近下载记录时间")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), comment="软删除时间")
 
 

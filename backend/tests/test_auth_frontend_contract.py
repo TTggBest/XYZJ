@@ -547,7 +547,7 @@ function defaultResponse(path) {
 }
 async function settle(page) {for(let i=0;i<4;i++)await page.tick();}
 function clickAction(page,action,data={}) {
- const button={dataset:{action,...data},closest:()=>null};
+ const button={dataset:{action,...data},closest:()=>null,querySelector:()=>null};
  return page.document.emit('click',{target:{closest:selector=>selector==='[data-action]'?button:null}});
 }
 async function switchCompany(page) {
@@ -645,7 +645,7 @@ await page.document.emit('click',{target:{closest:selector=>selector==='[data-vi
 await settle(page);
 const html=page.nodes.get('viewRoot').innerHTML;
 assert.match(html,/频道清单/);assert.match(html,/云端测试频道/);
-assert.match(html,/云端 YouTube 授权尚未接入/);assert.doesNotMatch(html,/数据读取失败/);
+assert.match(html,/data-action="start-youtube-channel-import" disabled/);assert.doesNotMatch(html,/数据读取失败/);
 assert(paths.includes('/api/v3/channels/overview'));assert(paths.includes('/api/v3/settings/youtube-oauth'));
 """)
 
@@ -754,7 +754,7 @@ assert.match(page.nodes.get('modalBody').innerHTML,/pt-BR/);
 """)
 
 
-def test_channel_list_sorts_by_created_time_and_filters_by_audience_and_language():
+def test_channel_list_keeps_saved_order_and_filters_by_audience_and_language():
     run_node(APP_FIXTURE + """
 const channels=[
  {channel_id:'old-female',youtube_channel_id:'UC-old',original_name:'旧女频',operational_name:'旧女频-英语-女频',display_name:'旧女频',youtube_avatar_url:null,default_language:'en',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-01T00:00:00Z'},
@@ -772,7 +772,7 @@ await page.document.emit('click',{target:{closest:selector=>selector==='[data-vi
 await settle(page);
 let html=page.nodes.get('viewRoot').innerHTML;
 assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
-assert.match(html,/最新录入优先/);assert.match(html,/全部频类/);assert.match(html,/全部语言/);assert.match(html,/录入时间/);
+assert.doesNotMatch(html,/最新录入优先/);assert.match(html,/全部频类/);assert.match(html,/全部语言/);assert.match(html,/录入时间/);
 await page.document.emit('change',{target:{id:'channelAudienceFilter',value:'female',matches:()=>false,closest:()=>null}});
 html=page.nodes.get('viewRoot').innerHTML;
 assert.doesNotMatch(html,/新男频/);assert.match(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 2 个/);
@@ -780,19 +780,20 @@ await page.document.emit('change',{target:{id:'channelLanguageFilter',value:'es'
 html=page.nodes.get('viewRoot').innerHTML;
 assert.doesNotMatch(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 1 个/);
 await clickAction(page,'reset-channel-list-filters');
-await page.document.emit('change',{target:{id:'channelSortOrder',value:'desc',matches:()=>false,closest:()=>null}});
 html=page.nodes.get('viewRoot').innerHTML;
-assert(html.indexOf('新男频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('旧女频'));
+assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
 """)
 
 
-def test_clicking_channel_name_copies_exact_original_name():
+def test_clicking_channel_name_opens_channel_detail():
     run_node(APP_FIXTURE + """
 const copied=[];
 const channels=[
  {channel_id:'channel-a',youtube_channel_id:'UC-a',original_name:'Cinta Kedua Setelah Berpisah',operational_name:'Cinta Kedua Setelah Berpisah-印尼-女频',display_name:'Cinta Kedua Setelah Berpisah',youtube_avatar_url:null,default_language:'id',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-03T00:00:00Z'}
 ];
 const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/channels/channel-a')return new Response(JSON.stringify({channel:{...channels[0],id:'channel-a'},profile:null,keywords:[],active_dna:null,recent_reports:[],pinned_comment_templates:[],playlists:[],branding_assets:[],drama_types:[],relevant_skills:[]}));
+ if(path.endsWith('/initialization-readiness'))return new Response(JSON.stringify({can_initialize:false,missing_inputs:[],missing_rule_modules:[],rules:[]}));
  if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
  if(path==='/api/v3/channels/logo-profiles')return new Response('[]');
  if(path==='/api/v3/settings/youtube-oauth')return new Response('{"configured":true,"can_manage":true}');
@@ -802,9 +803,11 @@ await settle(page);
 await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'channels'}}:null}});
 await settle(page);
 const html=page.nodes.get('viewRoot').innerHTML;
-assert.match(html,/data-action="copy-channel-name"/);assert.match(html,/title="点击复制频道名"/);
-await clickAction(page,'copy-channel-name',{value:'Cinta Kedua Setelah Berpisah'});
-assert.deepEqual(copied,['Cinta Kedua Setelah Berpisah']);
+assert.match(html,/class="channel-name-link cell-main" data-action="channel-detail"/);
+await clickAction(page,'channel-detail',{id:'channel-a'});
+assert.match(page.nodes.get('drawerTitle').textContent,/Cinta Kedua Setelah Berpisah/);
+assert.equal(page.nodes.get('drawerBackdrop').hidden,false);
+assert.deepEqual(copied,[]);
 """)
 
 

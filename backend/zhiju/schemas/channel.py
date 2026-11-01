@@ -437,6 +437,7 @@ class MediaAssetCreate(BaseModel):
 
 
 class MediaAssetRead(MediaAssetCreate):
+    downloaded_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: str

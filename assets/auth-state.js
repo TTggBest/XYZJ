@@ -84,7 +84,7 @@
     }
   }
   async function request(fetcher, path, options = {}) {
-    const { expectedRevision: started = revision, ...fetchOptions } = options;
+    const { expectedRevision: started = revision, responseType = "json", ...fetchOptions } = options;
     if (!isCurrent(started)) throw new DOMException("账号上下文已改变", "AbortError");
     if (!principal && !path.startsWith("/auth/") && !path.startsWith("/api/v3/auth/")) throw Object.assign(new Error("请先登录"), { status: 401 });
     const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
@@ -92,6 +92,11 @@
       ...fetchOptions, credentials: "same-origin", cache: "no-store",
       headers: { ...(options.body && !isFormData ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
     });
+    if (response.ok && responseType === "blob") {
+      const blob = await response.blob();
+      if (started !== revision) throw new DOMException("账号上下文已改变", "AbortError");
+      return { blob, contentDisposition: response.headers.get("Content-Disposition") || "" };
+    }
     const text = await response.text();
     if (started !== revision) throw new DOMException("账号上下文已改变", "AbortError");
     let data = null;
