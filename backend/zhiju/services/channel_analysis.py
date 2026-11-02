@@ -11,7 +11,7 @@ from sqlalchemy import select, func, or_
 from zhiju.config import get_settings
 from zhiju.models import (Channel, ChannelProfile, ChannelPlaylist, ChannelAnalysisRun,
     ChannelAnalysisReport, ChannelAudienceProfile, ChannelDnaVersion, YoutubeVideo,
-    YoutubeChannelDailyMetric)
+    YoutubeChannelDailyMetric, AccountChannelAuthorization, OAuthGrant)
 from zhiju.models.v14 import V14Setting
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
@@ -46,6 +46,7 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
     profile = session.scalar(select(ChannelProfile).where(ChannelProfile.channel_id == channel_id))
     positioning = positioning.strip() or (profile.positioning if profile else '') or ''
     if cold_start:
+        authorization=verify_cold_start_authorization(session,channel_id)
         assert_no_measured_report(session,channel_id)
         positioning = positioning or '仅依据频道名称与已确认信息建立冷启动假设'
     if mode == 'initial' and not positioning:
@@ -91,6 +92,7 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
     if cold_start:
         facts=initial_facts or {}
         snapshot['cold_start']=True
+        snapshot['authorization_evidence']=authorization
         snapshot['initial_facts']={k:str(facts.get(k) or '').strip() for k in ('chinese_meaning','positioning','language','market')}
         snapshot['initial_facts']['chinese_meaning'] = snapshot['initial_facts']['chinese_meaning'] or channel.chinese_meaning or ''
         snapshot['initial_facts']['positioning'] = snapshot['initial_facts']['positioning'] or (profile.positioning if profile else '') or channel.default_genre or ''
@@ -268,6 +270,7 @@ def submit_result(session,run_id,claim_id,*,result=None,error=None):
         if run.result==validate_result(run,result):return run
     run=claimed(session,run_id,claim_id)
     if run.input_snapshot.get('cold_start') and not error:
+        verify_cold_start_authorization(session,run.channel_id,run.input_snapshot['channel']['youtube_channel_id'])
         assert_no_measured_report(session,run.channel_id)
     if error:
         run.status='failed';run.error=error[:4000]
@@ -288,7 +291,9 @@ def apply_result(session,run_id):
     if run.status=='applied':return run
     if run.status!='ready':raise ConflictError('分析结果尚未完成')
     channel=require_tenant_entity(session,Channel,run.channel_id,lock=True)
-    if run.input_snapshot.get('cold_start'):assert_no_measured_report(session,run.channel_id)
+    if run.input_snapshot.get('cold_start'):
+        verify_cold_start_authorization(session,run.channel_id,run.input_snapshot['channel']['youtube_channel_id'])
+        assert_no_measured_report(session,run.channel_id)
     newer=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id==channel.id,
         ChannelAnalysisRun.status=='applied',ChannelAnalysisRun.created_at>run.created_at).limit(1))
     if newer:raise ConflictError('已有更新的分析版本生效，不能覆盖')
@@ -333,6 +338,26 @@ DIAGNOSIS_SECTIONS = ('Current-stage diagnosis','What the current audience rewar
                       'Current cover guidance','Current description/community/hashtag guidance','Current decision summary')
 COLD_DOMAINS = ('channel_totals_28d','trend','audience_28d','traffic_28d_video_pct','retention_intro_30s_pct',
                 'top_videos_28d','low_videos_28d','concentration_28d','community_posts','ab_testing','unmatched_video_ids')
+
+
+def verify_cold_start_authorization(session,channel_id,expected_id=None):
+    """Use the existing verified login binding; cold start needs no live API or Analytics scope."""
+    channel=require_tenant_entity(session,Channel,channel_id)
+    if channel.deleted_at or not channel.youtube_channel_id:
+        raise ConflictError('冷启动需要已登记的真实 YouTube ID')
+    if expected_id is not None and channel.youtube_channel_id!=expected_id:
+        raise ConflictError('频道 YouTube ID 已变化，请确认授权后重新创建分析')
+    auth=session.scalar(select(AccountChannelAuthorization).join(OAuthGrant,
+        AccountChannelAuthorization.oauth_grant_id==OAuthGrant.id).where(
+        AccountChannelAuthorization.channel_id==channel_id,
+        AccountChannelAuthorization.status=='active',OAuthGrant.status=='active',
+        AccountChannelAuthorization.verified_youtube_channel_id==channel.youtube_channel_id
+    ).order_by(AccountChannelAuthorization.verified_at.desc()).limit(1))
+    if not auth:
+        raise ConflictError('频道尚未完成有效授权或授权频道不一致，请先重新授权正确频道')
+    return {'source':'verified_login_binding','authorization_id':auth.id,
+        'youtube_channel_id':auth.verified_youtube_channel_id,
+        'verified_at':auth.verified_at.isoformat()}
 
 
 def assert_no_measured_report(session,channel_id):

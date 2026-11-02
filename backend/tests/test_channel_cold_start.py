@@ -14,7 +14,25 @@ from zhiju.services.identity import ConflictError
 from zhiju.v14_executor.channel_analysis import drain,mirror
 
 
+def authorize(s,c):
+    from datetime import datetime,timezone
+    from zhiju.models import AccountChannelAuthorization,OAuthGrant
+    grant=OAuthGrant(account_id='cold-account',provider_subject='cold-subject',credential_ref='unused',status='active')
+    s.add(grant);s.flush()
+    s.add(AccountChannelAuthorization(account_id='cold-account',channel_id=c.id,oauth_grant_id=grant.id,
+        status='active',verified_youtube_channel_id=c.youtube_channel_id,verified_at=datetime.now(timezone.utc)))
+    s.commit()
+
+
+def authorize_client(store):
+    from zhiju.database import TenantSession
+    from zhiju.models import Channel
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        authorize(s,s.get(Channel,'channel-a'))
+
+
 def create(s,c):
+    authorize(s,c)
     return service.create_run(s,c.id,mode='initial',cold_start=True,
         initial_facts={'chinese_meaning':'测试频道','language':'en','market':'美国'})
 
@@ -33,9 +51,9 @@ def result_for(run):
     return result
 
 
-def test_cold_start_has_frozen_actual_skill_no_authorization_or_assets(session,monkeypatch):
+def test_cold_start_has_frozen_actual_skill_without_api_or_assets(session,monkeypatch):
     s,c=session
-    monkeypatch.setattr(sources,'verify_authorization',lambda *a:pytest.fail('cold start must not authorize'))
+    monkeypatch.setattr(sources,'verify_authorization',lambda *a:pytest.fail('cold start must not call live authorization API'))
     run=create(s,c)
     assert run.input_snapshot['skill_version']['label']=='channel-initial-audience'
     assert '新频道冷启动定位' in run.input_snapshot['skill_version']['files']['SKILL.md']
@@ -127,7 +145,8 @@ def test_local_mirror_refuses_measured_files(session,tmp_path):
     assert original.read_text()=='已有真实数据报告，不得覆盖'
 
 
-def test_cold_start_user_api_queues_without_material_form(client):
+def test_cold_start_user_api_queues_without_material_form(client,store):
+    authorize_client(store)
     response=client.post('/api/v3/channels/channel-a/cold-start',json={'language':'en','market':'美国'})
     assert response.status_code==200,response.text
     assert response.json()['status']=='queued'
@@ -137,6 +156,7 @@ def test_cold_start_user_api_queues_without_material_form(client):
 def test_local_registry_fills_market_before_missing_input_prompt(session,tmp_path):
     from zhiju.v14_executor.channel_analysis import prepare_cold_start
     s,c=session
+    authorize(s,c)
     run=service.create_run(s,c.id,mode='initial',cold_start=True)
     registered_workspace(tmp_path,c)
     registry=tmp_path/'运营/工作流运营/公用/频道注册表.json'
@@ -147,7 +167,8 @@ def test_local_registry_fills_market_before_missing_input_prompt(session,tmp_pat
     assert normalized['snapshot_status']=='cold_start_no_analytics'
 
 
-def test_cloud_accepts_bound_executor_confirmed_local_market_before_collect(client):
+def test_cloud_accepts_bound_executor_confirmed_local_market_before_collect(client,store):
+    authorize_client(store)
     run=client.post('/api/v3/channels/channel-a/cold-start',json={}).json()
     assert run['status']=='queued'
     claim=client.post('/api/v3/channel-analysis/claims',json={'host_id':'device-a'}).json()
@@ -201,3 +222,39 @@ def test_measured_daily_metrics_cannot_be_replaced_by_cold_start(session):
     s.add(YoutubeChannelDailyMetric(channel_id=c.id,metric_date=date(2026,11,1),views=1,synced_at=datetime.now(timezone.utc)))
     s.commit()
     with pytest.raises(ConflictError,match='公开运营数据'):create(s,c)
+
+
+@pytest.mark.parametrize('state',['missing','wrong_id','revoked_binding','revoked_grant','missing_id'])
+def test_cold_start_requires_existing_matching_authorization(session,state):
+    from zhiju.models import AccountChannelAuthorization,OAuthGrant
+    s,c=session
+    if state!='missing':
+        authorize(s,c)
+        auth=s.scalar(select(AccountChannelAuthorization))
+        if state=='wrong_id':auth.verified_youtube_channel_id='UCother'
+        if state=='revoked_binding':auth.status='revoked'
+        if state=='revoked_grant':s.get(OAuthGrant,auth.oauth_grant_id).status='revoked'
+        if state=='missing_id':c.youtube_channel_id=''
+        s.commit()
+    with pytest.raises(ConflictError,match='授权|YouTube ID'):
+        service.create_run(s,c.id,mode='initial',cold_start=True)
+    from zhiju.models import ChannelAnalysisRun
+    assert s.scalar(select(ChannelAnalysisRun.id)) is None
+
+
+@pytest.mark.parametrize('stage',['collect','submit','apply'])
+def test_cold_start_rechecks_revoked_authorization(session,stage):
+    from zhiju.models import AccountChannelAuthorization,OAuthGrant
+    s,c=session;run=create(s,c);service.start_run(s,run.id);claim=service.claim_run(s,'host')
+    if stage=='apply':service.submit_result(s,run.id,claim['claim_id'],result=result_for(run))
+    auth=s.scalar(select(AccountChannelAuthorization));s.get(OAuthGrant,auth.oauth_grant_id).status='revoked';s.commit()
+    with pytest.raises(ConflictError,match='授权'):
+        if stage=='collect':sources.collect(s,run.id,claim['claim_id'],fetcher=lambda *a:pytest.fail('no API'))
+        elif stage=='submit':service.submit_result(s,run.id,claim['claim_id'],result=result_for(run))
+        else:service.apply_result(s,run.id)
+
+
+def test_cold_start_api_rejects_unlinked_channel(client):
+    response=client.post('/api/v3/channels/channel-a/cold-start',json={})
+    assert response.status_code==409,response.text
+    assert '授权' in response.text

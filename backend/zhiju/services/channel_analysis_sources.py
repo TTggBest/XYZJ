@@ -73,7 +73,8 @@ def merge_local_drama_mapping(sources,context):
 def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
     run=claimed(session,run_id,claim_id)
     if run.input_snapshot.get('cold_start'):
-        from zhiju.services.channel_analysis import cold_start_snapshot,assert_no_measured_report
+        from zhiju.services.channel_analysis import cold_start_snapshot,assert_no_measured_report,verify_cold_start_authorization
+        verify_cold_start_authorization(session,run.channel_id,run.input_snapshot['channel']['youtube_channel_id'])
         assert_no_measured_report(session,run.channel_id)
         if run.input_snapshot.get('sources_complete'):return run
         snapshot=dict(run.input_snapshot)
