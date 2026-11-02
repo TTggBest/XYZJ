@@ -176,3 +176,14 @@ def test_post_only_export_does_not_select_video_drama_fallback():
         'video_drama_mapping':[{'youtube_video_id':'post','plot':'不能当作视频样本'}]}}
     prompt=analysis_prompt_snapshot(snapshot)
     assert prompt['sources']['video_drama_mapping']==[]
+
+
+def test_analysis_stage_describes_already_verified_screenshot_evidence():
+    from zhiju.v14_executor.channel_analysis import stage_for
+    run={'mode':'periodic','materials':[{'id':'shot','kind':'videos','suffix':'.png'}],
+        'input_snapshot':{'channel':{},'sources':{'fact_snapshot':{},'screenshot_checks':{'shot':{'identity_matches':True,'page_matches':True,'window_matches':True,'evidence':'频道和日期已核实'}}}}}
+    stage=stage_for(run,Path('/tmp/unused'))
+    assert stage.images==[]
+    assert '截图已由前置阶段逐图核验' in stage.prompt
+    assert '不得因本阶段无图片附件宣称全流程未提供或未核验截图' in stage.prompt
+    assert '本机已提供实际截图附件' not in stage.prompt
