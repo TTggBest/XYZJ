@@ -247,7 +247,7 @@ def analysis_prompt_snapshot(snapshot):
     if not cohort_ids and studio:
         from zhiju.services.channel_analysis_normalize import number
         # A failed Analytics video report must not discard usable Studio content metrics.
-        ordered=sorted(studio,key=lambda row:number(row['values'].get('观看次数',row['values'].get('Views'))) or 0,reverse=True)
+        ordered=sorted([row for row in studio if row.get('content_type','video')=='video'],key=lambda row:number(row['values'].get('观看次数',row['values'].get('Views'))) or 0,reverse=True)
         sample=ordered[:10]+ordered[max(0,len(ordered)//2-2):len(ordered)//2+3]+ordered[-10:]
         cohort_ids={row['video_id'] for row in sample}
         facts['cohort_source']='Studio content sample; API per-video dataset unavailable'

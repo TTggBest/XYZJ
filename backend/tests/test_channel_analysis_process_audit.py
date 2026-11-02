@@ -169,3 +169,10 @@ def test_new_scope_revision_preserves_original_skill_archive():
         assert b'exact all-content 28-day totals' in old.read('references/analysis-rules.md')
         assert b'studio_exported_content' in new.read('references/analysis-rules.md')
         assert b'exported-content/video-only scopes' in new.read('references/output-contract.md')
+
+
+def test_post_only_export_does_not_select_video_drama_fallback():
+    snapshot={'sources':{'fact_snapshot':{'studio_content':[{'video_id':'post','content_type':'post','values':{'观看次数':'100'}}]},
+        'video_drama_mapping':[{'youtube_video_id':'post','plot':'不能当作视频样本'}]}}
+    prompt=analysis_prompt_snapshot(snapshot)
+    assert prompt['sources']['video_drama_mapping']==[]
