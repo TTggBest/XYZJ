@@ -1,6 +1,7 @@
 """Source-scoped arithmetic; absent values are never numeric zero."""
 from datetime import date,datetime
 import math
+import re
 
 
 def number(value):
@@ -129,6 +130,19 @@ def validate_screenshot_observations(checks):
             elif value is not None:raise ValueError('截图缺失指标不能填零或猜测值')
 
 
+def observation_window_coverage(window,formal_window):
+    """Card-specific evidence must not inherit the page's top-level date filter."""
+    if re.search(r'过去\s*(?:7|90|365)\s*天|自发布以来|现在|实时|since publish|lifetime|last (?:7|90|365) days',window,re.I):
+        return {'matches_formal_window':False,'within_formal_window':None}
+    dates=re.findall(r'20\d{2}[-/]\d{1,2}[-/]\d{1,2}',window)
+    try:dates=[datetime.strptime(value.replace('/','-'),'%Y-%m-%d').date().isoformat() for value in dates]
+    except ValueError:dates=[]
+    if len(dates)==2 and dates[0]<=dates[1] and formal_window.get('start') and formal_window.get('end'):
+        return {'matches_formal_window':dates==[formal_window['start'],formal_window['end']],
+            'within_formal_window':formal_window['start']<=dates[0]<=dates[1]<=formal_window['end']}
+    return {'matches_formal_window':None,'within_formal_window':None}
+
+
 def formal_snapshot(sources, channel):
     """Freeze measured facts using source-scoped arithmetic, not model output."""
     from datetime import datetime, timezone
@@ -161,7 +175,7 @@ def formal_snapshot(sources, channel):
     screenshots = sources.get('screenshots', [])
     def screenshot_domain(kind,retention_only=False):
         ids = [m['id'] for m in screenshots if m['kind'] == kind]
-        observations=[{**item,'source':'screenshot/'+material['id'],'extraction':'visual_transcription','matches_formal_window':sources.get('screenshot_checks',{}).get(material['id'],{}).get('window_matches')}
+        observations=[{**item,'source':'screenshot/'+material['id'],'extraction':'visual_transcription',**observation_window_coverage(item['window'],sources['windows']['28'])}
             for material in screenshots if material['kind']==kind
             for item in sources.get('screenshot_checks',{}).get(material['id'],{}).get('observations',[]) if not retention_only or item['metric'].startswith('retention')]
         if observations:return {'status':'available','source':'Studio screenshot','scope':'per-card scopes retained below','observations':observations,'screenshot_ids':ids}

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from threading import Event, Thread
 import json
 import re
+from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
 import shutil
 import copy
 import yaml
@@ -67,9 +68,9 @@ def bind_analysis_result(result,run):
     """Bind the known platform/YouTube identity pair; never accept an unrelated channel."""
     result=copy.deepcopy(result)
     channel=run['input_snapshot']['channel']
-    block=re.search(r'```(?:yaml|yml)\s*\n(.*?)```',result['diagnosis'],re.S)
+    block=strategy_yaml_block(result['diagnosis'])
     if block:
-        try:document=yaml.safe_load(block[1])
+        try:document=yaml.safe_load(block['body'])
         except yaml.YAMLError as exc:raise ValueError('诊断 YAML 格式错误') from exc
         strategy=document.get('channel_strategy') if isinstance(document,dict) else None
         if isinstance(strategy,dict):
@@ -79,7 +80,7 @@ def bind_analysis_result(result,run):
                 raise ValueError('诊断 YAML 频道身份不符：必须使用当前频道的 YouTube Channel ID')
             if actual!=expected:
                 strategy['channel_id']=expected
-                result['diagnosis']=result['diagnosis'][:block.start(1)]+yaml.safe_dump(document,allow_unicode=True,sort_keys=False)+result['diagnosis'][block.end(1):]
+                result['diagnosis']=result['diagnosis'][:block.start('body')]+yaml.safe_dump(document,allow_unicode=True,sort_keys=False)+result['diagnosis'][block.end('body'):]
     checks=run['input_snapshot'].get('sources',{}).get('screenshot_checks') or result.get('material_checks',{})
     if isinstance(checks,str):checks=json.loads(checks)
     # Existing failed outputs used the same observed evidence under `basis`.

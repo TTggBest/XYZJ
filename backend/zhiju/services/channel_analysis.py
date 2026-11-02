@@ -2,6 +2,7 @@
 import copy
 import json
 import re
+from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -229,8 +230,8 @@ def validate_result(run,result):
         expected_language=channel['default_language'],expected_market=channel.get('country_name_zh') or '未配置')
     if issues:raise ConflictError('生成规范校验失败：'+'；'.join(issues))
     try:
-        block=re.search(r'```(?:yaml|yml)\s*\n(.*?)```',result['diagnosis'],re.S)
-        strategy=yaml.safe_load(block[1])['channel_strategy']
+        block=strategy_yaml_block(result['diagnosis'])
+        strategy=yaml.safe_load(block['body'])['channel_strategy']
         if not isinstance(strategy,dict):raise ValueError()
     except Exception as exc:raise ConflictError('诊断 YAML 缺失或格式错误') from exc
     if strategy.get('channel_id') != channel['youtube_channel_id']:
@@ -371,9 +372,9 @@ def validate_cold_start_result(run,result):
     snapshot=result.get('normalized_snapshot',{})
     if snapshot.get('snapshot_status')!='cold_start_no_analytics' or any(snapshot.get(key)!='unavailable' for key in COLD_DOMAINS):
         raise ConflictError('冷启动事实快照必须标记无实测数据，指标域只能为 unavailable')
-    block=re.search(r'```(?:yaml|yml)\s*\n(.*?)```',result['diagnosis'],re.S)
+    block=strategy_yaml_block(result['diagnosis'])
     try:
-        strategy=yaml.safe_load(block[1])['channel_strategy']
+        strategy=yaml.safe_load(block['body'])['channel_strategy']
         if strategy['strategy_confidence']!='low' or strategy['channel_stage']!='exploration':raise ValueError()
         if strategy['audience_core']!='unavailable' or strategy['traffic_type']!='unavailable':raise ValueError()
         if strategy['data_window']!={'recent_28d':'unavailable','recent_90d':'unavailable'}:raise ValueError()

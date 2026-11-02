@@ -281,3 +281,31 @@ def test_screenshot_numbers_keep_scope_and_missing_values_are_not_zero():
     assert record['scope']=='audience gender card'
     check['observations'][0]['status']='unavailable';check['observations'][0]['value']=0
     with pytest.raises(ValueError,match='缺失指标'):validate_screenshot_observations({'shot':check})
+
+
+@pytest.mark.parametrize('fence',['```','~~~'])
+def test_strategy_markdown_fences_validate_and_bind(session,fence):
+    s,c=session;run=service.create_run(s,c.id,mode='initial',positioning='新频道')
+    result=valid_result(run);result['diagnosis']=result['diagnosis'].replace('```',fence)
+    result['material_checks']={}
+    assert service.validate_result(run,result)
+    result['diagnosis']=result['diagnosis'].replace('channel_id: UCtest','channel_id: '+run.channel_id)
+    bound=bind_analysis_result(result,service.run_read(run))
+    assert 'channel_id: UCtest' in bound['diagnosis']
+    assert service.validate_result(run,bound)
+    service.start_run(s,run.id);claim=service.claim_run(s,'host')
+    service.submit_result(s,run.id,claim['claim_id'],result=bound)
+    assert service.apply_result(s,run.id).status=='applied'
+
+
+@pytest.mark.parametrize('window,same,within',[
+    ('2026-10-04/2026-10-31（过去28天）',True,True),
+    ('最新视频（过去365天）',False,None),('过去7天',False,None),
+    ('2026-10-27－现在（自发布以来）',False,None),
+    ('2026-10-27 21:00至2026-10-30 02:42',False,True),
+    ('2026-10-31 21:01至2026-11-01 08:44',False,False),
+    ('月度观众人数·2026-10-31',None,None)])
+def test_each_screenshot_card_keeps_its_own_window(window,same,within):
+    from zhiju.services.channel_analysis_normalize import observation_window_coverage
+    actual=observation_window_coverage(window,{'start':'2026-10-04','end':'2026-10-31'})
+    assert actual=={'matches_formal_window':same,'within_formal_window':within}
