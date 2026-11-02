@@ -144,7 +144,7 @@ def test_claim_sorts_only_ids_before_loading_large_skill_snapshots(client, store
     assert response.status_code == 200, response.text
     assert response.json()['run_id'] == created.json()['run_id']
     assert response.json()['rules_snapshot']['skill_bundle']['archive']
-    queue_sorts = [sql for sql in statements if 'from v14_runs' in sql and 'order by v14_runs.created_at' in sql]
+    queue_sorts = [sql for sql in statements if 'from v14_runs' in sql and 'order by' in sql and 'v14_runs.created_at' in sql]
     assert queue_sorts
     # MySQL sorts selected JSON values too: an embedded Skills archive exceeds
     # its default sort buffer even when the queue has only ten entries.
@@ -176,13 +176,14 @@ def test_stale_attempt_cannot_overwrite(client):
     assert client.put(f"/api/v3/v14/runs/{rid}/attempts/{attempt}", json={"claim_id": claim["claim_id"], "outcome": "system_error", "error": "late"}).status_code == 409
 
 
-def test_disconnect_never_reassigns_automatically(client, store):
+@pytest.mark.parametrize('age,expected',[(100,'running'),(400,'heartbeat_delayed')])
+def test_disconnect_never_reassigns_automatically(client, store,age,expected):
     from zhiju.models.v14 import V14Run
     _, claim = start(client)
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
-        s.get(V14Run, claim["run_id"]).heartbeat_at = datetime.now(timezone.utc) - timedelta(seconds=100)
+        s.get(V14Run, claim["run_id"]).heartbeat_at = datetime.now(timezone.utc) - timedelta(seconds=age)
         s.commit()
-    assert client.get("/api/v3/work-orders/work-a/v14-runs/current").json()["status"] == "interrupted"
+    assert client.get("/api/v3/work-orders/work-a/v14-runs/current").json()["status"] == expected
     assert client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 2}).status_code == 204
 
 
@@ -194,12 +195,13 @@ def test_cancel_blocks_late_results(client):
     assert response.status_code == 409
 
 
-def test_three_content_errors_require_review(client):
+def test_content_errors_allow_replanning_before_stopping(client):
     _, claim = start(client)
-    for _ in range(3):
+    for number in range(6):
         attempt = begin(client, claim)
         response = client.put(f"/api/v3/v14/runs/{claim['run_id']}/attempts/{attempt}", json={"claim_id": claim["claim_id"], "outcome": "content_error", "error": "不合格"})
         assert response.status_code == 200, response.text
+        assert response.json()["status"] == ("running" if number < 5 else "needs_user_review")
     assert response.json()["status"] == "needs_user_review"
     assert client.post(f"/api/v3/v14/runs/{claim['run_id']}/resume", json={"stopped_confirmed": True}).status_code == 409
 
@@ -473,3 +475,19 @@ def test_expired_cached_claim_does_not_block_resumed_run(client, tmp_path, monke
     assert not cache.exists()
     archived = list(cache.parent.glob("*.abandoned.json"))
     assert len(archived) == 1 and json.loads(archived[0].read_text())["body"]["result"] == {"old_result": True}
+
+
+def test_delayed_heartbeat_recovers_without_new_claim(client,store):
+    from zhiju.models.v14 import V14Run
+    _,claim=start(client)
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        s.get(V14Run,claim['run_id']).heartbeat_at=datetime.now(timezone.utc)-timedelta(minutes=6)
+        s.commit()
+    row=client.get('/api/v3/work-orders/work-a/v14-runs/current').json()
+    assert row['status']=='heartbeat_delayed'
+    assert row['heartbeat_at']
+    assert client.post(f"/api/v3/v14/runs/{claim['run_id']}/resume",json={'stopped_confirmed':False}).status_code==409
+    beat=client.post(f"/api/v3/v14/runs/{claim['run_id']}/heartbeat",json={'claim_id':claim['claim_id']})
+    assert beat.status_code==200,beat.text
+    assert beat.json()['status']=='running'
+    assert beat.json()['claim_id']==claim['claim_id']

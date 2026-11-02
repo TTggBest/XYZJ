@@ -255,3 +255,48 @@ def test_cloud_404_has_distinct_type(monkeypatch):
     monkeypatch.setattr(urllib.request, 'urlopen', missing)
     with pytest.raises(CloudNotFound):
         CloudClient('https://example.test', 'test', 'host', 'tenant').current({'work_order_id': 'deleted'})
+
+
+@pytest.mark.parametrize('count,replan', [(0,False),(2,False),(3,True),(5,True)])
+def test_content_recovery_switches_strategy_after_three_failures(count,replan):
+    from types import SimpleNamespace
+    from zhiju.v14_executor.runner import apply_content_recovery
+    stage=SimpleNamespace(prompt='frozen rules')
+    data={'retry_state':[{'node_type':'title','outcome':'content_error','error':'hook mismatch',
+                         'result':{'title':'rejected angle'}} for _ in range(count)]}
+    data['retry_state'].append({'node_type':'cover','outcome':'content_error','error':'unrelated'})
+    apply_content_recovery(stage,data,'title')
+    assert stage.prompt.startswith('frozen rules')
+    assert ('自动重新规划' in stage.prompt) is replan
+    assert ('hook mismatch' in stage.prompt) is bool(count)
+    assert ('rejected angle' in stage.prompt) is bool(count)
+    assert 'unrelated' not in stage.prompt
+
+
+def test_runner_replans_failed_stage_without_regenerating_accepted_work(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    from zhiju.v14_executor import runner
+    data={**envelope(),'claim_id':'claim','account_profile':'current','node_sequence':['search','title']}
+    data['accepted_results']={'search':{'kept':True}}
+    data['retry_state']=[]
+    prompts=[]
+    class Model:
+        account_profile='current'
+        def generate(self,stage,model):
+            prompts.append(stage.prompt)
+            return {'angle':f'candidate {len(prompts)}'}
+    class RetryCloud:
+        def claim(self):return data
+        def begin(self,e,node):
+            assert node=='title'
+            return str(len(prompts)+1)
+        def submit(self,e,attempt,body):
+            assert body['outcome']=='content_error'
+            return {'status':'running' if len(prompts)<6 else 'needs_user_review'}
+    monkeypatch.setattr(runner,'build_stage_input',lambda e,node:SimpleNamespace(prompt='version rules'))
+    monkeypatch.setattr(runner,'validate_result',lambda stage,result:['angle conflicts with plot'])
+    assert runner.run_once(RetryCloud(),Model(),cache_root=tmp_path,retry_delay=0)
+    assert len(prompts)==6
+    assert '自动重新规划' not in prompts[2]
+    assert '自动重新规划' in prompts[3] and 'candidate 3' in prompts[3]
+    assert data['accepted_results']=={'search':{'kept':True}}

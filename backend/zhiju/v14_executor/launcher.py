@@ -6,7 +6,10 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
-from threading import Lock, Thread
+from threading import Lock, Thread, Event
+import time
+from .execution_state import process_alive
+from .runner import send_cached
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .client import CloudClient, EXECUTOR_PROTOCOL
@@ -20,6 +23,7 @@ class WorkerManager:
         self.pending = {}
         self.closed = False
         self.last_error = None
+        self.connection_stop=Event()
 
     def validate(self, config):
         for remote, local in (("base_url", "origin"), ("host_id", "host_id"),
@@ -83,6 +87,47 @@ class WorkerManager:
             raise
         self.process = process
         self.last_error = None
+        if config.get('task_type','operation_package')=='operation_package':
+            Thread(target=self._connection_watchdog,args=(config,process),daemon=True).start()
+
+    def check_connections(self,config,worker_pid):
+        root=Path(self.settings.get('cache_root',str(Path.home()/'Library/Caches/zhiju-v14'))) / config['tenant_id'] / config['host_id']
+        client=CloudClient(config['base_url'],config['session_token'],config['host_id'],config['tenant_id'])
+        pending=False
+        for path in root.glob('*/execution.json'):
+            record=json.loads(path.read_text())
+            if record['worker_pid']!=worker_pid or record.get('finished'):continue
+            pending=True
+            if time.time()-record['last_heartbeat']<150:continue
+            local_active=process_alive(record['worker_pid']) or process_alive(record.get('model_pid'))
+            # Replay a completed model response first; never discard accepted work.
+            cached=path.with_name('pending.json')
+            if not local_active and cached.exists():
+                entry=json.loads(cached.read_text())
+                if entry['envelope']['claim_id']==record['claim_id']:
+                    current=client.current(entry['envelope'])
+                    if current.get('claim_id')==record['claim_id'] and current['status'] in {'running','heartbeat_delayed'}:
+                        send_cached(client,entry['envelope'],entry['attempt_id'],entry['body'],cached,2)
+            result=client.request('POST',f"/v14/runs/{record['run_id']}/connection-check",
+                {'claim_id':record['claim_id'],'local_state':'active' if local_active else 'stopped'})
+            if result.get('recovered'):
+                self.start(config)
+            if result.get('recovered') or result.get('claim_id')!=record['claim_id'] or result['status'] not in {'running','heartbeat_delayed'}:
+                record['finished']=True
+                path.write_text(json.dumps(record))
+        return pending
+
+    def _connection_watchdog(self,config,process):
+        while not self.connection_stop.wait(30):
+            try:
+                pending=self.check_connections(config,process.pid)
+                if process.poll() is not None and not pending:return
+            except PermissionError:
+                self.last_error='自动核查授权已失效，请重新登录并唤起执行器'
+                return
+            except (ConnectionError,RuntimeError,OSError,ValueError):
+                # An unreachable endpoint is uncertainty, never proof of stopped work.
+                continue
 
     def start(self, config):
         config = self.validate(config)
@@ -118,6 +163,7 @@ class WorkerManager:
     def close(self):
         with self.lock:
             self.closed = True
+            self.connection_stop.set()
             self.pending = {}
             process = self.process
         if process and process.poll() is None:

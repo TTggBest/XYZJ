@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File, Form
 from pydantic import BaseModel, Field
@@ -158,3 +159,14 @@ def workflow_upgrade(run_id: str, body: WorkflowRecoveryRequest,
                      s: Session = Depends(get_tenant_db), p=Depends(operator)):
     return call(service.upgrade_workflow, s, run_id, body.workflow_version_id,
                 body.stopped_confirmed, body.reason)
+
+
+class ConnectionCheck(BaseModel):
+    claim_id: str
+    local_state: Literal['active','stopped','unknown']
+
+
+@router.post('/v14/runs/{run_id}/connection-check')
+def connection_check(run_id:str,body:ConnectionCheck,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    execution_run(s,p,run_id)
+    return call(service.check_connection,s,run_id,body.claim_id,body.local_state)

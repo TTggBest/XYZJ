@@ -549,6 +549,7 @@ def list_task_overview(
                 "execution_run_id": execution.id if execution else None,
                 "execution_status": execution_status(execution.status, execution.heartbeat_at) if execution else None,
                 "execution_error": execution.error if execution else None,
+                "execution_heartbeat_at": execution.heartbeat_at.replace(tzinfo=timezone.utc).isoformat() if execution and execution.heartbeat_at else None,
                 "package_id": package.id if package else None,
                 "package_status": package.status if package else None,
                 **progress,

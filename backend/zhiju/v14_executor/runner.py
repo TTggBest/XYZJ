@@ -7,6 +7,7 @@ import time
 from zhiju.v14_runtime.contract import build_stage_input, validate_result
 from zhiju.v14_runtime.market import collect_agent_reach_evidence, build_market_packaging_prompt
 from .client import CloudConflict, CloudNotFound
+from .execution_state import ExecutionState
 
 NODES = ("search", "title", "cover", "description", "community", "merge")
 
@@ -57,6 +58,24 @@ def replay_pending(client, root, retry_delay=2):
     return False
 
 
+def apply_content_recovery(stage, envelope, node):
+    failures = [row for row in envelope.get("retry_state", [])
+                if row["node_type"] == node and row.get("outcome") == "content_error"]
+    if not failures:
+        return
+    feedback = "\n".join(str(row.get("error") or "") for row in failures[-3:])
+    instruction = "根据以下校验失败原因修正本阶段内容，保持剧情事实、频道定位、固定资产和输出结构不变。"
+    if len(failures) >= 3:
+        instruction = ("自动重新规划：原方案已连续失败，不要继续仅替换个别词语。"
+            "先在内部判断失败源于切入角度、表达方向、构图还是结构；"
+            "对适用的创作部分选择不同且有原始事实依据的角度或方案，再生成本阶段结果。"
+            "如果只是结构问题则修正结构，不要无故改剧情；不得放宽校验、虚构事实、"
+            "更换频道定位、修改固定资产或重做已通过阶段。最终只返回原定结构的结果。")
+    previous = failures[-1].get("result")
+    rejected = ("\n上次未通过内容摘录（仅用于避开旧方案）：\n" + json.dumps(previous, ensure_ascii=False)[:6000]) if previous is not None else ""
+    stage.prompt += "\n\n" + instruction + "\n最近校验原因：\n" + feedback + rejected
+
+
 def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/zhiju-v14", evidence_provider=collect_agent_reach_evidence, retry_delay=2, recover=True, stop_event=None):
     root = Path(cache_root)
     if recover and replay_pending(client, root, retry_delay):
@@ -67,18 +86,23 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
     if not envelope:
         return False
     path = root / envelope["run_id"] / "pending.json"
+    state=ExecutionState(root / envelope["run_id"] / "execution.json",envelope)
+    terminal=False
+    model_client.process_changed=lambda pid:state.update(model_pid=pid)
     finished, cancelled = Event(), Event()
     def keepalive():
         while not finished.wait(15):
             try:
                 status = client.heartbeat(envelope)["status"]
+                state.update(last_heartbeat=time.time())
                 if status != "running":
                     cancelled.set()
                     return
             except (PermissionError, CloudConflict):
                 cancelled.set()
                 return
-            except ConnectionError:
+            except (ConnectionError,RuntimeError):
+                # A temporary HTTP failure must not silently kill keepalive.
                 # Cloud never transfers this run automatically while a local call is alive.
                 pass
     thread = Thread(target=keepalive, daemon=True)
@@ -113,8 +137,10 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                             stage = build_stage_input({**envelope, 'external_evidence': evidence}, node)
                         else:
                             stage.prompt = build_market_packaging_prompt(stage.item, stage.context["plot_payload"], stage.rules["prompts"]["search"], evidence)
+                        apply_content_recovery(stage, envelope, node)
                         result = {"plot_payload": stage.context["plot_payload"], "market_payload": model_client.generate(stage, envelope["model"]), "external_evidence": evidence}
                     else:
+                        apply_content_recovery(stage, envelope, node)
                         result = model_client.generate(stage, envelope["model"])
                     normalized = deepcopy(result)
                     issues = validate_result(stage, normalized)
@@ -132,12 +158,15 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                     body.update(outcome="content_error", error=str(exc)[:4000])
                     response = send_cached(client, envelope, attempt_id, body, path, retry_delay)
                 if response["status"] != "running":
+                    terminal=True
                     return True
                 if body["outcome"] == "accepted":
                     envelope["accepted_results"][node] = normalized
                     break
-                envelope["retry_state"].append({"node_type": node, "outcome": body["outcome"], "error": body.get("error")})
+                envelope["retry_state"].append({"node_type": node, "outcome": body["outcome"], "error": body.get("error"), "result": body.get("result")})
+        terminal=True
         return True
     finally:
+        state.update(finished=terminal)
         finished.set()
         thread.join(timeout=21)

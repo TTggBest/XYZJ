@@ -9,7 +9,7 @@ from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, Pac
                           PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language)
 from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
 from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel, dispatch_task
-from zhiju.services.identity import ConflictError, channel_order_columns
+from zhiju.services.identity import ConflictError, channel_order_columns, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
 from zhiju.workflow_bundles import execution_nodes
@@ -150,11 +150,11 @@ def active_attempts(session, run):
 
 
 def execution_status(status, heartbeat):
-    """Use the same heartbeat-based interruption state in list and detail."""
+    """Heartbeat silence is uncertain connectivity, not a confirmed stopped job."""
     if heartbeat and heartbeat.tzinfo is None:
         heartbeat = heartbeat.replace(tzinfo=timezone.utc)
-    if status == "running" and heartbeat and datetime.now(timezone.utc) - heartbeat > timedelta(seconds=90):
-        status = "interrupted"
+    if status == "running" and heartbeat and datetime.now(timezone.utc) - heartbeat > timedelta(seconds=150):
+        status = "heartbeat_delayed"
     return status
 
 
@@ -164,7 +164,7 @@ def run_read(session, run):
     return {"run_id": run.id, "work_order_id": run.work_order_id, "package_id": run.package_id,
         "workflow_version": run.input_snapshot.get('workflow_recovery', {}).get('version') or run.input_snapshot.get('workflow_version'),
         "original_workflow_version": run.input_snapshot.get('workflow_version'),
-        "status": status, "claim_id": run.claim_id, "model": run.model, "host_id": run.host_id, "error": run.error,
+        "status": status, "heartbeat_at": run.heartbeat_at.replace(tzinfo=timezone.utc).isoformat() if run.heartbeat_at else None, "claim_id": run.claim_id, "model": run.model, "host_id": run.host_id, "error": run.error,
         "attempts": [{"attempt_id": a.id, "node_type": a.node_type, "outcome": a.outcome,
                       "sequence": a.sequence, "error": a.error} for a in rows]}
 
@@ -194,11 +194,13 @@ def envelope(session, run):
     planning_ids = {a.node_type: a.payload['history_reference_ids'] for a in rows
                     if a.outcome == 'running' and a.node_type in {'cover_scene', 'community_scene'}
                     and a.payload is not None}
+    latest_failures = {a.node_type: a.id for a in rows if a.outcome == "content_error"}
     return {"planning_history_ids": planning_ids, "node_sequence": execution_nodes(rules), **run_read(session, run), "tenant_id": run.tenant_id, "claim_id": run.claim_id,
         "account_profile": run.account_profile, "input_snapshot": run.input_snapshot,
         "rules_snapshot": rules, "creative_history": history_rows,
         "accepted_results": {a.node_type: a.payload for a in rows if a.outcome == "accepted"},
-        "retry_state": [{"node_type": a.node_type, "outcome": a.outcome, "error": a.error} for a in rows]}
+        "retry_state": [{"node_type": a.node_type, "outcome": a.outcome, "error": a.error,
+                         **({"result": a.raw_payload} if latest_failures.get(a.node_type) == a.id else {})} for a in rows]}
 
 
 def claim_run(session, host_id: str, *, executor_protocol: int = 2):
@@ -276,7 +278,7 @@ def submit_attempt(session, run_id: str, attempt_id: str, payload):
         retry_after = run.input_snapshot.get("manual_content_retry_after", {}).get(attempt.node_type, 0)
         failures = sum(a.outcome == "content_error" and a.node_type == attempt.node_type
                        and a.sequence > retry_after for a in active_attempts(session, run))
-        if failures >= 3:
+        if failures >= 6:
             run.status = "needs_user_review"
     elif attempt.node_type == "merge":
         run.status = "text_ready"
@@ -310,8 +312,8 @@ def resume_run(session, run_id, stopped_confirmed, *, retry_content=False):
             {a.node_type for a in rows if a.outcome == "accepted"})
     )
     manual_retry = run.status == "needs_user_review" and retry_content
-    if run_read(session, run)["status"] not in {"interrupted", "cancelled"} and not zero_post_system_failure and not manual_retry:
-        raise ConflictError("当前状态不能继续；内容重试耗尽需要人工审核")
+    if run_read(session, run)["status"] not in {"interrupted", "cancelled", "heartbeat_delayed"} and not zero_post_system_failure and not manual_retry:
+        raise ConflictError("当前状态不能继续；自动重新规划后仍未通过，需要修正失败原因后重试")
     if manual_retry:
         active = active_attempts(session, run)
         done = {a.node_type for a in active if a.outcome == "accepted"}
@@ -417,3 +419,20 @@ def upgrade_workflow(session, run_id, version_id, stopped_confirmed, reason, *, 
     else:
         session.flush()
     return run_read(session, run)
+
+
+def check_connection(session,run_id,claim_id,local_state):
+    """A bound executor probes its actual processes before recovering a silent claim."""
+    run=get_run(session,run_id)
+    if run.claim_id!=claim_id or run.status!='running':
+        return {**run_read(session,run),'recovered':False}
+    if local_state=='active':
+        run.heartbeat_at=datetime.now(timezone.utc)
+        session.commit()
+        return {**run_read(session,run),'recovered':False}
+    if local_state=='stopped' and execution_status(run.status,run.heartbeat_at)=='heartbeat_delayed':
+        result=resume_run(session,run.id,True)
+        _audit(session,'v14.connection_recovered','work_order',run.work_order_id)
+        session.commit()
+        return {**result,'recovered':True}
+    return {**run_read(session,run),'recovered':False}

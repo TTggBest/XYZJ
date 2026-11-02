@@ -9,7 +9,7 @@ from zhiju.services.identity import ConflictError
 from zhiju.schemas.v14 import AttemptSubmission
 
 
-def test_manual_retry_retains_accepted_stage_and_history_and_limits_new_round_to_three(store):
+def test_manual_retry_retains_accepted_stage_and_history_and_limits_new_round_to_six(store):
     with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
         configure(s);run=runs.create_run(s,'work-a')
         run.status='needs_user_review';run.error='title_1_invalid_hook_b_type';run.claim_id='old'
@@ -24,12 +24,12 @@ def test_manual_retry_retains_accepted_stage_and_history_and_limits_new_round_to
         assert runs.resume_run(s,run.id,True,retry_content=True)['status']=='queued'
         claim=runs.claim_run(s,'device-a')
         assert claim['accepted_results']['search']=={'kept':True}
-        for i in range(4,7):
+        for i in range(4,10):
             attempt=runs.begin_attempt(s,run.id,claim['claim_id'],'title')
             assert attempt.sequence==i
             result=runs.submit_attempt(s,run.id,attempt.id,AttemptSubmission(claim_id=claim['claim_id'],outcome='content_error',result={},error='still invalid'))
-            assert result['status']==('needs_user_review' if i==6 else 'running')
-        assert len(runs.attempts(s,run))==7
+            assert result['status']==('needs_user_review' if i==9 else 'running')
+        assert len(runs.attempts(s,run))==10
         assert accepted.payload=={'kept':True} and accepted.outcome=='accepted'
 
 

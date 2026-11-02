@@ -80,6 +80,7 @@ class TaskOverview(BaseModel):
     execution_run_id: str | None = None
     execution_status: str | None = None
     execution_error: str | None = None
+    execution_heartbeat_at: datetime | None = None
     package_id: str | None
     package_status: str | None
     current_node: str | None

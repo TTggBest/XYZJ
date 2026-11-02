@@ -226,3 +226,16 @@ assert.equal(html.includes('本机执行器已退出'),VISIBLE);
 assert.equal(html.includes('重试唤起执行器'),VISIBLE);
 assert.equal(requests.filter(([p,o])=>o.method==='POST').length,0);
 """.replace('VISIBLE', str(visible).lower()))
+
+
+def test_delayed_heartbeat_detail_explains_status_and_requires_confirmation():
+    run_node(BOOT + r"""
+run={run_id:'run-a',status:'heartbeat_delayed',heartbeat_at:'2026-11-02T06:00:00Z',host_id:'device-a',model:'selected-model',attempts:[]};
+await click('work-detail','work-a');
+const html=page.nodes.get('drawerBody').innerHTML;
+assert.match(html,/连接待确认/);
+assert.match(html,/最近心跳/);
+assert.match(html,/150 秒/);
+assert.match(html,/确认停止后恢复/);
+assert.equal(requests.filter(([p])=>p.endsWith('/resume')).length,0);
+""")

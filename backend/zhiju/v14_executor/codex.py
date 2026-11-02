@@ -13,6 +13,7 @@ class CodexClient:
         self.binary, self.timeout = binary, timeout
         self.account_profile, self.codex_home = account_profile, codex_home
         self.cancelled = lambda: False
+        self.process_changed = lambda pid: None
 
     def generate(self, stage, model):
         if not model or self.cancelled():
@@ -43,6 +44,7 @@ class CodexClient:
                 stdin.write(prompt.encode("utf-8"))
                 stdin.seek(0)
                 process = subprocess.Popen(args, stdin=stdin, stdout=logs, stderr=logs, env=env, start_new_session=True)
+                self.process_changed(process.pid)
                 deadline = time.monotonic() + self.timeout
                 try:
                     while process.poll() is None:
@@ -74,3 +76,4 @@ class CodexClient:
                         except subprocess.TimeoutExpired:
                             os.killpg(process.pid, signal.SIGKILL)
                             process.wait()
+                    self.process_changed(None)

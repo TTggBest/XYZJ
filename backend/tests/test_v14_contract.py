@@ -5,7 +5,7 @@ import pytest
 
 def envelope(count=1):
     from zhiju.v14_runtime.contract import bundled_rules
-    return {"run_id": "r1", "model": "test-model", "rules_snapshot": bundled_rules(),
+    return {"run_id": "r1", "work_order_id": "work-a", "model": "test-model", "rules_snapshot": bundled_rules(),
         "input_snapshot": {"channel_id": "c1", "channel_name": "频道", "drama_id": "d1", "drama_name": "剧目",
             "community_count": count, "target_publish_date": "2026-10-20",
             "drama": {"content_summary": "女主重生复仇", "plot_archive": "剧情档案", "plot_pattern": "复仇", "core_personas": "女主"},

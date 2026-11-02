@@ -15,7 +15,7 @@
     private: "私享", public: "公开", unlisted: "不公开", upload: "已上传", processed: "已处理", disabled: "停用", deprecated: "已弃用",
     missing: "缺失", partial: "部分就绪", expired: "已过期", reauthorization_required: "需重新授权", blocked: "禁用", calibrated: "已校准",
     processing: "处理中", classified: "分类完成", partially_classified: "部分匹配", logo_ready: "Logo 已生成", partially_generated: "部分生成",
-    not_started: "未开始", not_producing: "不制作", queued: "已排队", interrupted: "执行中断", needs_user_review: "需要人工审核", text_ready: "文本已完成"
+    not_started: "未开始", not_producing: "不制作", queued: "已排队", interrupted: "执行中断", heartbeat_delayed: "连接待确认", needs_user_review: "生成失败", text_ready: "文本已完成"
   };
   const DRAMA_PRODUCTION_NODES = [
     ["cloud_download_status", "网盘下载"],
@@ -94,7 +94,7 @@
     if (["active", "authorized", "connected", "completed", "succeeded", "approved", "published", "ready", "delivered", "confirmed", "calibrated", "classified", "logo_ready", "text_ready"].includes(value)) return "is-green";
     if (["failed", "cancelled", "blocked", "changes_requested", "expired", "reauthorization_required", "not_producing", "interrupted", "needs_user_review"].includes(value)) return "is-red";
     if (["running", "in_progress", "dispatched", "review_pending", "retrying"].includes(value)) return "is-blue";
-    if (["pending", "pending_dispatch", "reserved", "draft", "partial", "partially_classified", "partially_generated", "waiting"].includes(value)) return "is-amber";
+    if (["pending", "pending_dispatch", "reserved", "draft", "partial", "partially_classified", "partially_generated", "waiting", "heartbeat_delayed"].includes(value)) return "is-amber";
     return "";
   }
   function tag(value) { return `<span class="tag ${statusClass(value)}">${esc(label(value))}</span>`; }
@@ -1093,15 +1093,20 @@
     }
   }
   function localExecutorError(health, hostId, status) {
-    return ["queued", "running"].includes(status) && health?.tenant_id === auth.current()?.tenant_id &&
+    return ["queued", "running", "heartbeat_delayed"].includes(status) && health?.tenant_id === auth.current()?.tenant_id &&
       health.host_id === hostId && health.running === false && health.last_error ? health.last_error : "";
   }
   function workorderState(item, launcherError = "") {
     if (launcherError) return '<span class="tag is-red">本机执行器已退出</span>';
 
+    if (item.execution_status === "heartbeat_delayed") return tag("heartbeat_delayed");
     if (item.execution_status === "interrupted") return '<span class="tag is-red">已中断</span>';
     if (["queued", "running", "cancelled", "needs_user_review"].includes(item.execution_status)) return tag(item.execution_status);
     return tag(item.work_order_status || item.task_status);
+  }
+  function workorderWarning(item, launcherError = "") {
+    const error = launcherError || (["interrupted", "needs_user_review"].includes(item.execution_status) ? item.execution_error : "");
+    return error ? `<button class="video-warning is-red" data-action="workorder-error" data-id="${esc(item.task_id)}" aria-label="查看工单错误" title="查看完整错误">${icon("circle-alert")}</button>` : "";
   }
   function workorderActions(item, launcherError = "") {
     if (item.task_status === "pending_dispatch") return `<button class="button button-primary button-small" data-action="dispatch-task" data-id="${esc(item.task_id)}">${icon("play")} 开始生产</button>`;
@@ -1122,10 +1127,10 @@
     ]);
     state.channels = channels;
     const tasks = window.ZhijuOperationsPageData.sortChannelRecords(items, channels);
-    const launcherHealth = canRunV14() && tasks.some(item => ["queued", "running"].includes(item.execution_status)) ? await localExecutorHealth() : null;
+    const launcherHealth = canRunV14() && tasks.some(item => ["queued", "running", "heartbeat_delayed"].includes(item.execution_status)) ? await localExecutorHealth() : null;
     if (actor !== auth.current() || state.view !== "workorders" || date !== state.date) return;
     state.tasks = tasks;
-    const rows = tasks.map((item, index) => { const launcherError = localExecutorError(launcherHealth, item.execution_host_id, item.execution_status); return `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${workorderState(item, launcherError)}${launcherError ? `<span class="cell-sub is-red">${esc(launcherError)}</span>` : ""}${item.execution_status === "interrupted" && item.execution_error ? `<span class="cell-sub is-red" title="${esc(item.execution_error)}">${esc(item.execution_error.slice(0, 120))}</span>` : ""}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${workorderActions(item, launcherError)}</div></td></tr>`; });
+    const rows = tasks.map((item, index) => { const launcherError = localExecutorError(launcherHealth, item.execution_host_id, item.execution_status); return `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${workorderState(item, launcherError)}${["running", "heartbeat_delayed"].includes(item.execution_status) && item.execution_heartbeat_at ? `<span class="cell-sub" title="超过 150 秒未收到心跳只表示连接待确认，不代表任务已停止；请先查看详情">最近心跳：${fmt(item.execution_heartbeat_at)}</span>` : ""}${workorderWarning(item, launcherError)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${workorderActions(item, launcherError)}</div></td></tr>`; });
     const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button>${canRunV14() ? `<button class="button button-secondary" data-action="v14-resume-all" ${interruptedWorkorders().length ? "" : "disabled"}>${icon("rotate-ccw")} 一键恢复（${interruptedWorkorders().length}）</button>` : ""}</div>`;
     const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks) + " · 排序：频道自定义顺序 → 计划发布时间";
     root.innerHTML = `<div class="page-stack">${versionPicker ? `<section class="section"><div class="toolbar">${versionPicker}${auth.canView("settings", state.deviceRole) ? '<button class="button button-secondary" data-action="workflow-settings">管理运营包流程版本</button>' : ""}<span class="settings-muted">生成运营包时使用所选版本；已有成品不变。</span></div></section>` : ''}${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
@@ -1140,15 +1145,15 @@
     const detail = await api(`/work-orders/${id}`);
     const w = detail.work_order, p = detail.package;
     const run = canRunV14() ? await api(`/work-orders/${id}/v14-runs/current`) : null;
-    const launcherHealth = run && ["queued", "running"].includes(run.status) ? await localExecutorHealth() : null;
+    const launcherHealth = run && ["queued", "running", "heartbeat_delayed"].includes(run.status) ? await localExecutorHealth() : null;
     const launcherError = run ? localExecutorError(launcherHealth, run.host_id, run.status) : "";
     const versionPicker = !run && canRunV14() ? await workflowPicker() : '';
     if (actor !== auth.current() || generation !== drawerGeneration || (refresh && (state.workDetailId !== id || el("drawerBackdrop").hidden))) return;
     const packageStatus = p.status === 'text_ready' && run && run.status !== 'text_ready' ? '<span class="tag is-blue">说明已完成 · 文本生产中</span>' : tag(p.status);
     const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">生成运营包</button>`
-      : ["queued", "running"].includes(run.status) ? `${(run.status === "queued" || launcherError) ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
+      : ["queued", "running", "heartbeat_delayed"].includes(run.status) ? `${run.status === "heartbeat_delayed" ? `<button class="button button-secondary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">确认停止后恢复</button>` : ""}${(run.status === "queued" || launcherError) ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
       : ["interrupted", "cancelled", "needs_user_review"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}"${run.status === "needs_user_review" ? ' data-retry-content="true"' : ''}>恢复生产</button>` : "";
-    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${launcherError ? `<p class="v14-error">本机执行器已退出：${esc(launcherError)}。云端任务仍保留，可重试唤起执行器。</p>` : ""}${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
+    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}${run.heartbeat_at ? `<span>最近心跳：${fmt(run.heartbeat_at)}</span>` : ""}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.status === "heartbeat_delayed" ? `<p class="hint">已超过 150 秒未收到心跳，暂时无法确认执行状态，不代表任务已停止。不要重复恢复；先核对本机执行器，确认原进程已停止后再恢复。</p>` : ""}${launcherError ? `<p class="v14-error">本机执行器已退出：${esc(launcherError)}。云端任务仍保留，可重试唤起执行器。</p>` : ""}${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
     openDrawer("工单详情", `<div class="detail-block">${versionPicker || `<span>生产流程版本：${esc(workflowLabel(run?.workflow_version))}</span>`}</div><div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${packageStatus}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`, id);
     if (refresh) el("drawerBody").scrollTop = scroll;
     scheduleWorkProgressRefresh();
@@ -2351,6 +2356,14 @@
       else if (action === "v14-cancel") {
         await api(`/v14/runs/${id}/cancel`, { method: "POST" });
         notify("已取消，既有结果保留"); await workDetail(button.dataset.workId);
+      }
+      else if (action === "workorder-error") {
+        const item = state.tasks.find(row => row.task_id === id);
+        if (item) {
+          const health = await localExecutorHealth();
+          const message = localExecutorError(health, item.execution_host_id, item.execution_status) || item.execution_error || "暂无错误记录";
+          openModal("工单错误详情", `<p>${esc(item.chinese_title || "")}</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(message)}</pre>`);
+        }
       }
       else if (action === "v14-resume-all") {
         if (!canRunV14() || taskStartingV14) return;
