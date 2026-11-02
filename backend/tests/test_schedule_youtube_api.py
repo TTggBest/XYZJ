@@ -106,7 +106,7 @@ def test_sync_api_recomputes_red_yellow_and_cleared_warnings(api_context, monkey
             "status": {"privacyStatus": "private", "uploadStatus": "processed"},
             "fileDetails": {"fileName": f"{title}_阿拉伯语.mp4"},
             "contentDetails": {"duration": "PT1H", **({"regionRestriction": restriction} if v == "duplicate01" and restriction else {})}}
-            for v in ids]}
+            for v in ids if v in parse_qs(urlparse(url).query)["id"][0].split(",")]}
 
     monkeypatch.setattr("zhiju.services.youtube_channel_sync._youtube_request_json", google_get)
 
@@ -173,6 +173,7 @@ def test_deleted_upload_placeholder_does_not_abort_sync_or_remain_a_duplicate(ap
                 {"snippet": {"title": "Deleted video"}, "contentDetails": {"videoId": "deleted0001"}},
                 {"snippet": {"title": title, "publishedAt": "2026-10-15T12:00:00Z"}, "contentDetails": {"videoId": "normalvideo"}},
             ]}
+        if 'normalvideo' not in parse_qs(urlparse(url).query)['id'][0].split(','):return {'items':[]}
         return {"items": [{"id": "normalvideo", "snippet": {"title": title},
             "status": {"privacyStatus": "private", "uploadStatus": "processed"},
             "fileDetails": {"fileName": f"{title}_阿拉伯语.mp4"}, "contentDetails": {"duration": "PT1H"}}]}
@@ -209,3 +210,33 @@ def test_cloud_expired_token_refresh_uses_cloud_config_and_preserves_refresh_tok
     assert calls == ["test-refresh"]
     assert store.get(grant.id)["refresh_token"] == "test-refresh"
     assert "new-access" not in session.scalar(select(OAuthTokenSecret)).encrypted_payload
+
+
+def test_upload_list_omission_rechecks_private_bound_video_and_clears_warning(api_context,monkeypatch):
+    client,session,schedule,title=api_context
+    channel=session.get(Channel,schedule.channel_id)
+    schedule.planned_utc_time=datetime.now(timezone.utc)+timedelta(days=10)
+    session.commit()
+    listed=True
+    def google_get(url,token):
+        path=urlparse(url).path
+        if path.endswith('/channels'):
+            return {'items':[{'contentDetails':{'relatedPlaylists':{'uploads':'UU-owner'}}}]}
+        if path.endswith('/playlistItems'):
+            return {'items':[{'contentDetails':{'videoId':'private001'}}] if listed else []}
+        assert parse_qs(urlparse(url).query)['id']==['private001']
+        return {'items':[{'id':'private001','snippet':{'title':title,'channelId':channel.youtube_channel_id},
+            'status':{'privacyStatus':'private','uploadStatus':'processed'},
+            'fileDetails':{'fileName':f'{title}_阿拉伯语.mp4'},'contentDetails':{'duration':'PT1H'}}]}
+    monkeypatch.setattr('zhiju.services.youtube_channel_sync._youtube_request_json',google_get)
+    assert client.post(f'/api/v3/channels/{channel.id}/youtube-videos/sync').status_code==200
+    assert schedule.source_video_id=='private001'
+    listed=False
+    response=client.post(f'/api/v3/channels/{channel.id}/youtube-videos/sync')
+    assert response.status_code==200,response.text
+    review=client.get(f'/api/v3/schedules/{schedule.id}/youtube-review').json()
+    assert review['sync_complete'] is True
+    assert review['selected']['state']=='private'
+    assert 'bound_unavailable' not in [w['code'] for w in review['warnings']]
+    assert schedule.source_video_id=='private001'
+    assert schedule.is_uploaded is True

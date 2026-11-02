@@ -31,7 +31,7 @@ def sync_review(fixture):
 
     def run(resources, minute):
         at = NOW + timedelta(minutes=minute)
-        sync_authorized_channel_videos(session, Store(), channel_id=channel.id, fetcher=lambda *_: resources, now=at)
+        sync_authorized_channel_videos(session, Store(), channel_id=channel.id, fetcher=lambda *_: resources, requester=lambda *_: {"items":[]}, now=at)
         reconcile_channel_schedules(session, channel.id, now=at)
         return schedule_video_reviews(session, [schedule], now=at)[schedule.id]
 

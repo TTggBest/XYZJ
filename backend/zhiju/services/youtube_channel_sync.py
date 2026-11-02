@@ -13,6 +13,7 @@ from zhiju.models import (
     AccountChannelAuthorization,
     Channel,
     ChannelPlaylist,
+    ChannelScheduleEntry,
     OAuthGrant,
     OperationPackage,
     OperationTask,
@@ -416,6 +417,7 @@ def sync_authorized_channel_videos(
     *,
     channel_id: str,
     fetcher: Callable[[str, str], list[Mapping[str, object]]] = fetch_channel_upload_videos,
+    requester: Callable[[str, str], Mapping[str, object]] | None = None,
     now: datetime | None = None,
 ) -> dict[str, int]:
     current_time = now or datetime.now(timezone.utc)
@@ -447,6 +449,25 @@ def sync_authorized_channel_videos(
     try:
         access_token = ensure_grant_access_token(session, store, grant, now=current_time)
         resources = fetcher(access_token, channel.youtube_channel_id)
+        # The uploads playlist can omit private videos that videos.list still
+        # returns to the owner. Recheck known IDs before advancing the watermark.
+        known_ids=set(session.scalars(select(YoutubeVideo.youtube_video_id).where(
+            YoutubeVideo.channel_id==channel.id)))
+        for model in (ChannelScheduleEntry,OperationTask):
+            known_ids.update(session.scalars(select(model.source_video_id).where(
+                model.channel_id==channel.id,model.source_video_id.is_not(None))))
+        missing=sorted(known_ids-{str(row.get('id') or '') for row in resources}-{''})
+        request_json=requester or _youtube_request_json
+        for offset in range(0,len(missing),50):
+            details=request_json(_api_url('videos',part='snippet,contentDetails,status,fileDetails',
+                id=','.join(missing[offset:offset+50]),maxResults=50),access_token)
+            items=details.get('items')
+            if not isinstance(items,list):
+                raise ValueError('已绑定视频详情补查不完整，请重试同步')
+            for item in items:
+                if item.get('snippet',{}).get('channelId')!=channel.youtube_channel_id:
+                    raise ValueError('已绑定视频所属频道不一致，未更新同步状态')
+                resources.append(item)
         inserted = 0
         updated = 0
         bound = 0
@@ -460,6 +481,8 @@ def sync_authorized_channel_videos(
             # The operator's manual ban is independent of YouTube restrictions.
             if existing is not None:
                 payload.is_blocked = existing.is_blocked
+                if video_id in missing and payload.uploaded_at is None:
+                    payload.uploaded_at = existing.uploaded_at
             video = upsert_video(session, payload)
             if existing is None:
                 inserted += 1

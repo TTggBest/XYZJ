@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 import sqlalchemy as sa
+import pytest
 from sqlalchemy import select
 
 from zhiju.app import app
@@ -160,7 +161,8 @@ def test_upload_list_with_only_deleted_placeholders_is_empty_not_failed() -> Non
     assert fetch_channel_upload_videos("access", "UC-test", requester=requester) == []
 
 
-def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() -> None:
+@pytest.mark.parametrize('fallback_state', ['private', 'unreadable', 'wrong_channel', 'request_failed'])
+def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound(fallback_state) -> None:
     suffix = uuid4().hex[:12]
     known_video_id = f"K{suffix[:10]}"
     unknown_video_id = f"U{suffix[:10]}"
@@ -279,6 +281,47 @@ def test_channel_sync_exactly_binds_known_video_id_and_leaves_unknown_unbound() 
         assert videos[processing_video_id].upload_status == "uploaded"
         assert videos[processing_video_id].privacy_status == "private"
         assert videos[processing_video_id].publish_status == "draft"
+
+        # Uploads can omit a still-readable private video already bound to a task.
+        videos[known_video_id].uploaded_at=now-timedelta(days=2)
+        session.commit()
+        later=now+timedelta(minutes=10)
+        detail_calls=[]
+        def details(url,access_token):
+            detail_calls.append(parse_qs(urlparse(url).query)['id'][0])
+            if fallback_state=='request_failed':raise ValueError('detail lookup failed')
+            if fallback_state=='unreadable':return {'items':[]}
+            item=_remote_video(known_video_id,'Known private drama')
+            item['snippet']['channelId']=channel.youtube_channel_id if fallback_state=='private' else 'UC-other'
+            item['status']['privacyStatus']='private'
+            return {'items':[item]}
+        fetch_missing=lambda *args:[row for row in fetcher(*args) if row['id']!=known_video_id]
+        if fallback_state=='request_failed':
+            with pytest.raises(ValueError,match='detail lookup failed'):
+                sync_authorized_channel_videos(session,Store(),channel_id=channel.id,
+                    fetcher=fetch_missing,requester=details,now=later)
+            from zhiju.models import SyncWatermark
+            watermark=session.scalar(select(SyncWatermark).where(SyncWatermark.channel_id==channel.id))
+            assert watermark.status=='failed'
+            assert watermark.data_through_at.replace(tzinfo=timezone.utc)==now
+        elif fallback_state=='wrong_channel':
+            with pytest.raises(ValueError,match='频道'):
+                sync_authorized_channel_videos(session,Store(),channel_id=channel.id,
+                    fetcher=fetch_missing,requester=details,now=later)
+        else:
+            result=sync_authorized_channel_videos(session,Store(),channel_id=channel.id,
+                fetcher=fetch_missing,requester=details,now=later)
+            if fallback_state=='private':
+                assert result['fetched']==3
+                assert videos[known_video_id].privacy_status=='private'
+                assert videos[known_video_id].last_synced_at.replace(tzinfo=timezone.utc)==later
+                assert videos[known_video_id].drama_id==drama.id
+                assert task.source_video_id==known_video_id
+                assert videos[known_video_id].uploaded_at.replace(tzinfo=timezone.utc)==now-timedelta(days=2)
+            else:
+                assert result['fetched']==2
+                assert videos[known_video_id].last_synced_at.replace(tzinfo=timezone.utc)==now
+        assert detail_calls==[known_video_id]
     finally:
         session.close()
         engine.dispose()
