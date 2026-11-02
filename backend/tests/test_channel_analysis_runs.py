@@ -264,9 +264,9 @@ def test_initial_drain_replay_does_not_regenerate_or_create_packages(session,tmp
     model=SimpleNamespace(account_profile='current',generate=generate)
     config={'analysis_workspace_root':str(tmp_path/'workspace')}
     drain(Client(),model,config,tmp_path/'cache')
-    assert run.status=='ready';assert len(calls)==1
+    assert run.status=='ready';assert len(calls)==2
     drain(Client(),model,config,tmp_path/'cache')
-    assert len(calls)==1
+    assert len(calls)==2
     service.apply_result(s,run.id);drain(Client(),model,config,tmp_path/'cache')
     assert (tmp_path/'workspace/频道分析/en/Test/Test_生成规范.md').exists()
 

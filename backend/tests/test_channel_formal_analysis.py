@@ -87,6 +87,9 @@ def test_formal_pipeline_paginates_inventory_and_delivers_without_apply(session,
     class Model:
         account_profile='current'
         def generate(self,stage,model):
+            if stage.node_type=='channel_generation_spec':
+                assert json.loads(stage.prompt.split('\n',1)[1])['profile']==formal_result(run)['profile']
+                return {'generation_spec':formal_result(run)['generation_spec']}
             if stage.node_type=='channel_analysis_screenshots':
                 checks=formal_result(run)['material_checks']
                 for material in run.materials:

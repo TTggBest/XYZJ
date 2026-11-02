@@ -206,6 +206,7 @@ def record_screenshot_checks(session,run_id,claim_id,checks):
     try:validate_screenshot_observations(checks)
     except ValueError as exc:raise ConflictError(str(exc)) from exc
     known_ids={item['id'] for item in run.input_snapshot['sources']['fact_snapshot'].get('video_inventory',[])}
+    known_ids.update(row['video_id'] for row in run.input_snapshot['sources']['fact_snapshot'].get('studio_content',[]) if row.get('content_type','video')=='video')
     for check in checks.values():
         for item in [check]+check.get('observations',[]):
             if item.get('video_id') is not None and item['video_id'] not in known_ids:
@@ -340,6 +341,10 @@ def assert_no_measured_report(session,channel_id):
     report=session.scalar(select(ChannelAnalysisReport.id).where(ChannelAnalysisReport.channel_id==channel_id,
         ChannelAnalysisReport.report_type!='initial',ChannelAnalysisReport.status=='completed').limit(1))
     if measured or report:raise ConflictError('已有实测分析报告，不能使用冷启动覆盖，请使用正式频道分析')
+    metric=session.scalar(select(YoutubeChannelDailyMetric.id).where(YoutubeChannelDailyMetric.channel_id==channel_id,
+        or_(*(getattr(YoutubeChannelDailyMetric,key)>0 for key in (
+            'views','watch_time_minutes','subscribers_gained','subscribers_lost','impressions','ctr')))).limit(1))
+    if metric:raise ConflictError('已有公开运营数据，不能使用冷启动覆盖，请使用正式频道分析')
 
 
 def cold_start_skill(session):

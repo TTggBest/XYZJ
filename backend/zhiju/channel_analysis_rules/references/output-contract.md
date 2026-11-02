@@ -138,7 +138,7 @@ Before completion verify:
 - all three root files exist and have the correct channel name/ID;
 - normalized JSON parses;
 - the strategy YAML parses and matches the prose;
-- date windows and all-content/video-only scopes are labeled;
+- date windows and exported-content/video-only scopes are labeled;
 - unavailable values are not encoded as zero;
 - no per-video returning-viewer sum appears;
 - A/B percentages are labeled watch-time shares;

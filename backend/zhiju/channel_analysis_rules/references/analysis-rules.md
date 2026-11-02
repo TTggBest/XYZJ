@@ -4,14 +4,14 @@
 
 Use sources according to the metric they can actually support:
 
-1. Studio export total row: exact all-content 28-day totals, returning viewers, revenue, impressions, and CTR.
+1. Studio export total row: exact 28-day totals for the exported content scope, returning viewers, revenue, impressions, and CTR. A ZIP does not retain the UI content filter; use studio_exported_content unless all-content coverage is independently verified.
 2. Content > Videos screenshot: rounded video-only totals and Studio-only video cards. Keep this scope separate from all-content totals.
 3. Analytics API: exact daily trends, per-video performance, country, traffic source, and device splits.
 4. Audience screenshot: Studio-only audience segments, gender/age, subscriptions, online time, and adjacent audience interests.
 5. A/B screenshots: tested variants and Studio's watch-time-share result.
 6. Local drama metadata: Chinese drama identity, plot, relationships, and content DNA.
 
-Do not merge values with different scopes into one unlabeled metric. If the all-content total and video-only screenshot differ, explain the scope difference instead of calling it a conflict.
+Do not merge values with different scopes into one unlabeled metric. If the exported-content total and video-only screenshot differ, explain the scope difference instead of calling it a conflict.
 
 ## Date and cohort rules
 

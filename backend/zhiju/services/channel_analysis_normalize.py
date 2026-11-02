@@ -51,6 +51,15 @@ def studio_period(files):
         'complete_days':len(set(dates)), 'span_days':(max(dates)-min(dates)).days+1} if dates else None
 
 
+def studio_content_type(row,identity):
+    value=str(row.get('内容类型') or row.get('Content type') or '').strip().lower()
+    if value in {'帖子','社区帖子','post','posts','community post','community posts'} or (not value and str(identity).startswith('Ug') and len(str(identity))>11):
+        return 'post'
+    if not value or value in {'视频','长视频','短视频','直播','video','videos','short','shorts','live','live stream'}:
+        return 'video'
+    return 'unknown'
+
+
 def normalize_sources(sources,channel,mode):
     api=sources.get('api',{})
     records={}
@@ -76,14 +85,15 @@ def normalize_sources(sources,channel,mode):
                             'values':dict(row),'metrics':studio_metrics(row)}
                         continue
                     if not identity:continue
-                    content.append({'video_id':identity,'source':asset_id+'/'+filename,
+                    kind=studio_content_type(row,identity)
+                    content.append({'video_id':identity,'content_type':kind,'source':asset_id+'/'+filename,
                         'scope':'exported_content_row','values':dict(row),'metrics':studio_metrics(row)})
                     impressions=number(studio_metrics(row)['impressions'])
                     ctr=number(studio_metrics(row)['ctr_percent'])
-                    if impressions is not None and ctr is not None and impressions>=0:
+                    if kind=='video' and impressions is not None and ctr is not None and impressions>=0:
                         denominator+=impressions;numerator+=impressions*ctr
                 if denominator:weighted={'value_percent':numerator/denominator,'impressions':denominator,
-                    'source':asset_id+'/'+filename,'scope':'exported_content_rows_only'}
+                    'source':asset_id+'/'+filename,'scope':'exported_video_rows_only'}
     if isinstance(totals,dict) and totals['metrics']['returning_viewers']==0 and any(
         (number(row['metrics']['returning_viewers']) or 0)>0 for row in content):
         totals['metrics']['returning_viewers']='unavailable'
@@ -155,8 +165,8 @@ def formal_snapshot(sources, channel):
     api_videos = dataset('28:videos')
     studio_rows=[{'video':row['video_id'],**row['metrics'],'source':row['source'],
         'scope':row['scope'],'published_at':row['values'].get('视频发布时间',row['values'].get('Video publish time'))}
-        for row in normalized['studio_content'] if number(row['metrics']['views']) is not None]
-    videos={'status':'available','source':'studio/content_table','scope':'studio_exported_content_rows',
+        for row in normalized['studio_content'] if row.get('content_type','video')=='video' and number(row['metrics']['views']) is not None]
+    videos={'status':'available','source':'studio/content_table','scope':'exported_video_rows',
         'window':sources['windows']['28'],'rows':studio_rows} if studio_rows else api_videos
     for row in videos['rows']:annotate_video_comparability(row,sources['windows']['28'].get('end'))
     ranked=sorted([row for row in videos['rows'] if number(row.get('views')) is not None],key=lambda row:number(row['views']),reverse=True)
@@ -185,11 +195,12 @@ def formal_snapshot(sources, channel):
     for row in ranked:comparable.setdefault(row['duration_class']+'/'+row['maturity'],[]).append(row)
     details = {item['id']: item for group in sources.get('video_details', {}).values()
                for item in group.get('response', {}).get('items', [])}
-    mapped = {row['youtube_video_id'] for row in sources.get('video_drama_mapping', []) if row.get('drama_code')}
+    mapped = {row['youtube_video_id'] for row in sources.get('video_drama_mapping', []) if row.get('drama_code') or row.get('local_metadata_source')}
     return {'schema_version': 2, 'snapshot_status': 'measured_with_explicit_gaps',
         'generated_at': datetime.now(timezone.utc).isoformat(), 'channel': channel,
+        'channel_public_data': {'status':'available' if sources.get('identity',{}).get('items') else 'unavailable','source':'youtube-data/channels.list(mine=true)','scope':'channel lifetime public statistics at collection time','identity':sources.get('identity',{}).get('items',[])},
         'data_windows': {'recent_28d': sources['windows']['28'], 'recent_90d': sources['windows']['90']},
-        'availability_rules': ['unavailable is not zero', 'Studio all-content and API video scopes stay separate'],
+        'availability_rules': ['unavailable is not zero', 'Studio exported-content and API video scopes stay separate'],
         'channel_totals_28d': normalized['channel_totals_28d'],
         'trend': {'recent_28d': dataset('28:daily'), 'recent_90d': dataset('90:daily')},
         'audience_28d': {'country': dataset('28:country'), 'device': dataset('28:device'),
@@ -199,17 +210,17 @@ def formal_snapshot(sources, channel):
         'low_videos_28d': {**videos, 'rows':list(reversed(low)),'cohort':'lower relative view band; not automatically mature weak content'},
         'middle_videos_28d': {**videos, 'rows':middle,'cohort':'middle relative view band'},
         'comparable_video_groups':comparable,
-        'video_metric_coverage': {'ranking_source':videos['source'],'ranking_scope':videos.get('scope'),'studio_rows':len(normalized['studio_content']),'ranked_studio_rows':len(studio_rows),'unranked_studio_ids':[row['video_id'] for row in normalized['studio_content'] if number(row['metrics']['views']) is None],'api_rows':len(api_videos['rows']),'api_daily_coverage':dataset('28:daily').get('coverage'),'ranked_view_sum':total,'studio_aggregate_views':normalized['channel_totals_28d']['metrics']['views'] if isinstance(normalized['channel_totals_28d'],dict) else 'unavailable'},
+        'video_metric_coverage': {'ranking_source':videos['source'],'ranking_scope':videos.get('scope'),'exported_content_rows':len(normalized['studio_content']),'studio_rows':sum(row.get('content_type','video')=='video' for row in normalized['studio_content']),'ranked_studio_rows':len(studio_rows),'unranked_studio_ids':[row['video_id'] for row in normalized['studio_content'] if row.get('content_type','video')=='video' and number(row['metrics']['views']) is None],'api_rows':len(api_videos['rows']),'api_daily_coverage':dataset('28:daily').get('coverage'),'ranked_view_sum':total,'studio_aggregate_views':normalized['channel_totals_28d']['metrics']['views'] if isinstance(normalized['channel_totals_28d'],dict) else 'unavailable'},
         'api_video_sample':api_videos,
         'concentration_28d': {'scope':videos.get('scope','analytics_video_rows_only'), 'source':videos['source'],
             'total_views': total, 'top_1_share_pct': (number(ranked[0].get('views')) or 0)/total*100 if total else 'unavailable',
             'top_5_share_pct': sum(number(row['views']) for row in ranked[:5])/total*100 if total else 'unavailable'} if total is not None else 'unavailable',
-        'community_posts': screenshot_domain('posts'), 'ab_testing': screenshot_domain('ab'),
+        'community_posts': {'screenshot':screenshot_domain('posts'),'studio_rows':[row for row in normalized['studio_content'] if row.get('content_type')=='post']} if any(row.get('content_type')=='post' for row in normalized['studio_content']) else screenshot_domain('posts'), 'ab_testing': screenshot_domain('ab'),
         'impression_weighted_ctr': normalized['impression_weighted_ctr'],
         'studio_content': normalized['studio_content'],
         'derived_video_metrics': normalized['derived_video_metrics'],
         'video_inventory': list(details.values()),
-        'video_source_coverage':[{'video_id':row['video_id'],'in_studio':True,'in_api_video_rows':row['video_id'] in {v.get('video') for v in api_videos['rows']},'in_inventory':row['video_id'] in details} for row in normalized['studio_content']],
+        'video_source_coverage':[{'video_id':row['video_id'],'in_studio':True,'in_api_video_rows':row['video_id'] in {v.get('video') for v in api_videos['rows']},'in_inventory':row['video_id'] in details} for row in normalized['studio_content'] if row.get('content_type','video')=='video'],
         'video_inventory_coverage': {k:v for k,v in sources.get('uploads_inventory',{}).items() if k!='pages'},
         'video_detail_gaps': [{'source':key,'reason':group.get('reason')} for key,group in sources.get('video_details',{}).items() if group.get('status')!='available'],
         'unmatched_video_ids': sorted(set(details) - mapped),

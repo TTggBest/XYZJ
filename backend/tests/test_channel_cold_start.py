@@ -93,6 +93,9 @@ def test_real_executor_adapter_to_service_delivers_four_files_before_apply(sessi
     class Model:
         account_profile='current'
         def generate(self,stage,model):
+            if stage.node_type=='channel_generation_spec':
+                assert json.loads(stage.prompt.split('\n',1)[1])['profile']==result_for(run)['profile']
+                return {'generation_spec':result_for(run)['generation_spec']}
             assert 'channel-initial-audience' in stage.prompt
             assert '女性逆袭初始题材' in stage.prompt
             assert not stage.images

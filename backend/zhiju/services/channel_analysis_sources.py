@@ -61,11 +61,21 @@ def verify_authorization(session,channel,fetcher=_youtube_request_json):
     return token,profile,verified
 
 
+def merge_local_drama_mapping(sources,context):
+    by_id={row['youtube_video_id']:dict(row) for row in sources.get('video_drama_mapping',[])}
+    for row in context.get('drama_mapping',[]):
+        current=by_id.setdefault(row['youtube_video_id'],{'youtube_video_id':row['youtube_video_id']})
+        for key,value in row.items():
+            if not current.get(key):current[key]=value
+    sources['video_drama_mapping']=list(by_id.values())
+
+
 def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
     run=claimed(session,run_id,claim_id)
     if run.input_snapshot.get('cold_start'):
         from zhiju.services.channel_analysis import cold_start_snapshot,assert_no_measured_report
         assert_no_measured_report(session,run.channel_id)
+        if run.input_snapshot.get('sources_complete'):return run
         snapshot=dict(run.input_snapshot)
         if not snapshot['channel'].get('default_language') or not snapshot['channel'].get('country_name_zh'):
             raise ConflictError('冷启动资料缺少目标语言或市场，请补充后重试')
@@ -74,12 +84,16 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         snapshot['sources_complete']=True;run.input_snapshot=snapshot;run.phase='analysis'
         session.commit();return run
     if run.input_snapshot.get('sources_complete'):
-        if run.mode=='periodic' and run.input_snapshot.get('normalization_revision')!=3:
+        if run.mode=='periodic':
             from zhiju.services.channel_analysis_normalize import formal_snapshot
             snapshot=copy.deepcopy(run.input_snapshot)
+            merge_local_drama_mapping(snapshot['sources'],snapshot.get('local_analysis_context',{}))
             snapshot['sources']['normalized']=normalize_sources(snapshot['sources'],snapshot['channel'],run.mode)
-            snapshot['sources']['fact_snapshot']=formal_snapshot(snapshot['sources'],snapshot['channel'])
-            snapshot['normalization_revision']=3;run.input_snapshot=snapshot
+            facts=formal_snapshot(snapshot['sources'],snapshot['channel'])
+            previous=snapshot['sources'].get('fact_snapshot',{})
+            if previous.get('generated_at'):facts['generated_at']=previous['generated_at']
+            snapshot['sources']['fact_snapshot']=facts
+            snapshot['normalization_revision']=4;run.input_snapshot=snapshot
             session.commit()
         return run
     snapshot=dict(run.input_snapshot);channel=snapshot['channel']
@@ -148,9 +162,9 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
                 except (RuntimeError,ValueError) as exc:
                     sources['api'][key]={'status':'unavailable','reason':str(exc),'window':window}
                 checkpoint()
-        if not any(x.get('pages') and any(p.get('rows') for p in x['pages']) for x in sources['api'].values()):
-            raise ConflictError('Analytics 无可用数据；不能以冷启动代替正式数据分析')
         video_ids=set(session.scalars(select(YoutubeVideo.youtube_video_id).where(YoutubeVideo.channel_id==run.channel_id)))
+        studio_rows=normalize_sources(sources,channel,run.mode)['studio_content']
+        video_ids.update(row['video_id'] for row in studio_rows if row['content_type']=='video')
         uploads=verified.get('contentDetails',{}).get('relatedPlaylists',{}).get('uploads')
         if uploads and sources.get('uploads_inventory',{}).get('status')!='available':
             pages=[];page_token=None
@@ -195,6 +209,7 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         'plot':d.content_summary if d else None} for v,d in session.execute(
             select(YoutubeVideo,Drama).outerjoin(Drama,Drama.id==YoutubeVideo.drama_id).where(
                 YoutubeVideo.channel_id==run.channel_id,YoutubeVideo.deleted_at.is_(None)))]
+    merge_local_drama_mapping(sources,snapshot.get('local_analysis_context',{}))
     sources['screenshots']=[m for m in run.materials if m['kind']!='studio_zip']
     sources['availability_rules']=['unavailable','not_applicable','pending','measured numeric value']
     sources['studio_windows']={key:studio_period(value) for key,value in sources.get('studio',{}).items()}
@@ -206,5 +221,5 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         from zhiju.services.channel_analysis_normalize import formal_snapshot
         sources['fact_snapshot']=formal_snapshot(sources,channel)
     claimed(session,run_id,claim_id)
-    snapshot['sources']=sources;snapshot['sources_complete']=True;snapshot['normalization_revision']=3;run.input_snapshot=snapshot;run.phase='analysis'
+    snapshot['sources']=sources;snapshot['sources_complete']=True;snapshot['normalization_revision']=4;run.input_snapshot=snapshot;run.phase='analysis'
     session.commit();return run

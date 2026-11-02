@@ -112,6 +112,10 @@ def checked(s,p,run_id,claim_id):
 @router.post('/analysis-runs/{run_id}/collect')
 def gather(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     run=checked(s,p,run_id,body.claim_id)
+    if run.mode=='periodic' and body.initial_context:
+        snapshot=dict(run.input_snapshot)
+        snapshot['local_analysis_context']=body.initial_context
+        run.input_snapshot=snapshot;s.commit()
     if run.input_snapshot.get('cold_start') and body.initial_context:
         snapshot=dict(run.input_snapshot);context=body.initial_context
         channel=dict(snapshot['channel'])
