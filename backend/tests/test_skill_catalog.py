@@ -20,7 +20,7 @@ def test_builtin_categories_share_production_versions_and_analysis_files(client)
     result=client.get('/api/v3/skill-categories')
     assert result.status_code==200,result.text
     categories={c['id']:c for c in result.json()}
-    assert list(categories)==['channel-analysis','package-production','channel-initialization']
+    assert list(categories)==['channel-analysis','package-production','channel-scheduling','channel-initialization']
     assert len(categories['channel-analysis']['versions'])==1
     legacy=client.get('/api/v3/workflow-versions').json()
     assert categories['package-production']['versions']==legacy['versions']
@@ -59,7 +59,7 @@ def test_new_category_versions_publish_defaults_and_tenant_isolation(client,stor
     client.post(f'/api/v3/skill-categories/{cid}/default',json={'version_id':vid}).raise_for_status()
     assert client.get('/api/v3/skill-categories').json()[-1]['default_id']==vid
     with TenantSession(store,info={'tenant_id':'tenant-b'}) as s:
-        assert len(skill_catalog.catalog(s))==3
+        assert len(skill_catalog.catalog(s))==4
         import pytest
         from fastapi import HTTPException
         with pytest.raises(HTTPException):skill_catalog.archive(s,cid,vid)

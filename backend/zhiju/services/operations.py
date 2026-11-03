@@ -105,17 +105,15 @@ def list_dramas(session: Session) -> list[dict[str, object]]:
     return [_drama_payload(session, drama) for drama in dramas]
 
 
-SCHEDULABLE_PRODUCTION_FIELDS = (
-    "cloud_download_status",
-    "parameter_normalization_status",
-    "youtube_upload_status",
-    "copyright_verification_status",
-    "subtitle_extraction_status",
-    "guishou_upload_status",
-    "role_extraction_status",
-    "tts_status",
-    "production_completion_status",
-)
+# Final composition is authoritative; upstream progress may not have been backfilled.
+SCHEDULABLE_PRODUCTION_FIELDS = ("production_completion_status",)
+
+
+def scheduling_forbidden(session: Session) -> set[str]:
+    forbidden = normalize_drama_title("Tempting My Keeper")
+    ids = set(session.scalars(select(Drama.id).where(Drama.normalized_title == forbidden)))
+    ids.update(session.scalars(select(DramaAlias.drama_id).where(DramaAlias.normalized_alias == forbidden)))
+    return ids
 
 
 def _is_schedulable_drama(drama: Drama, production_state: DramaProductionState | None) -> bool:
@@ -142,7 +140,8 @@ def list_schedulable_dramas(session: Session) -> list[dict[str, object]]:
         )
         .order_by(Drama.drama_number)
     ).all()
-    dramas = [drama for drama, state in rows if _is_schedulable_drama(drama, state)]
+    forbidden = scheduling_forbidden(session)
+    dramas = [drama for drama, state in rows if drama.id not in forbidden and _is_schedulable_drama(drama, state)]
     if not dramas:
         return []
     ids = [drama.id for drama in dramas]
@@ -166,8 +165,8 @@ def _require_schedulable_drama(session: Session, drama_id: str, *, missing_messa
     production_state = session.scalar(
         select(DramaProductionState).where(DramaProductionState.drama_id == drama.id)
     )
-    if not _is_schedulable_drama(drama, production_state):
-        raise ConflictError("只有制剧全部完成且未标记不制作的剧目才能排期")
+    if drama.id in scheduling_forbidden(session) or not _is_schedulable_drama(drama, production_state):
+        raise ConflictError("只有最终合成完成、未禁用且未标记不制作的剧目才能排期")
     return drama
 
 

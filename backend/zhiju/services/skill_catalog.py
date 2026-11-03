@@ -12,6 +12,8 @@ from zhiju.tenant_repository import require_tenant_entity
 ANALYSIS = 'channel-analysis'
 PRODUCTION = 'package-production'
 INITIALIZATION = 'channel-initialization'
+SCHEDULING = 'channel-scheduling'
+SCHEDULING_VERSION = 'builtin-channel-scheduling-v1'
 ANALYSIS_VERSION = 'builtin-xy-yt-report-v2'
 BUNDLE = Path(__file__).resolve().parents[1] / 'skill_catalog_bundles/xy-yt-report-v2.zip'
 
@@ -58,6 +60,8 @@ def sync_initialization(s):
 
 
 def category(s, key):
+    if key == SCHEDULING:
+        return {'id':key,'name':'频道排期','description':'依据频道生效资料和真实剧情选剧，生成预览后保存', 'execution':'channel_scheduling'}
     if key == INITIALIZATION:
         return {'id':key, 'name':'频道初始化', 'description':'频道基础资料与运营配置，共 9 项规则模块',
                 'execution':'channel_initialization', 'modules':initialization_modules(s)}
@@ -70,6 +74,9 @@ def category(s, key):
 
 
 def default_id(s, key):
+    if key == SCHEDULING:
+        setting=s.scalar(select(V14Setting))
+        return (setting.payload.get('scheduling_skill_version_id') if setting else None) or SCHEDULING_VERSION
     if key == INITIALIZATION:return None
     if key in {PRODUCTION, ANALYSIS}:
         setting = s.scalar(select(V14Setting))
@@ -92,18 +99,21 @@ def versions(s, key):
     if key == ANALYSIS:
         rows.append({'id':ANALYSIS_VERSION, 'label':'xy-yt-report-v2', 'revision':1, 'status':'published',
                      'change_summary':'完整原始 Skill、引用规则与校验脚本。分析执行链路尚待原流程一致性验收。'})
+    if key == SCHEDULING:
+        rows.append({'id':SCHEDULING_VERSION,'label':'channel-scheduling','revision':1,'status':'published',
+                     'change_summary':'智矩通用排期：最终合成与逐语言库存、真实剧情选剧、预览与确认保存'})
     return rows
 
 
 def catalog(s):
-    keys = [ANALYSIS, PRODUCTION, INITIALIZATION, *s.scalars(select(SkillCategory.id).order_by(SkillCategory.created_at, SkillCategory.id))]
+    keys = [ANALYSIS, PRODUCTION, SCHEDULING, INITIALIZATION, *s.scalars(select(SkillCategory.id).order_by(SkillCategory.created_at, SkillCategory.id))]
     return [{**category(s,k), 'versions':versions(s,k), 'default_id':default_id(s,k)} for k in keys]
 
 
 def create_category(s, name, description):
     name=name.strip()
     if not name or len(name)>80:raise ValueError('分类名称须为 1～80 字')
-    if name in {'频道分析','运营包生产','频道初始化'} or s.scalar(select(SkillCategory.id).where(SkillCategory.name==name)):
+    if name in {'频道分析','运营包生产','频道初始化','频道排期'} or s.scalar(select(SkillCategory.id).where(SkillCategory.name==name)):
         raise ConflictError('分类名称已存在')
     row=SkillCategory(name=name,description=description.strip())
     s.add(row);s.commit();s.refresh(row)
@@ -115,6 +125,14 @@ def archive(s,key,version_id):
     if key==INITIALIZATION:raise ConflictError('请在对应初始化模块内管理规则版本')
     if key==PRODUCTION:return workflow_versions.get_archive(s,version_id)
     if key==ANALYSIS and version_id==ANALYSIS_VERSION:return BUNDLE.read_bytes()
+    if key==SCHEDULING and version_id==SCHEDULING_VERSION:
+        from zipfile import ZIP_DEFLATED
+        buffer=BytesIO()
+        root=Path(__file__).resolve().parents[1]/'scheduling_rules'
+        with ZipFile(buffer,'w',ZIP_DEFLATED) as z:
+            for path in root.rglob('*'):
+                if path.is_file():z.writestr(path.relative_to(root).as_posix(),path.read_bytes())
+        return buffer.getvalue()
     row=require_tenant_entity(s,SkillBundleVersion,version_id)
     if row.category_id!=key:raise ConflictError('版本不属于此分类')
     return row.archive
@@ -134,6 +152,7 @@ def upload(s,key,label,summary,data):
     s.scalar(select(V14Setting).with_for_update())
     revision=s.scalar(select(func.max(SkillBundleVersion.revision)).where(SkillBundleVersion.category_id==key,SkillBundleVersion.label==label)) or 0
     if key==ANALYSIS and label=='xy-yt-report-v2':revision=max(1,revision)
+    if key==SCHEDULING and label=='channel-scheduling':revision=max(1,revision)
     row=SkillBundleVersion(category_id=key,label=label,revision=revision+1,status='draft',change_summary=summary,archive=data)
     s.add(row);s.commit();s.refresh(row)
     return version_read(row)
@@ -150,13 +169,13 @@ def select_default(s,key,version_id):
     category(s,key)
     if key==PRODUCTION:return workflow_versions.select_default(s,version_id)
     archive(s,key,version_id)
-    if version_id!=ANALYSIS_VERSION:
+    if version_id not in {ANALYSIS_VERSION,SCHEDULING_VERSION}:
         row=require_tenant_entity(s,SkillBundleVersion,version_id)
         if row.status!='published':raise ConflictError('只能指定已发布版本')
-    if key==ANALYSIS:
+    if key in {ANALYSIS,SCHEDULING}:
         setting=s.scalar(select(V14Setting).with_for_update())
         if not setting:raise ConflictError('请先配置执行主机')
-        setting.payload={**setting.payload,'analysis_skill_version_id':version_id}
+        setting.payload={**setting.payload,('analysis_skill_version_id' if key==ANALYSIS else 'scheduling_skill_version_id'):version_id}
     else:
         require_tenant_entity(s,SkillCategory,key,lock=True).default_version_id=version_id
     s.commit();return {'default_id':version_id}
@@ -168,3 +187,10 @@ def analysis_snapshot(s):
     version=next(v for v in versions(s,ANALYSIS) if v['id']==key)
     if version['status']!='published':raise ConflictError('分析 Skill 尚未发布')
     return {**version,'files':content}
+
+
+def scheduling_snapshot(s):
+    key=default_id(s,SCHEDULING)
+    version=next(v for v in versions(s,SCHEDULING) if v['id']==key)
+    if version['status']!='published':raise ConflictError('排期 Skill 尚未发布')
+    return {**version,'files':files(archive(s,SCHEDULING,key))}

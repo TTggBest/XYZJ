@@ -75,7 +75,7 @@ def test_schedulable_dramas_only_returns_completed_nonexcluded_active_dramas() -
             for item in result
             if item["id"] in {completed.id, incomplete.id, excluded.id, final_only.id}
         }
-        assert matching_ids == {completed.id}
+        assert matching_ids == {completed.id, final_only.id}
     finally:
         session.close()
         transaction.rollback()
@@ -110,7 +110,7 @@ def test_create_schedule_rejects_drama_before_production_completion() -> None:
         session.add_all([slot, DramaProductionState(drama_id=drama.id)])
         session.commit()
 
-        with pytest.raises(ConflictError, match="制剧全部完成"):
+        with pytest.raises(ConflictError, match="最终合成完成"):
             operations.create_schedule(
                 session,
                 channel.id,

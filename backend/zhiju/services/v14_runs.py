@@ -26,6 +26,8 @@ def save_settings(session: Session, payload: dict) -> V14Setting:
         data['workflow_version_id'] = setting.payload.get('workflow_version_id', 'builtin-v14')
     if setting is not None and 'analysis_skill_version_id' not in payload:
         data['analysis_skill_version_id'] = setting.payload.get('analysis_skill_version_id', 'builtin-xy-yt-report-v2')
+    if setting is not None and 'scheduling_skill_version_id' not in payload:
+        data['scheduling_skill_version_id'] = setting.payload.get('scheduling_skill_version_id', 'builtin-channel-scheduling-v1')
     if setting is None:
         setting = V14Setting(tenant_id=session.info["tenant_id"], payload=data)
         session.add(setting)
@@ -87,6 +89,14 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
     channel_input = config["channel_inputs"].get(channel.id)
     if not channel_input or (not bundle and not config["rules"]):
         raise ConflictError("缺少当前频道 V14 材料或固定规则")
+    if work.channel_dna_version_id:
+        from zhiju.services.channel_guidance import resolve as resolve_guidance
+        guidance = resolve_guidance(session, channel.id, work.channel_dna_version_id)
+        if guidance['source'] != 'legacy_reference' and not guidance['generation_spec']:
+            raise ConflictError('排期冻结的频道资料缺少生成规范，请补齐对应版本后再生产')
+        if guidance['source'] != 'legacy_reference':
+            channel_input = {**channel_input, 'generation_spec':guidance['generation_spec'],
+                             'analysis_version':{**{k:guidance[k] for k in ('dna_id','run_id','report_id')},'report_type':guidance['mode']}}
     if channel.default_language:
         from zhiju.services.schedule_youtube import LANGUAGES
         aliases = {key.casefold(): value.casefold() for key, value in LANGUAGES.items()}

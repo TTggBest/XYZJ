@@ -57,6 +57,16 @@ INTERNAL_ROUTES: frozenset[RouteKey] = frozenset()
 
 # Tenant routes operate on the active tenant's business or membership context.
 TENANT_ROUTES: frozenset[RouteKey] = frozenset({
+    ('GET','/api/v3/channels/{channel_id}/schedule-plans'),
+    ('POST','/api/v3/channels/{channel_id}/schedule-plans'),
+    ('GET','/api/v3/schedule-plans/{plan_id}'),
+    ('POST','/api/v3/schedule-planning/claims'),
+    ('POST','/api/v3/v14/runs/{run_id}/connection-check'),
+    ('POST','/api/v3/schedule-plans/{plan_id}/heartbeat'),
+    ('PUT','/api/v3/schedule-plans/{plan_id}/result'),
+    ('POST','/api/v3/schedule-plans/{plan_id}/apply'),
+    ('POST','/api/v3/schedule-plans/{plan_id}/cancel'),
+    ('POST','/api/v3/schedule-plans/{plan_id}/resume'),
     ("POST", "/api/v3/media-assets/{asset_id}/download-complete"),
     ("PUT", "/api/v3/channels/order"),
     ('GET','/api/v3/channels/{channel_id}/analysis-runs'),

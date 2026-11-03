@@ -65,6 +65,8 @@ def create_app() -> FastAPI:
     app.include_router(youtube_oauth_router, prefix="/api")
     app.include_router(channel_router, prefix="/api")
     app.include_router(channel_analysis_router, prefix="/api")
+    from zhiju.api.schedule_planning import router as schedule_planning_router
+    app.include_router(schedule_planning_router, prefix="/api")
     app.include_router(drama_progress_router, prefix="/api")
     app.include_router(operations_router, prefix="/api")
     app.include_router(drama_library_router, prefix="/api")

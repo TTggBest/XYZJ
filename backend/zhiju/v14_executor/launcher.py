@@ -33,7 +33,7 @@ class WorkerManager:
         if not isinstance(config.get("session_token"), str) or not config["session_token"]:
             raise ValueError("缺少当前网页登录授权，请重新登录")
         task_type = config.get('task_type', 'operation_package')
-        if task_type not in {'operation_package','channel_analysis'}:
+        if task_type not in {'operation_package','channel_analysis','channel_scheduling'}:
             raise ValueError('未知执行任务类型')
         return {**{key: config[key] for key in ("base_url", "host_id", "tenant_id", "account_profile", "session_token")},
                 'task_type':task_type}
