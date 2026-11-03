@@ -65,7 +65,7 @@ def generate(model,run,root):
         'plot_evidence复制该候选的原文引用。空档位必须全部覆盖。\n档位：'+encode(snapshot['slots'])+
         '\n本系统首个排期日：'+snapshot['first_scheduled_date']+'\n空档位：'+encode(snapshot['targets'])+'\n候选判断：'+encode(compact))
     # Validate before upload and use concrete failure feedback to replan only this stage.
-    from zhiju.services.schedule_planning import validate_result
+    from zhiju.scheduling_rules.contract import validate_result
     previous=None;error=''
     attempt_root=root/run['claim_id'];attempt_root.mkdir(exist_ok=True)
     for attempt in range(3):
@@ -83,13 +83,9 @@ def generate(model,run,root):
                     first_fortnight=date.fromisoformat(row['publish_date']) < date.fromisoformat(snapshot['first_scheduled_date'])+timedelta(days=14)
                     if not judgment or ((slots[row['publish_slot_id']]['slot_type']=='main' or first_fortnight) and not judgment['main_theme']):
                         raise ValueError('选剧不符合前序剧情评估或主档主主题要求')
-            validate_result(SimpleNamespace(input_snapshot=snapshot),result)
+            validate_result(snapshot,result)
             return result
         except (ValueError,RuntimeError,KeyError) as exc:
-            previous=result;error=str(exc)
-        except Exception as exc:
-            from zhiju.services.identity import ConflictError
-            if not isinstance(exc,ConflictError):raise
             previous=result;error=str(exc)
     raise ValueError('重新编排后仍无法通过：'+error)
 

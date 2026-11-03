@@ -328,3 +328,36 @@ def test_one_release_uses_main_slot_without_changing_channel_cadence(data):
     plan=service.create_plan(s,c.id,date(2026,11,3),date(2026,11,3),1)
     assert plan.input_snapshot['targets']==[{'publish_date':'2026-11-03','publish_slot_id':main.id}]
     assert c.daily_publish_count==2 and auxiliary.status=='active'
+
+
+def test_local_planning_runs_without_database_configuration(data,tmp_path):
+    import json,os,subprocess,sys
+    from pathlib import Path
+    from zhiju.services import schedule_planning as service
+    configured(data);s,c,d,slot,_=data
+    plan=service.create_plan(s,c.id,date(2026,11,3),date(2026,11,3),1)
+    run=service.claim_plan(s,'host')
+    payload=tmp_path/'run.json';payload.write_text(json.dumps(run,default=str))
+    root=Path(__file__).resolve().parents[2]
+    env={k:v for k,v in os.environ.items() if not k.startswith('ZHJ_')}
+    env['PYTHONPATH']=str(root/'backend')
+    result=subprocess.run([sys.executable,'-c',r'''
+import json,sys
+from pathlib import Path
+from zhiju.v14_executor.schedule_planning import generate
+run=json.loads(Path(sys.argv[1]).read_text())
+drama=run['input_snapshot']['candidates'][0];slot=run['input_snapshot']['targets'][0]
+class Model:
+    calls=0
+    def generate(self,stage,model):
+        self.calls+=1
+        if self.calls==1:
+            return {'rows':[{'drama_id':drama['id'],'eligible':True,'main_theme':True,'reason':'符合定位',
+                             'plot_evidence':drama['content_summary']}]}
+        return {'rows':[{**slot,'drama_id':drama['id'],'reason':'符合定位',
+                        'plot_evidence':drama['content_summary'],'pairing_reason':'首日建立方向'}]}
+result=generate(Model(),run,Path(sys.argv[1]).parent)
+assert result['rows'][0]['drama_id']==drama['id']
+assert 'zhiju.database' not in sys.modules
+''',str(payload)],env=env,cwd=tmp_path,capture_output=True,text=True,timeout=20)
+    assert result.returncode==0,result.stderr
