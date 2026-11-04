@@ -515,10 +515,10 @@
     const busy=analysisActionPending.has(run.id);
     const action=run.status === "draft" ? "edit-analysis-materials"
       : ["failed","cancelled"].includes(run.status) ? "resume-channel-analysis"
-      : ["queued","applied"].includes(run.status) || (run.status === "ready" && run.mirror_status !== "completed") ? "wake-channel-analysis" : "";
+      : run.status === "queued" ? "wake-channel-analysis" : "";
     const label=run.status === "draft" ? "上传材料并开始" : run.status === "cancelled" ? "恢复分析"
       : run.status === "failed" ? "继续分析" : run.status === "running" ? "分析中"
-      : run.status === "applied" ? "同步本地文件" : run.status === "ready" ? "重试交付文件" : "重试唤起";
+      : "重试唤起";
     return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${["draft","failed","cancelled"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="delete-channel-analysis" data-id="${run.id}" ${busy ? "disabled" : ""}>删除任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" && run.can_apply!==false ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
   }
   function analysisProgress(run) {
@@ -548,11 +548,11 @@
       youtubeReauthorizationChannels.add(detail.channel.id);renderYouTubeReauthorizationNotice();
     }
     const skill=run=>run.kind==="report" ? "分析 Skill 未记录" : `分析 Skill：${run.skill_label || run.skill_id || "名称未记录"} · 修订 ${run.skill_revision ?? "未记录"}`;
-    const binding=current ? `<section class="analysis-current"><div><strong>当前生产使用：${esc(analysisVersionName(current))}</strong><p>分析任务创建于 ${fmtUtc(current.created_at)} · ${esc(skill(current))} · ${esc(current.input_snapshot.model)}</p><span class="cell-sub">后续新运营包使用此版本；本地归档${current.mirror_status==="completed" ? "已完成" : "待同步"}</span></div><button class="button button-secondary" data-action="view-analysis-result" data-id="${esc(current.id)}">查看当前版本</button></section>` : `<div class="hub-empty-note">尚未应用分析版本。完成分析后，需明确选择「应用此版本」。</div>`;
+    const binding=current ? `<section class="analysis-current"><div><strong>当前生产使用：${esc(analysisVersionName(current))}</strong><p>分析任务创建于 ${fmtUtc(current.created_at)} · ${esc(skill(current))} · ${esc(current.input_snapshot.model)}</p><span class="cell-sub">后续新运营包使用此版本；分析结果保存在云端</span></div><button class="button button-secondary" data-action="view-analysis-result" data-id="${esc(current.id)}">查看当前版本</button></section>` : `<div class="hub-empty-note">尚未应用分析版本。完成分析后，需明确选择「应用此版本」。</div>`;
     const working=h.items.filter(run=>["queued","running","failed","draft"].includes(run.status)).map(run=>`<article class="hub-record analysis-working"><header><strong>${esc(analysisState(run))} · ${fmtUtc(run.created_at)}</strong></header>${analysisProgress(run)}${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}${analysisRunActions(run)}</article>`).join("");
-    const rows=h.items.map(run=>`<tr><td><strong>${esc(analysisVersionName(run))}</strong><span class="cell-sub">${run.mode==="initial" ? "冷启动 · 未经数据验证" : "正式数据分析"}</span></td><td>${fmtUtc(run.created_at)}</td><td>${esc(analysisState(run))}</td><td>${esc(skill(run))}</td><td>${run.kind==="report" ? "—" : run.mirror_status==="completed" ? "已同步" : "待同步"}</td><td>${analysisRunActions(run)}</td></tr>`);
+    const rows=h.items.map(run=>`<tr><td><strong>${esc(analysisVersionName(run))}</strong><span class="cell-sub">${run.mode==="initial" ? "冷启动 · 未经数据验证" : "正式数据分析"}</span></td><td>${fmtUtc(run.created_at)}</td><td>${esc(analysisState(run))}</td><td>${esc(skill(run))}</td><td>${analysisRunActions(run)}</td></tr>`);
     const pager=`<div class="pagination"><span>共 ${h.total ?? h.items.length} 条 · 第 ${h.page} / ${h.pages} 页 · 每页 10 条</span><button class="button button-secondary button-small" data-action="analysis-history-page" data-id="${esc(detail.channel.id)}" data-page="${h.page-1}" ${h.page<=1 ? "disabled" : ""}>上一页</button><button class="button button-secondary button-small" data-action="analysis-history-page" data-id="${esc(detail.channel.id)}" data-page="${h.page+1}" ${h.page>=h.pages ? "disabled" : ""}>下一页</button></div>`;
-    return binding+working+`<section class="analysis-history"><h3>历史分析结果</h3><p class="cell-sub">报告版本在应用时生成；分析 Skill 修订是独立编号。选择「查看与下载结果」阅读任意历史结果。</p>${rows.length ? table(["分析结果 / 报告版本","任务创建时间","使用状态","分析规则","本地归档","操作"],rows,820,"analysis-history-table") : `<p>暂无分析记录。</p>`}${pager}</section>`;
+    return binding+working+`<section class="analysis-history"><h3>历史分析结果</h3><p class="cell-sub">报告版本在应用时生成；分析 Skill 修订是独立编号。选择「查看与下载结果」阅读任意历史结果。</p>${rows.length ? table(["分析结果 / 报告版本","任务创建时间","使用状态","分析规则","操作"],rows,820,"analysis-history-table") : `<p>暂无分析记录。</p>`}${pager}</section>`;
   }
   let analysisWorkspaceTimer=null,analysisWorkspaceRequest=0;
   async function showAnalysisWorkspace() {
@@ -655,8 +655,7 @@
   function analysisReader(run,key="profile") {
     const titles=run.kind==="report" ? {profile:"报告正文",diagnosis:"报告建议",legacy_details:"原始报告数据"} : {profile:"长期档案",diagnosis:"当前诊断",generation_spec:"生成规范"};
     const buttons=Object.entries(titles).filter(([name])=>run.result[name]!=null).map(([name,title])=>`<button class="button ${name===key ? "button-primary" : "button-secondary"}" data-action="analysis-document-tab" data-key="${name}">${title}</button>`).join("");
-    const delivery=run.result.delivery;
-    return `<div class="analysis-reader"><header class="analysis-reader-toolbar"><div class="row-actions">${buttons}</div><div class="row-actions"><button class="button button-secondary" data-action="${run.kind==="report" ? "download-legacy-analysis-document" : "download-analysis-document"}" data-id="${esc(run.id)}" data-key="${key}">下载当前文档</button>${run.result.normalized_snapshot ? `<button class="button button-secondary" data-action="download-analysis-document" data-id="${esc(run.id)}" data-key="normalized_snapshot">下载事实快照</button>` : ""}</div></header><p><strong>${esc(analysisVersionName(run))}</strong> · ${esc(analysisState(run))}</p><p class="cell-sub">${run.kind==="report" ? "报告" : "任务"}创建时间：${fmtUtc(run.created_at)} · ${run.kind==="report" ? "保留历史报告正文、建议和原始数据" : "三份文档与快照均保留本次分析结果"}</p><article class="analysis-document">${analysisDocument(run.result[key])}</article>${delivery ? `<details><summary>本地归档路径</summary>${delivery.error ? `<p class="is-red">${esc(delivery.error)}</p>` : Object.values(delivery.paths || {}).map(path=>`<p class="mono">${esc(path)}</p>`).join("")}</details>` : ""}</div>`;
+    return `<div class="analysis-reader"><header class="analysis-reader-toolbar"><div class="row-actions">${buttons}</div><div class="row-actions"><button class="button button-secondary" data-action="${run.kind==="report" ? "download-legacy-analysis-document" : "download-analysis-document"}" data-id="${esc(run.id)}" data-key="${key}">下载当前文档</button>${run.result.normalized_snapshot ? `<button class="button button-secondary" data-action="download-analysis-document" data-id="${esc(run.id)}" data-key="normalized_snapshot">下载事实快照</button>` : ""}</div></header><p><strong>${esc(analysisVersionName(run))}</strong> · ${esc(analysisState(run))}</p><p class="cell-sub">${run.kind==="report" ? "报告" : "任务"}创建时间：${fmtUtc(run.created_at)} · ${run.kind==="report" ? "保留历史报告正文、建议和原始数据" : "三份文档与快照均保留本次分析结果"}</p><article class="analysis-document">${analysisDocument(run.result[key])}</article></div>`;
   }
   let analysisReaderLoading=null;
   async function loadAnalysisReader(id,kind,channelId,button) {
@@ -2735,7 +2734,7 @@
         try {
           await api(`/analysis-runs/${id}/apply`,{method:"POST",expectedRevision:revision});
           if (!auth.isCurrent(revision)) return;
-          notify("云端版本已生效，后续新运营包使用此版本；本地归档可单独同步");
+          notify("云端版本已生效，后续新运营包使用此版本");
           if (generation===drawerGeneration && state.channelDetailId===channelId && state.channelDetailTab==="analysis") {
             await showChannelDetail(channelId,"analysis");
           }

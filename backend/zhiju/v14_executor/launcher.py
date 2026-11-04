@@ -65,7 +65,7 @@ class WorkerManager:
 
     def _spawn(self, config):
         worker = {**config, "codex_binary": self.settings["codex_binary"]}
-        for key in ("codex_home", "cache_root", "analysis_workspace_root"):
+        for key in ("codex_home", "cache_root"):
             if self.settings.get(key):
                 worker[key] = self.settings[key]
         env = os.environ.copy()

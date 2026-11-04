@@ -6,7 +6,7 @@ def test_delete_requires_confirmation_and_removes_only_abandoned_card():
 let confirmed=false,deleted=false;const mutations=[];
 const rows=()=>[
  ...(!deleted?[{id:'failed',status:'failed'}]:[]),{id:'cancelled',status:'cancelled'}, {id:'applied',status:'applied'}
-].map(r=>({...r,mode:'periodic',phase:'analysis',created_at:'2026-11-04T00:00:00Z',input_snapshot:{model:'test'},materials:[],mirror_status:'completed'}));
+].map(r=>({...r,mode:'periodic',phase:'analysis',created_at:'2026-11-04T00:00:00Z',input_snapshot:{model:'test'},materials:[],mirror_status:'completed',result:r.status==='applied'?{available:true}:null}));
 const page=start(process.argv[1],auth,async(path,options={})=>{
  if(options.method==='DELETE'){mutations.push(path);deleted=true;return new Response('{"status":"deleted"}');}
  if(path==='/api/v3/channels/c')return new Response(JSON.stringify({channel:{id:'c',original_name:'Test'},profile:null,keywords:[],pinned_comment_templates:[],playlists:[],branding_assets:[],drama_types:[],relevant_skills:[]}));

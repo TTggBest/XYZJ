@@ -163,24 +163,13 @@ def test_zip_retains_native_csvs_and_rejects_invalid_materials():
     with pytest.raises(ConflictError):parse_studio_zip(b'not a zip')
 
 
-def test_analysis_mirror_only_changes_live_documents_when_applied(session,tmp_path):
-    from zhiju.v14_executor.channel_analysis import mirror
-    s,c=session;run=complete(s,c)
-    data=service.run_read(run)
-    mirror(data,tmp_path/'cache',tmp_path)
-    target=tmp_path/'频道分析/en/Test/频道用户画像与长期经营档案.md'
-    assert not target.exists()
-    data['status']='applied';mirror(data,tmp_path/'cache',tmp_path)
-    assert target.read_text()==run.result['profile']
-
-
 def test_analysis_routes_classified_and_optional_oauth_refresh_is_explicit():
     from zhiju.app import app
     from zhiju.tenant_scope import TENANT_ROUTES
     from fastapi.testclient import TestClient
     paths=TestClient(app).get('/openapi.json').json()['paths']
     entries=[(m.upper(),path) for path,methods in paths.items() if 'analysis-runs' in path or 'channel-analysis/claims' in path for m in methods]
-    assert len(entries)==16
+    assert len(entries)==15
     for entry in entries:assert entry in TENANT_ROUTES
 
 
@@ -268,7 +257,8 @@ def test_initial_drain_replay_does_not_regenerate_or_create_packages(session,tmp
     drain(Client(),model,config,tmp_path/'cache')
     assert len(calls)==3
     service.apply_result(s,run.id);drain(Client(),model,config,tmp_path/'cache')
-    assert (tmp_path/'workspace/频道分析/en/Test/Test_生成规范.md').exists()
+    assert not (tmp_path/'workspace').exists()
+    assert not list((tmp_path/'cache').iterdir())
 
 
 def test_truncated_output_and_incomplete_yaml_never_become_ready(session):

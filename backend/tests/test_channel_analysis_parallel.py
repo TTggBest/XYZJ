@@ -135,12 +135,11 @@ def test_model_failure_or_cancellation_is_confined_to_its_channel(tmp_path,monke
             return {'normalized_snapshot':'{}','profile':'profile','diagnosis':'diagnosis','generation_spec':'spec'}
         monkeypatch.setattr(analysis,'generate_documents',generate)
         monkeypatch.setattr(analysis,'bind_analysis_result',lambda result,item:result)
-        monkeypatch.setattr(analysis,'mirror',lambda *args:{})
         analysis.drain_parallel(factory,lambda:SimpleNamespace(account_profile='current'),{},tmp_path/str(cancelled),poll_interval=.01)
         assert submitted['good']=='ready'
         if not cancelled:
             assert submitted['bad']=='failed' and models['bad'] is not models['good']
-        else:assert (tmp_path/str(cancelled)/'bad'/'abandoned.json').exists()
+        else:assert not (tmp_path/str(cancelled)/'bad').exists()
 
 
 def test_cli_selects_parallel_analysis_but_once_remains_single(tmp_path,monkeypatch):

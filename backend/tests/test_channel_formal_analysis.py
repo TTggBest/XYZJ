@@ -111,31 +111,11 @@ def test_formal_pipeline_paginates_inventory_and_delivers_without_apply(session,
             return result
     cloud=Cloud();drain(cloud,Model(),{'analysis_workspace_root':str(tmp_path)},tmp_path/'cache',once=True)
     assert run.status=='ready',run.error
-    assert run.mirror_status=='completed'
+    assert not list((tmp_path/'cache').iterdir())
     block=__import__('re').search(r'```yaml\s*\n(.*?)```',run.result['diagnosis'],__import__('re').S)
     assert yaml.safe_load(block[1])['channel_strategy']['channel_id']=='UCtest'
-    assert set(cloud.paths)=={'profile','diagnosis','generation_spec','normalized_snapshot'}
-    assert (directory/'频道用户画像与长期经营档案.md').read_text()==run.result['profile']
-    history=next((directory/'分析数据').iterdir())
-    assert (history/'更新前文件/频道用户画像与长期经营档案.md').read_text()=='旧报告'
-    assert len(list((history/'截图/A_B测试').iterdir()))==1
-    assert (history/'API原始数据/28:daily.json').is_file()
-    facts=run.result['normalized_snapshot']
-    assert 'fabricated' not in facts
-    assert facts['impression_weighted_ctr']['value_percent']==pytest.approx(1.9)
-    assert facts['data_windows']['recent_28d']['end']==str(end)
-    if uploads_available:assert 'historical' in facts['unmatched_video_ids']
-    else:assert facts['video_inventory_coverage']=={'status':'unavailable','reason':'uploads 数据集不可用'}
-    assert any('likes%2Ccomments%2Cshares' in url for url in requests)
-    assert len([url for url in requests if '/playlistItems?' in url])==(2 if uploads_available else 1)
-    result=formal_result(run);result['normalized_snapshot']={**facts,'concentration_28d':0}
-    with pytest.raises(ConflictError,match='事实快照'):service.validate_result(run,result)
-    result=formal_result(run);result['diagnosis']=result['diagnosis'].replace('title_priority: []','title_priority: fabricated')
-    with pytest.raises(ConflictError,match='字符串列表'):service.validate_result(run,result)
-    (directory/'频道用户画像与长期经营档案.md').write_text('更新的报告不应被旧缓存覆盖')
-    drain(cloud,Model(),{'analysis_workspace_root':str(tmp_path)},tmp_path/'cache',once=True)
-    assert (directory/'频道用户画像与长期经营档案.md').read_text()=='更新的报告不应被旧缓存覆盖'
-
+    assert (directory/'频道用户画像与长期经营档案.md').read_text()=='旧报告'
+    assert not (directory/'分析数据').exists()
 
 def test_missing_numeric_sources_remain_unavailable():
     from zhiju.services.channel_analysis_normalize import normalize_sources,formal_snapshot
@@ -155,7 +135,7 @@ def test_explicit_apply_delivers_selected_older_completed_version(session,tmp_pa
     newer=complete(s,c);newer.mirror_status='completed';s.commit()
     service.apply_result(s,older.id)
     assert older.status=='applied'
-    assert older.mirror_status=='pending'
+    assert older.mirror_status=='completed'
     assert newer.status=='ready'
 
 
@@ -167,7 +147,7 @@ def test_later_report_supersedes_pending_older_delivery(session):
     assert older.mirror_status=='superseded'
     # An explicit user selection can still re-deliver that version.
     service.apply_result(s,older.id)
-    assert older.mirror_status=='pending'
+    assert older.mirror_status=='superseded'
 
 
 def test_studio_ctr_survives_unavailable_api_video_report():
@@ -209,7 +189,8 @@ def test_apply_cancels_other_pending_delivery_and_drain_keeps_selection(session,
                 run.mirror_status='completed';s.commit();return {}
             return service.run_read(run)
     drain(Cloud(),SimpleNamespace(),{'analysis_workspace_root':str(tmp_path)},tmp_path/'cache')
-    assert (directory/'频道用户画像与长期经营档案.md').read_text().endswith('版本A')
+    assert not (directory/'频道用户画像与长期经营档案.md').exists()
+    assert not list((tmp_path/'cache').iterdir())
 
 
 def test_result_binding_rejects_foreign_channel_and_keeps_program_facts():

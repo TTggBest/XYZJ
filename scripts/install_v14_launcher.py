@@ -22,7 +22,6 @@ def main():
     parser.add_argument("--account-profile", default="current")
     parser.add_argument("--codex-binary", default=shutil.which("codex"))
     parser.add_argument("--codex-home")
-    parser.add_argument("--analysis-workspace-root", help="频道注册表所在项目根目录；用于分析历史和三文件镜像")
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("本机自动安装仅支持 macOS")
@@ -47,10 +46,6 @@ def main():
         "log_path": str(state / "worker.log"), "cache_root": str(home / "Library/Caches/zhiju-v14")}
     if args.codex_home:
         settings["codex_home"] = str(Path(args.codex_home).expanduser().resolve())
-    if args.analysis_workspace_root:
-        settings['analysis_workspace_root'] = str(Path(args.analysis_workspace_root).expanduser().resolve())
-    elif config.exists() and previous.get('analysis_workspace_root'):
-        settings['analysis_workspace_root'] = previous['analysis_workspace_root']
     # No cloud session or Codex credential is stored in this configuration.
     config.write_text(json.dumps(settings, ensure_ascii=False, indent=2))
     config.chmod(0o600)

@@ -61,15 +61,6 @@ def verify_authorization(session,channel,fetcher=_youtube_request_json):
     return token,profile,verified
 
 
-def merge_local_drama_mapping(sources,context):
-    by_id={row['youtube_video_id']:dict(row) for row in sources.get('video_drama_mapping',[])}
-    for row in context.get('drama_mapping',[]):
-        current=by_id.setdefault(row['youtube_video_id'],{'youtube_video_id':row['youtube_video_id']})
-        for key,value in row.items():
-            if not current.get(key):current[key]=value
-    sources['video_drama_mapping']=list(by_id.values())
-
-
 def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
     run=claimed(session,run_id,claim_id)
     if run.input_snapshot.get('cold_start'):
@@ -88,7 +79,6 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         if run.mode=='periodic':
             from zhiju.services.channel_analysis_normalize import formal_snapshot
             snapshot=copy.deepcopy(run.input_snapshot)
-            merge_local_drama_mapping(snapshot['sources'],snapshot.get('local_analysis_context',{}))
             snapshot['sources']['normalized']=normalize_sources(snapshot['sources'],snapshot['channel'],run.mode)
             facts=formal_snapshot(snapshot['sources'],snapshot['channel'])
             previous=snapshot['sources'].get('fact_snapshot',{})
@@ -210,7 +200,6 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
         'plot':d.content_summary if d else None} for v,d in session.execute(
             select(YoutubeVideo,Drama).outerjoin(Drama,Drama.id==YoutubeVideo.drama_id).where(
                 YoutubeVideo.channel_id==run.channel_id,YoutubeVideo.deleted_at.is_(None)))]
-    merge_local_drama_mapping(sources,snapshot.get('local_analysis_context',{}))
     sources['screenshots']=[m for m in run.materials if m['kind']!='studio_zip']
     sources['availability_rules']=['unavailable','not_applicable','pending','measured numeric value']
     sources['studio_windows']={key:studio_period(value) for key,value in sources.get('studio',{}).items()}

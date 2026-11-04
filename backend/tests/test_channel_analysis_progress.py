@@ -158,13 +158,15 @@ def test_rejected_output_regenerates_failed_document_and_dependents(tmp_path,mon
                     except ConflictError as exc:raise CloudConflict(str(exc)) from exc
                 if path.endswith('/mirror-complete'):return {}
                 return service.run_read(run)
-        monkeypatch.setattr(executor,'mirror',lambda *args:{})
         model=Model();config={'analysis_workspace_root':str(tmp_path)}
         executor.drain(Cloud(),model,config,tmp_path/'cache',once=True)
         assert run.status=='failed' and ('生成规范' if failure=='spec' else '诊断 YAML') in run.error
         assert len(calls)==3
+        assert not list((tmp_path/'cache').iterdir())
+        assert run.attempts[-1]['raw_result']['executor_checkpoints']
         service.resume_run(s,run.id,stopped_confirmed=True);model.bad=False
-        executor.drain(Cloud(),model,config,tmp_path/'cache',once=True)
+        executor.drain(Cloud(),model,{},tmp_path/'second-computer-cache',once=True)
+        assert not list((tmp_path/'second-computer-cache').iterdir())
         assert run.status=='ready',run.error
         assert len(calls)==(4 if failure=='spec' else 5) and calls[-1]==['generation_spec']
     finally:

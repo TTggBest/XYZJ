@@ -27,8 +27,6 @@ class Execution(BaseModel):
     claim_id: str
     result: dict | None = None
     error: str | None = None
-    paths: dict[str,str] | None = None
-    initial_context: dict | None = None
     progress: dict | None = None
 
 
@@ -126,21 +124,6 @@ def checked(s,p,run_id,claim_id):
 @router.post('/analysis-runs/{run_id}/collect')
 def gather(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     run=checked(s,p,run_id,body.claim_id)
-    if run.mode=='periodic' and body.initial_context:
-        snapshot=dict(run.input_snapshot)
-        snapshot['local_analysis_context']=body.initial_context
-        run.input_snapshot=snapshot;s.commit()
-    if run.input_snapshot.get('cold_start') and body.initial_context:
-        snapshot=dict(run.input_snapshot);context=body.initial_context
-        channel=dict(snapshot['channel'])
-        for key in ('default_language','country_name_zh'):
-            if not channel.get(key):channel[key]=context.get('channel',{}).get(key)
-        if not channel.get('default_language') or not channel.get('country_name_zh'):
-            from fastapi import HTTPException
-            raise HTTPException(409,'本机注册资料仍缺目标语言或市场，请补充后重建冷启动任务')
-        snapshot['channel']=channel
-        snapshot['local_initial_context']=context
-        run.input_snapshot=snapshot;s.commit()
     row=call(collect,s,run_id,body.claim_id)
     s.refresh(row)  # MySQL JSON may normalize the last digit of computed floats.
     return service.run_read(row)
@@ -157,18 +140,6 @@ def heartbeat(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depen
 def submit(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     row=service.get_run(s,run_id);bound_host(s,p,row.host_id)
     return service.run_read(call(service.submit_result,s,run_id,body.claim_id,result=body.result,error=body.error))
-
-
-@router.post('/analysis-runs/{run_id}/mirror-complete')
-def mirrored(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
-    row=service.get_run(s,run_id,True);bound_host(s,p,row.host_id)
-    if row.claim_id!=body.claim_id or row.status not in {'ready','applied'}:
-        from fastapi import HTTPException
-        raise HTTPException(409,'镜像结果不属于当前领取')
-    row.mirror_status='failed' if body.error else 'completed'
-    if body.paths or body.error:
-        row.result={**(row.result or {}),'delivery':{'paths':body.paths or {},'error':body.error}}
-    s.commit();return {'status':row.mirror_status}
 
 
 class ColdStartInput(BaseModel):

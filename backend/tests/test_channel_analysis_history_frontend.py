@@ -20,6 +20,7 @@ const page=start(process.argv[1],auth,async(path)=>{
 await settle(page);await clickAction(page,'channel-detail-tab',{id:'c',channelDetailTab:'analysis'});
 let html=page.nodes.get('drawerBody').innerHTML;
 assert.match(html,/当前生产使用：报告 v2/);assert.match(html,/分析 Skill：正式分析 · 修订 7/);
+assert.doesNotMatch(html,/同步本地文件|重试交付文件|本地归档/);
 assert.match(html,/共 35 条 · 第 1 \/ 4 页/);assert.doesNotMatch(html,/暂无频道日数据|题材与关键词|报告摘要/);
 assert.match(html,/channel-hub-fixed/);assert.match(html,/analysis-toolbar/);
 assert(!pathsRead.some(path=>path.includes('analysis-reports')));

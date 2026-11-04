@@ -14,7 +14,7 @@ from test_channel_cold_start import create,result_for,registered_workspace
 from test_channel_formal_analysis import formal_result
 from zhiju.services import channel_analysis as service,channel_analysis_sources as sources
 from zhiju.services.channel_analysis_normalize import normalize_sources,formal_snapshot,studio_content_type
-from zhiju.v14_executor.channel_analysis import prepare_formal_context,analysis_prompt_snapshot,screenshot_stage,generation_spec_stage
+from zhiju.v14_executor.channel_analysis import analysis_prompt_snapshot,screenshot_stage,generation_spec_stage
 from zhiju.services.identity import ConflictError
 
 
@@ -85,21 +85,15 @@ def test_cold_start_cannot_overwrite_new_measurements(session,stage):
         else:service.apply_result(s,run.id)
 
 
-def test_local_drama_and_history_feed_sequential_spec_stage(session,tmp_path):
+def test_cloud_history_feeds_sequential_spec_stage(session,tmp_path):
     s,c=session;run=service.create_run(s,c.id,mode='initial',positioning='legacy')
-    folder=registered_workspace(tmp_path,c)
-    (folder/'频道用户画像与长期经营档案.md').write_text('历史档案')
-    drama=folder/'剧目/准确绑定';drama.mkdir(parents=True)
-    (drama/'剧目元数据.json').write_text(json.dumps({'video_id':'c8C4kJ8TXDI','drama_name':'真实剧名'}))
-    (drama/'飞书剧情原始行.json').write_text(json.dumps({'plot_fields':{'剧情':'真实剧情，不按标题猜测'}}))
-    context=prepare_formal_context(service.run_read(run),tmp_path)
-    assert context['drama_mapping'][0]['plot']=='真实剧情，不按标题猜测'
-    data=service.run_read(run);data['input_snapshot']['local_analysis_context']=context
+    data=service.run_read(run)
     data['input_snapshot']['previous_analysis']={'profile':'旧云端档案','normalized_snapshot':{'must_not_be_prompt':'large'}}
     stage=generation_spec_stage(data,{'profile':'本次档案','diagnosis':'本次诊断'})
     payload=json.loads(stage.prompt.split('\n',1)[1])
     assert payload['profile']=='本次档案' and payload['diagnosis']=='本次诊断'
-    assert payload['previous_local_documents']['profile']=='历史档案'
+    assert payload['previous_analysis']['profile']=='旧云端档案'
+    assert 'previous_local_documents' not in payload
     assert 'normalized_snapshot' not in payload['previous_analysis']
     assert stage.schema['required']==['generation_spec']
 
@@ -127,12 +121,13 @@ def test_spec_retry_reuses_analysis_but_changed_inputs_regenerate(session,tmp_pa
     assert len(calls)==6
 
 
-def test_frozen_retry_merges_local_context_without_new_api(session,monkeypatch):
+def test_frozen_retry_keeps_cloud_mapping_without_new_api(session,monkeypatch):
     from copy import deepcopy
     s,c=session
     monkeypatch.setattr(sources,'verify_authorization',lambda *a:('token',{},{}))
     run=service.create_run(s,c.id,mode='periodic');run.status='queued';s.commit();claim=service.claim_run(s,'host')
     raw={'api':{},'windows':{'28':{},'90':{}}};raw['normalized']=normalize_sources(raw,run.input_snapshot['channel'],'periodic');raw['fact_snapshot']=formal_snapshot(raw,run.input_snapshot['channel'])
+    raw['video_drama_mapping']=[{'youtube_video_id':'cloud-video','plot':'事实剧情'}]
     frozen_time=raw['fact_snapshot']['generated_at']
     run.input_snapshot={**run.input_snapshot,'sources':raw,'sources_complete':True,'normalization_revision':3,'local_analysis_context':{'drama_mapping':[{'youtube_video_id':'local-video','plot':'事实剧情','local_metadata_source':'confirmed metadata'}]}};s.commit()
     sources.collect(s,run.id,claim['claim_id'],fetcher=lambda *a:pytest.fail('frozen retry must not refetch'))

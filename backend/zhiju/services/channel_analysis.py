@@ -389,7 +389,14 @@ def validate_result(run,result):
 
 def submit_result(session,run_id,claim_id,*,result=None,error=None):
     run=get_run(session,run_id,True)
-    if run.status=='failed' and run.claim_id==claim_id and error and run.error==error[:4000]:return run
+    if run.status=='failed' and run.claim_id==claim_id and error and run.error==error[:4000]:
+        # A previous executor may have acknowledged only the error; retain its completed work in cloud.
+        if result and 'executor_checkpoints' in result and run.attempts:
+            attempts=copy.deepcopy(run.attempts)
+            attempts[-1]['raw_result']={**(attempts[-1].get('raw_result') or {}),
+                'executor_checkpoints':result['executor_checkpoints']}
+            run.attempts=attempts;session.commit()
+        return run
     if run.status in {'ready','applied','superseded'} and run.claim_id==claim_id and result is not None:
         if run.result==validate_result(run,result):return run
     run=claimed(session,run_id,claim_id)
@@ -448,7 +455,6 @@ def apply_result(session,run_id):
     material['generation_spec']=result['generation_spec']
     material['analysis_version']={'run_id':run.id,'report_id':report.id,'dna_id':dna.id,'report_type':run.mode}
     setting.payload=payload;run.report_id=report.id;run.dna_id=dna.id;run.status='applied'
-    run.mirror_status='pending'  # Explicit selection must deliver this version even if delivered before.
     for other in session.scalars(select(ChannelAnalysisRun).where(
         ChannelAnalysisRun.channel_id==channel.id,ChannelAnalysisRun.id!=run.id,ChannelAnalysisRun.status=='ready')):
         if other.mirror_status!='completed':other.mirror_status='superseded'
