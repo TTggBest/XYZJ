@@ -329,7 +329,11 @@ def test_http_analysis_lifecycle_and_applied_input_are_connected(session):
         run=service.get_run(s,run_id);body={'claim_id':claim['claim_id'],'result':valid_result(run)}
         assert client.put(f'/api/v3/analysis-runs/{run_id}/result',json=body).json()['status']=='ready'
         assert client.put(f'/api/v3/analysis-runs/{run_id}/result',json=body).status_code==200
-        assert client.post(f'/api/v3/analysis-runs/{run_id}/apply').json()['status']=='applied'
+        receipt=client.post(f'/api/v3/analysis-runs/{run_id}/apply').json()
+        assert receipt['status']=='applied'
+        assert receipt['id']==run_id and receipt['report_id'] and receipt['dna_id']
+        assert receipt['mirror_status']=='pending'
+        assert not {'input_snapshot','materials','attempts','result'} & receipt.keys()
         setting=s.scalar(select(V14Setting))
         assert setting.payload['channel_inputs'][c.id]['analysis_version']['run_id']==run_id
         listing=client.get(f'/api/v3/channels/{c.id}/analysis-runs').json()[0]

@@ -106,7 +106,8 @@ def resume(run_id:str,body:Resume,s:Session=Depends(get_tenant_db),p=Depends(ope
 
 @router.post('/analysis-runs/{run_id}/apply')
 def apply(run_id:str,s:Session=Depends(get_tenant_db),p=Depends(operator)):
-    return service.run_read(call(service.apply_result,s,run_id))
+    row=call(service.apply_result,s,run_id)
+    return {key:getattr(row,key) for key in ('id','channel_id','status','report_id','dna_id','mirror_status')}
 
 
 @router.post('/channel-analysis/claims')

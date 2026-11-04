@@ -2701,7 +2701,25 @@
         if (!window.confirm("确定取消这条分析任务？已上传材料会保留，可稍后恢复。")) return;
         await api(`/analysis-runs/${id}/cancel`,{method:"POST"});await showChannelDetail(state.channelDetailId,"analysis");
       }
-      else if (["apply-channel-analysis","resume-channel-analysis","wake-channel-analysis"].includes(action)) {
+      else if (action === "apply-channel-analysis") {
+        if (analysisActionPending.has(id)) return;
+        const revision=auth.capture(),channelId=state.channelDetailId,generation=drawerGeneration,label=button.textContent;
+        analysisActionPending.add(id);
+        button.disabled=true;button.textContent="正在应用版本…";
+        notify("正在保存云端生产版本，请稍候…");
+        try {
+          await api(`/analysis-runs/${id}/apply`,{method:"POST",expectedRevision:revision});
+          if (!auth.isCurrent(revision)) return;
+          notify("云端版本已生效，后续新运营包使用此版本；本地归档可单独同步");
+          if (generation===drawerGeneration && state.channelDetailId===channelId && state.channelDetailTab==="analysis") {
+            await showChannelDetail(channelId,"analysis");
+          }
+        } finally {
+          analysisActionPending.delete(id);
+          if (button.isConnected) {button.disabled=false;button.textContent=label;}
+        }
+      }
+      else if (["resume-channel-analysis","wake-channel-analysis"].includes(action)) {
         if (analysisActionPending.has(id)) return;
         if (action === "resume-channel-analysis" && !window.confirm("请确认上次本机分析已停止，再继续。已保存的数据会保留。")) return;
         analysisActionPending.add(id);
@@ -2714,8 +2732,6 @@
             const restored=await api(`/analysis-runs/${id}/resume`,{method:"POST",body:JSON.stringify({stopped_confirmed:true})});
             state.analysisHistoryPage=1;
             if (restored.status === "draft") {openModal("分析材料",analysisMaterialsForm(restored));return;}
-          } else if (action === "apply-channel-analysis") {
-            await api(`/analysis-runs/${id}/apply`,{method:"POST"});notify("分析版本已应用，新运营包将使用此规范");
           }
           await localV14Request("/start",config);
           const current=await api(`/analysis-runs/${id}`);
