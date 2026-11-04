@@ -119,10 +119,12 @@ def test_spec_retry_reuses_analysis_but_changed_inputs_regenerate(session,tmp_pa
     with pytest.raises(RuntimeError):generate_documents(model,data,tmp_path)
     model.fail=False
     assert generate_documents(model,data,tmp_path)['generation_spec']=='规范'
-    assert calls==['channel_analysis','channel_generation_spec','channel_generation_spec']
+    assert calls==['channel_analysis','channel_analysis','channel_generation_spec','channel_generation_spec']
     data['input_snapshot']['positioning']='用户更新了初始定位'
     generate_documents(model,data,tmp_path)
-    assert calls[-2:]==['channel_analysis','channel_generation_spec']
+    # The changed prompt regenerates both documents; identical returned documents reuse the spec.
+    assert calls[-2:]==['channel_analysis','channel_analysis']
+    assert len(calls)==6
 
 
 def test_frozen_retry_merges_local_context_without_new_api(session,monkeypatch):

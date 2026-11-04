@@ -29,6 +29,7 @@ class Execution(BaseModel):
     error: str | None = None
     paths: dict[str,str] | None = None
     initial_context: dict | None = None
+    progress: dict | None = None
 
 
 class Resume(BaseModel):
@@ -37,14 +38,7 @@ class Resume(BaseModel):
 
 @router.get('/channels/{channel_id}/analysis-runs')
 def listing(channel_id:str,s:Session=Depends(get_tenant_db)):
-    rows=[]
-    for run in service.list_runs(s,channel_id):
-        row=service.run_read(run)
-        row['input_snapshot']={k:run.input_snapshot[k] for k in ('model','channel')}
-        row['result']={'available':True} if run.result else None
-        row.pop('attempts',None)
-        rows.append(row)
-    return rows
+    return service.list_run_summaries(s,channel_id)
 
 
 @router.post('/channels/{channel_id}/analysis-runs')
@@ -133,6 +127,7 @@ def gather(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(
 @router.post('/analysis-runs/{run_id}/heartbeat')
 def heartbeat(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     row=checked(s,p,run_id,body.claim_id);row.heartbeat_at=datetime.now(timezone.utc)
+    if body.progress is not None:row.progress=body.progress
     s.commit();return {'status':row.status,'phase':row.phase}
 
 

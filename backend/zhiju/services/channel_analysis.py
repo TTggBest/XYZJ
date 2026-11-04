@@ -32,9 +32,21 @@ def list_runs(session, channel_id):
     return [rows[key] for key in ids]
 
 
+def list_run_summaries(session,channel_id):
+    require_tenant_entity(session,Channel,channel_id)
+    r=ChannelAnalysisRun
+    keys=('id','channel_id','host_id','mode','status','phase','claim_id','heartbeat_at','progress','materials','error','report_id','dna_id','mirror_status','created_at','updated_at')
+    rows=session.execute(select(*(getattr(r,key) for key in keys),
+        r.input_snapshot['model'].as_string().label('model'),
+        r.input_snapshot['channel'].label('channel'),
+        r.result['profile'].as_string().is_not(None).label('result_available')).where(r.channel_id==channel_id).order_by(r.created_at.desc()).limit(30)).mappings()
+    return [dict({key:row[key] for key in keys},input_snapshot={'model':row['model'],'channel':row['channel']},
+                 result={'available':True} if row['result_available'] else None) for row in rows]
+
+
 def run_read(run):
     return {key: getattr(run, key) for key in ('id','channel_id','host_id','mode','status','phase',
-        'claim_id','heartbeat_at','input_snapshot','materials','result','error','report_id','dna_id',
+        'claim_id','heartbeat_at','progress','input_snapshot','materials','result','error','report_id','dna_id',
         'mirror_status','attempts','created_at','updated_at')}
 
 
@@ -190,8 +202,11 @@ def resume_run(session,run_id,stopped_confirmed=False):
     session.commit();return run
 
 
-def validate_screenshot_checks(run,checks):
+def validate_screenshot_checks(run,checks,partial=False):
+    allowed={m['id'] for m in run.materials if m['kind']!='studio_zip'}
+    if set(checks)-allowed:raise ConflictError('截图材料ID不属于本次任务')
     for material in run.materials:
+        if partial and material['id'] not in checks:continue
         if material['kind']=='studio_zip':continue
         check=checks.get(material['id'],{})
         identity_and_page=all(check.get(key) is True for key in ('identity_matches','page_matches'))
@@ -204,7 +219,7 @@ def record_screenshot_checks(session,run_id,claim_id,checks):
     from zhiju.services.channel_analysis_normalize import validate_screenshot_observations,formal_snapshot
     run=claimed(session,run_id,claim_id)
     if run.mode!='periodic':raise ConflictError('仅正式分析需要读取截图')
-    validate_screenshot_checks(run,checks)
+    validate_screenshot_checks(run,checks,partial=True)
     try:validate_screenshot_observations(checks)
     except ValueError as exc:raise ConflictError(str(exc)) from exc
     known_ids={item['id'] for item in run.input_snapshot['sources']['fact_snapshot'].get('video_inventory',[])}
@@ -214,8 +229,9 @@ def record_screenshot_checks(session,run_id,claim_id,checks):
             if item.get('video_id') is not None and item['video_id'] not in known_ids:
                 raise ConflictError('截图视频ID不在已确认视频清单中')
     snapshot=copy.deepcopy(run.input_snapshot)
-    snapshot['sources']['screenshot_checks']=copy.deepcopy(checks)
-    snapshot['sources']['fact_snapshot']=formal_snapshot(snapshot['sources'],snapshot['channel'])
+    snapshot['sources']['screenshot_checks']={**snapshot['sources'].get('screenshot_checks',{}),**copy.deepcopy(checks)}
+    if len(snapshot['sources']['screenshot_checks'])==sum(m['kind']!='studio_zip' for m in run.materials):
+        snapshot['sources']['fact_snapshot']=formal_snapshot(snapshot['sources'],snapshot['channel'])
     run.input_snapshot=snapshot;run.phase='analysis';session.commit();return run
 
 

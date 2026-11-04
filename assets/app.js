@@ -520,13 +520,23 @@
       : run.status === "applied" ? "同步本地文件" : run.status === "ready" ? "重试交付文件" : "重试唤起";
     return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
   }
+  function analysisProgress(run) {
+    const p=run.progress;
+    const labels={collect:"准备与采集资料",screenshots:"逐张核验截图",profile:"生成长期档案",diagnosis:"生成当前诊断",generation_spec:"生成规范",delivery:"校验与交付"};
+    const duration=seconds=>`${Math.floor(Number(seconds || 0)/60)}分${Number(seconds || 0)%60}秒`;
+    const heartbeat=run.heartbeat_at ? Math.max(0,Math.floor((Date.now()-new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(run.heartbeat_at) ? run.heartbeat_at : run.heartbeat_at+"Z").getTime())/1000)) : null;
+    const live=run.status==="running" ? (heartbeat==null ? "等待执行器心跳" : heartbeat>60 ? `已 ${heartbeat} 秒未收到心跳，请检查执行器连接` : `执行器在线 · ${heartbeat} 秒前收到心跳`) : "";
+    if (!p) return live ? `<p class="cell-sub" role="status">${esc(live)}</p>` : "";
+    const count=p.stage==="screenshots" ? `已完成 ${p.completed_items} / ${p.total_items} 张` : p.stage==="collect" ? "" : `文档已完成 ${Math.min(p.completed_items || 0,3)} / 3 份`;
+    return `<div class="detail-block" role="status" aria-live="polite"><strong>${esc(labels[p.stage] || p.stage)}${count ? " · "+esc(count) : ""}</strong><p>${esc(p.current_item || "")} · 当前步骤 ${duration(p.stage_elapsed_seconds)} · 本次执行 ${duration(p.elapsed_seconds)}</p>${live ? `<p class="cell-sub">${esc(live)}${["screenshots","profile","diagnosis","generation_spec"].includes(p.stage) ? "；当前步骤等待模型返回" : ""}</p>` : ""}</div>`;
+  }
   function analysisRunCards(detail) {
     if ((detail.analysis_runs || []).some(run => run.mode === "periodic" && run.status === "failed" && /授权|[Pp]ermission/.test(run.error || ""))) {
       youtubeReauthorizationChannels.add(detail.channel.id);
       renderYouTubeReauthorizationNotice();
     }
     const phases = {materials:"待补材料",authorization:"核验授权与采集",analysis:"分析与生成规范",ready:"分析完成，待应用"};
-    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(run.status === "applied" ? "已应用至生产配置" : phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : run.mirror_status === "failed" ? "同步失败，请重试交付" : "待同步"}${run.status === "applied" ? " · 当前生产使用此版本规范" : ""}</p>${analysisRunActions(run)}</article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
+    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(run.status === "applied" ? "已应用至生产配置" : phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${analysisProgress(run)}${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : run.mirror_status === "failed" ? "同步失败，请重试交付" : "待同步"}${run.status === "applied" ? " · 当前生产使用此版本规范" : ""}</p>${analysisRunActions(run)}</article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
   }
   function analysisMaterialsForm(run) {
     const slots = [
@@ -586,7 +596,7 @@
       const playlists = detail.playlists.map(item => `<article class="hub-record"><header><strong>${esc(item.local_name)}</strong><div class="row-actions">${tag(item.status)}${!item.youtube_playlist_id ? `<button class="button button-secondary button-small" data-action="create-youtube-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">创建到 YouTube</button>` : ""}<button class="button button-quiet button-small" data-action="edit-channel-playlist" data-id="${item.id}" data-channel-id="${detail.channel.id}">编辑</button></div></header><p>${esc(item.local_description || "尚未填写播放列表说明")}</p>${item.chinese_description ? `<p class="cell-sub">中文：${esc(item.chinese_description)}</p>` : ""}${item.url ? `<a class="cell-link mono" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>` : `<span class="cell-sub">尚未绑定 YouTube 播放列表</span>`}</article>`).join("");
       body = `<div class="detail-grid">${settingValue("弹框方案", detail.profile?.popup_scheme || "待完善")}${settingValue("固定符号", detail.profile?.fixed_symbol || "待完善")}</div><div class="detail-block"><h3>标题模板</h3><p>${esc(detail.profile?.title_template || "待完善")}</p></div><div class="hub-columns"><section><header class="settings-content-head"><h3>置顶评论</h3><button class="button button-secondary button-small" data-action="add-pinned-comment" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${comments || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>播放列表</h3><button class="button button-secondary button-small" data-action="add-channel-playlist" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${playlists || `<p class="settings-muted">待完善</p>`}</section></div>`;
     } else if (tab === "analysis") {
-      body = analysisRunCards(detail) + channelAnalysisPanel(detail);
+      body = `<div id="channelAnalysisRuns">${analysisRunCards(detail)}</div>` + channelAnalysisPanel(detail);
     } else if (tab === "reference") {
       body = channelReferencePanel(detail);
     } else if (tab === "versions") {
@@ -615,16 +625,31 @@
     }
     state.channelDetail = detail; state.channelDetailId = id; state.channelDetailTab = tab;
     openDrawer(detail.channel.operational_name || detail.channel.original_name || "频道详情", channelDetailBody(detail, tab));
-    if (tab === "analysis" && (detail.analysis_runs || []).some(run => ["queued","running"].includes(run.status))) {
-      const revision = auth.capture();
-      analysisRefreshTimer=setTimeout(async () => {
-        if (!auth.isCurrent(revision) || el("drawerBackdrop").hidden || state.channelDetailId !== id || state.channelDetailTab !== "analysis") return;
-        try {await showChannelDetail(id,"analysis");} catch(error) {if(error.name !== "AbortError") notify(error.message,true);}
-      },5000);
-    }
+    if (tab === "analysis") scheduleAnalysisRefresh(id);
+
   }
 
   function dramaExpiryValue(value) { return value ? String(value).slice(0, 10) : ""; }
+  function scheduleAnalysisRefresh(id) {
+    clearTimeout(analysisRefreshTimer);
+    const revision=auth.capture(),generation=drawerGeneration;
+    const current=()=>generation===drawerGeneration && auth.isCurrent(revision) && !el("drawerBackdrop").hidden && state.channelDetailId===id && state.channelDetailTab==="analysis";
+    if (!current() || !(state.channelDetail?.analysis_runs || []).some(run=>["queued","running"].includes(run.status))) return;
+    analysisRefreshTimer=setTimeout(async()=>{
+      if (!current()) return;
+      try {
+        if (document.visibilityState==="visible" && el("modalBackdrop").hidden && !analysisActionPending.size) {
+          const runs=await api(`/channels/${id}/analysis-runs`);
+          if (!current()) return;
+          state.channelDetail.analysis_runs=runs;
+          const container=el("channelAnalysisRuns");
+          if (container) {container.innerHTML=analysisRunCards(state.channelDetail);renderIcons();}
+        }
+      } catch(error) {if(error.name!=="AbortError") console.warn("频道分析进度读取失败",error);}
+      finally {if(current()) scheduleAnalysisRefresh(id);}
+    },5000);
+  }
+
   function dramaStatusOptions(current = "active") {
     return [["active", "启用"], ["expired", "已到期"], ["blocked", "禁用"], ["archived", "已归档"]].map(([value, text]) => `<option value="${value}" ${current === value ? "selected" : ""}>${text}</option>`).join("");
   }

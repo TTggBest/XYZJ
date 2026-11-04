@@ -264,9 +264,9 @@ def test_initial_drain_replay_does_not_regenerate_or_create_packages(session,tmp
     model=SimpleNamespace(account_profile='current',generate=generate)
     config={'analysis_workspace_root':str(tmp_path/'workspace')}
     drain(Client(),model,config,tmp_path/'cache')
-    assert run.status=='ready';assert len(calls)==2
+    assert run.status=='ready';assert len(calls)==3
     drain(Client(),model,config,tmp_path/'cache')
-    assert len(calls)==2
+    assert len(calls)==3
     service.apply_result(s,run.id);drain(Client(),model,config,tmp_path/'cache')
     assert (tmp_path/'workspace/频道分析/en/Test/Test_生成规范.md').exists()
 
@@ -322,6 +322,10 @@ def test_http_analysis_lifecycle_and_applied_input_are_connected(session):
         assert client.post(f'/api/v3/analysis-runs/{run_id}/start').json()['status']=='queued'
         claim=client.post('/api/v3/channel-analysis/claims',json={'host_id':'host'}).json()
         assert client.post(f'/api/v3/analysis-runs/{run_id}/collect',json={'claim_id':claim['claim_id']}).status_code==200
+        progress={'stage':'screenshots','completed_items':2,'total_items':11,'current_item':'观众.png','elapsed_seconds':50,'stage_elapsed_seconds':10}
+        assert client.post(f'/api/v3/analysis-runs/{run_id}/heartbeat',json={'claim_id':'stale','progress':progress}).status_code==409
+        assert client.post(f'/api/v3/analysis-runs/{run_id}/heartbeat',json={'claim_id':claim['claim_id'],'progress':progress}).status_code==200
+        assert client.get(f'/api/v3/channels/{c.id}/analysis-runs').json()[0]['progress']==progress
         run=service.get_run(s,run_id);body={'claim_id':claim['claim_id'],'result':valid_result(run)}
         assert client.put(f'/api/v3/analysis-runs/{run_id}/result',json=body).json()['status']=='ready'
         assert client.put(f'/api/v3/analysis-runs/{run_id}/result',json=body).status_code==200
@@ -352,7 +356,7 @@ def test_analysis_migration_adds_only_run_table_and_can_downgrade():
             migration.upgrade()
             assert set(inspect(connection).get_table_names())==before|{'channel_analysis_runs'}
             columns={c['name'] for c in inspect(connection).get_columns('channel_analysis_runs')}
-            assert columns==set(ChannelAnalysisRun.__table__.columns.keys())
+            assert columns==set(ChannelAnalysisRun.__table__.columns.keys())-{'progress'}
             migration.downgrade()
             assert set(inspect(connection).get_table_names())==before
     engine.dispose()

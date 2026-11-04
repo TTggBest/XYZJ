@@ -18,6 +18,7 @@ class ChannelAnalysisRun(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     phase: Mapped[str] = mapped_column(String(40), nullable=False, default='materials')
     claim_id: Mapped[str | None] = mapped_column(String(36))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    progress: Mapped[dict | None] = mapped_column(JSON)
     input_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
     materials: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     attempts: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

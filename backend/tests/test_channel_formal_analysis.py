@@ -98,13 +98,13 @@ def test_formal_pipeline_paginates_inventory_and_delivers_without_apply(session,
                     check['observations']=[{'metric':'visible_test_metric','subject':'test','value':123,
                         'status':'available','unit':'count','scope':'test card','window':'selected window','evidence':'test fixture'}]
                     if material['kind']=='ab':check['window_matches']=False
-                return {'checks':checks}
+                return {'checks':{key:checks[key] for key in stage.schema['properties']['checks']['properties']}}
             assert 'columnHeaders' not in stage.prompt
             assert '展示点击率 (%)' in stage.prompt
             assert '900' in stage.prompt or '100' in stage.prompt
             assert 'sources.fact_snapshot' in stage.prompt
             assert stage.images==[]
-            assert stage.schema['properties']['material_checks']['properties']=={}
+            assert set(stage.schema['properties']) in ({'profile'},{'diagnosis'})
             result=formal_result(run)
             result['normalized_snapshot']='{"fabricated":999}'
             result['material_checks']={}

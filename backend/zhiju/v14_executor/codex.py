@@ -29,6 +29,8 @@ class CodexClient:
                 extract_bundle(archive_from_snapshot(stage.skill_bundle), root / 'skills')
                 prompt = ('本次选定版本的完整 Skills 文件位于 ./skills/；按其中 Skill 的引用读取配套文件。'
                     '智矩控制器负责源数据、状态和输出存储；不要另行操作飞书或 YouTube，也不要启动旧批次。\n\n' + prompt)
+            for name, content in getattr(stage, "source_files", {}).items():
+                (root / name).write_text(content, encoding="utf-8")
             schema, output = root / "schema.json", root / "result.json"
             schema.write_text(json.dumps(stage.schema, ensure_ascii=False), encoding="utf-8")
             args = [self.binary, "--ask-for-approval", "never", "exec", "--ignore-user-config", "--ignore-rules",
