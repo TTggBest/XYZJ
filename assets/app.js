@@ -563,19 +563,23 @@
     if(request!==analysisWorkspaceRequest || !auth.isCurrent(revision) || state.view!=="channelAnalysis") return;
     state.analysisWorkspaceData=data;state.analysisWorkspacePage=data.page;
     const stats=data.stats;
-    const tabs=`<div class="detail-tabs"><button class="detail-tab ${view==="results" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="results">分析结果</button><button class="detail-tab ${view==="progress" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="progress">分析进度</button></div>`;
-    const header=`<header class="settings-content-head"><div><h2>频道分析</h2><p>运行中 ${stats.running} · 排队 ${stats.queued} · 失败 ${stats.failed} · 最多 ${stats.worker_limit} 个频道并行</p></div><button class="button button-secondary" data-action="refresh-analysis-workspace">刷新</button></header>${tabs}`;
+    const tabs=`<div class="detail-tabs analysis-workspace-tabs"><button class="detail-tab ${view==="results" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="results">分析结果</button><button class="detail-tab ${view==="progress" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="progress">分析进度</button></div>`;
+    const header=`<header class="analysis-workspace-summary"><div class="analysis-workspace-metrics"><span>运行中 <strong>${stats.running}</strong></span><span>排队 <strong>${stats.queued}</strong></span><span class="${stats.failed ? "is-red" : ""}">失败 <strong>${stats.failed}</strong></span><span class="analysis-workspace-capacity">最多 ${stats.worker_limit} 个频道并行</span></div><button class="button button-secondary button-small" data-action="refresh-analysis-workspace">${icon("refresh-cw")} 刷新</button></header>`;
     const channelLink=row=>`<button class="button button-secondary button-small" data-action="channel-detail-tab" data-channel-detail-tab="analysis" data-id="${esc(row.channel_id)}">分析内容与历史</button>`;
-    let content;
+    let content,search="";
     if(view==="results") {
-      const report=(run,emptyLabel)=>run ? `<div class="analysis-result-inline"><strong>${esc(analysisVersionName(run))}</strong><span class="tag ${run.is_current ? "is-green" : ""}">${esc(analysisState(run))}</span>${run.result ? `<button class="button button-secondary button-small" data-action="view-analysis-result" data-id="${esc(run.id)}">查看报告</button>` : ""}</div>` : emptyLabel;
-      const rows=data.items.map(row=>`<tr><td><strong>${esc(row.channel_name)}</strong></td><td>${report(row.current,"尚未应用分析版本")}</td><td>${report(row.latest,"尚无分析任务")}</td><td>${channelLink(row)}</td></tr>`);
-      content=`<div class="row-actions analysis-workspace-search"><input class="input" id="analysisWorkspaceSearch" aria-label="搜索频道" placeholder="搜索频道" value="${esc(state.analysisWorkspaceSearch || "")}"><button class="button button-secondary" data-action="query-analysis-workspace">查询</button></div>${rows.length ? table(["频道","当前生产使用","最新分析任务","操作"],rows,1120,"analysis-workspace-results") : empty("暂无匹配的频道","调整搜索条件后重试。")}`;
+      const report=(run,emptyLabel,latest=false)=>run ? `<div class="analysis-result-inline"><strong>${esc(latest && !run.report_version ? (run.result ? "待应用结果" : "新分析任务") : analysisVersionName(run))}</strong><span class="tag ${run.is_current ? "is-green" : ""}">${esc(analysisState(run))}</span>${run.result ? `<button class="button button-secondary button-small" data-action="view-analysis-result" data-id="${esc(run.id)}">查看报告</button>` : ""}</div>` : `<span class="analysis-result-empty">${emptyLabel}</span>`;
+      const rows=data.items.map(row=>{
+        const latest=row.current && row.latest?.id===row.current.id ? `<span class="analysis-latest-same">${icon("check")} 与当前一致</span>` : report(row.latest,"尚无分析任务",true);
+        return `<tr><td><strong class="analysis-channel-name" title="${esc(row.channel_name)}">${esc(row.channel_name)}</strong></td><td>${report(row.current,"尚未应用分析版本")}</td><td>${latest}</td><td>${channelLink(row)}</td></tr>`;
+      });
+      search=`<div class="analysis-workspace-search"><input class="input" id="analysisWorkspaceSearch" aria-label="搜索频道" placeholder="搜索频道" value="${esc(state.analysisWorkspaceSearch || "")}"><button class="button button-secondary button-small" data-action="query-analysis-workspace">查询</button></div>`;
+      content=rows.length ? table(["频道","当前生产使用","最新分析任务","操作"],rows,1120,"analysis-workspace-results") : empty("暂无匹配的频道","调整搜索条件后重试。");
     } else {
       content=`<p class="cell-sub" id="analysisWorkspaceUpdated" role="status">每 5 秒自动刷新 · 只读取任务状态，不会重新启动分析。已完成任务可在「分析结果」中查看。</p><div class="analysis-monitor-grid">${data.items.map(row=>`<article class="hub-record"><header><strong>${esc(row.channel_name)}</strong>${tag(row.run.status)}</header><p>${fmtUtc(row.run.created_at)} · ${esc(row.run.input_snapshot.model)}</p>${row.run.status==="queued" ? `<p role="status">排队中，等待空闲分析槽位</p>` : analysisProgress(row.run)}${row.run.error ? `<p class="is-red">${esc(row.run.error)}</p>` : ""}${channelLink(row)}</article>`).join("") || empty("当前没有运行中、排队或失败的任务","可从分析结果页打开频道开始分析。")}</div>`;
     }
     const pager=`<div class="pagination"><span>共 ${data.total} 条 · 第 ${data.page} / ${data.pages} 页</span><button class="button button-secondary" data-action="analysis-workspace-page" data-page="${data.page-1}" ${data.page<=1 ? "disabled" : ""}>上一页</button><button class="button button-secondary" data-action="analysis-workspace-page" data-page="${data.page+1}" ${data.page>=data.pages ? "disabled" : ""}>下一页</button></div>`;
-    root.innerHTML=section("频道分析工作台","按频道查看分析结果和任务进度",header+content+pager);renderIcons();
+    root.innerHTML=`<section class="section analysis-workspace" aria-label="频道分析工作台">${header}<div class="analysis-workspace-controls">${tabs}${search}</div>${content}${pager}</section>`;renderIcons();
     scheduleAnalysisWorkspaceRefresh();
   }
   function scheduleAnalysisWorkspaceRefresh() {
