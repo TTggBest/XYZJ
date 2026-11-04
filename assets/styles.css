@@ -974,3 +974,25 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .analysis-primary-slot { min-width: 150px; display: flex; justify-content: flex-end; }
 .analysis-primary-slot > button { min-width: 150px; }
 @media(max-width:600px) { .analysis-run-actions { gap: 16px; } .analysis-primary-slot, .analysis-primary-slot > button { min-width: 126px; } }
+
+/* Analysis navigation remains outside the single content scroller. */
+.drawer-body:has(.channel-hub-analysis) { overflow: hidden; padding: 0; }
+.channel-hub-analysis { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.channel-hub-analysis .channel-hub-fixed { flex: 0 0 auto; padding: 12px 16px 0; background: var(--surface); border-bottom: 1px solid var(--line); }
+.channel-hub-analysis .channel-hub-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
+.analysis-toolbar { margin: 0; padding: 10px 0; flex-wrap: wrap; }
+.analysis-current { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border: 1px solid var(--green); background: var(--surface-soft); border-radius: var(--radius); margin-bottom: 14px; }
+.analysis-current strong { color: var(--green); }
+.analysis-current p { margin: 7px 0; }
+.analysis-history-table td { vertical-align: top; }
+.analysis-history-table .analysis-run-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.analysis-history-table .analysis-secondary-actions, .analysis-history-table .analysis-primary-slot { display: contents; }
+.analysis-history-table .button { padding: 5px 8px; font-size: 12px; min-width: 0; }
+.analysis-working { margin-bottom: 12px; }
+.modal:has(.analysis-reader) { width: min(1100px, calc(100vw - 32px)); }
+.analysis-reader-toolbar { position: sticky; top: -16px; z-index: 1; padding: 10px 0; background: var(--surface); border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+.analysis-document { width: 100%; overflow-wrap: anywhere; line-height: 1.8; }
+.analysis-document h2, .analysis-document h3 { line-height: 1.5; margin: 22px 0 10px; }
+.analysis-document p { white-space: pre-wrap; margin: 10px 0; }
+.analysis-code { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--surface-soft); }
+@media (max-width: 640px) { .analysis-current { align-items: flex-start; flex-direction: column; } .analysis-toolbar .row-actions { gap: 5px; } .analysis-toolbar .button { font-size: 12px; padding: 7px; } }

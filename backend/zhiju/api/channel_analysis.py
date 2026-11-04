@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Literal
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Response
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -39,6 +39,11 @@ class Resume(BaseModel):
 @router.get('/channels/{channel_id}/analysis-runs')
 def listing(channel_id:str,s:Session=Depends(get_tenant_db)):
     return service.list_run_summaries(s,channel_id)
+
+
+@router.get('/channels/{channel_id}/analysis-history')
+def history(channel_id:str,page:int=Query(1,ge=1),page_size:int=Query(10,ge=1,le=50),s:Session=Depends(get_tenant_db)):
+    return service.analysis_history(s,channel_id,page,page_size)
 
 
 @router.post('/channels/{channel_id}/analysis-runs')

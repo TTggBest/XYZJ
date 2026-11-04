@@ -9,7 +9,7 @@ const reads=[];
 const page=start(process.argv[1],auth,async(path)=>{
  reads.push(path);
  if(path==='/api/v3/channels/c')return new Response(JSON.stringify({channel:{id:'c',original_name:'Test'},profile:null,keywords:[],pinned_comment_templates:[],playlists:[],branding_assets:[],drama_types:[],relevant_skills:[]}));
- if(path==='/api/v3/channels/c/analysis-runs')return new Response(JSON.stringify([run()]));
+ if(path.startsWith('/api/v3/channels/c/analysis-history'))return new Response(JSON.stringify({items:[run()],current:null,total:1,page:1,pages:1}));
  return defaultResponse(path);
 },{setTimeout:(fn,ms)=>{const id=++seq;timers.set(id,{fn,ms});return id;},clearTimeout:id=>timers.delete(id)});
 await settle(page);
@@ -22,8 +22,8 @@ const cards={innerHTML:''};page.nodes.set('channelAnalysisRuns',cards);
 let timer=[...timers.entries()].find(([id,t])=>t.ms===5000);assert(timer);
 timers.delete(timer[0]);count=3;reads.length=0;await timer[1].fn();
 assert.match(cards.innerHTML,/已完成 3 \/ 11 张/);
-assert.deepEqual(reads,['/api/v3/channels/c/analysis-runs']);
+assert.equal(reads.length,1);assert.match(reads[0],/analysis-history.*page=1/);
 timer=[...timers.entries()].find(([id,t])=>t.ms===5000);assert(timer);
 await switchCompany(page);reads.length=0;await timer[1].fn();
-assert.equal(reads.includes('/api/v3/channels/c/analysis-runs'),false);
+assert.equal(reads.some(path=>path.includes('analysis-history')),false);
 """)

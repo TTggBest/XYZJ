@@ -502,15 +502,15 @@
     return `<div class="detail-tabs channel-hub-tabs">${[["basic", "基础与装修"], ["operations", "运营配置"], ["analysis", "分析中心"], ["reference", "运营参考"], ["versions", "版本与规则"]].map(([key, text]) => `<button class="detail-tab ${tab === key ? "is-active" : ""}" data-action="channel-detail-tab" data-channel-detail-tab="${key}" data-id="${detail.channel.id}">${text}</button>`).join("")}</div>`;
   }
   async function loadChannelAnalysisCenter(channelId) {
-    const [reports, metrics, runs] = await Promise.all([
-      api(`/channels/${channelId}/analysis-reports`),
-      api(`/youtube/channel-daily-metrics${query({ channel_id: channelId })}`),
-      api(`/channels/${channelId}/analysis-runs`)
+    const [history, metrics] = await Promise.all([
+      api(`/channels/${channelId}/analysis-history${query({page:state.analysisHistoryPage || 1,page_size:10})}`),
+      api(`/youtube/channel-daily-metrics${query({ channel_id: channelId })}`)
     ]);
-    return { reports, metrics, runs };
+    return {history,metrics,runs:history.items};
   }
   const analysisActionPending = new Set();
   function analysisRunActions(run) {
+    if (run.kind==="report") return `<button class="button button-secondary" data-action="view-legacy-analysis-report" data-id="${esc(run.id)}" data-channel-id="${esc(run.channel_id)}">查看历史报告</button>`;
     const busy=analysisActionPending.has(run.id);
     const action=run.status === "draft" ? "edit-analysis-materials"
       : ["failed","cancelled"].includes(run.status) ? "resume-channel-analysis"
@@ -518,7 +518,7 @@
     const label=run.status === "draft" ? "上传材料并开始" : run.status === "cancelled" ? "恢复分析"
       : run.status === "failed" ? "继续分析" : run.status === "running" ? "分析中"
       : run.status === "applied" ? "同步本地文件" : run.status === "ready" ? "重试交付文件" : "重试唤起";
-    return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${["draft","failed","cancelled"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="delete-channel-analysis" data-id="${run.id}" ${busy ? "disabled" : ""}>删除任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
+    return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${["draft","failed","cancelled"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="delete-channel-analysis" data-id="${run.id}" ${busy ? "disabled" : ""}>删除任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" && run.can_apply!==false ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
   }
   function analysisProgress(run) {
     const p=run.progress;
@@ -530,13 +530,28 @@
     const count=p.stage==="screenshots" ? `已完成 ${p.completed_items} / ${p.total_items} 张` : p.stage==="collect" ? "" : `文档已完成 ${Math.min(p.completed_items || 0,3)} / 3 份`;
     return `<div class="detail-block" role="status" aria-live="polite"><strong>${esc(labels[p.stage] || p.stage)}${count ? " · "+esc(count) : ""}</strong><p>${esc(p.current_item || "")} · 当前步骤 ${duration(p.stage_elapsed_seconds)} · 本次执行 ${duration(p.elapsed_seconds)}</p>${live ? `<p class="cell-sub">${esc(live)}${["screenshots","profile","diagnosis","generation_spec"].includes(p.stage) ? "；当前步骤等待模型返回" : ""}</p>` : ""}</div>`;
   }
+  function analysisToolbar(detail) {
+    return `<header class="settings-content-head analysis-toolbar"><h3>频道分析与版本</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>`;
+  }
+  function analysisVersionName(run) {
+    return run.report_version ? `报告 v${run.report_version}` : `未应用结果 · ${String(run.id).slice(0,8)}`;
+  }
+  function analysisState(run) {
+    if (run.is_current) return "当前生产使用";
+    return {legacy_report:"历史报告",applied:"曾应用，当前未使用",superseded:"已被新版替代",ready:"已完成，未应用",running:"分析中",queued:"排队中",draft:"待补材料",failed:"失败",cancelled:"已取消"}[run.status] || label(run.status);
+  }
   function analysisRunCards(detail) {
-    if ((detail.analysis_runs || []).some(run => run.mode === "periodic" && run.status === "failed" && /授权|[Pp]ermission/.test(run.error || ""))) {
-      youtubeReauthorizationChannels.add(detail.channel.id);
-      renderYouTubeReauthorizationNotice();
+    const h=detail.analysis_history || {items:detail.analysis_runs || [],page:1,pages:1,total:0};
+    const current=h.current;
+    if (h.items.some(run=>run.mode==="periodic" && run.status==="failed" && /授权|[Pp]ermission/.test(run.error || ""))) {
+      youtubeReauthorizationChannels.add(detail.channel.id);renderYouTubeReauthorizationNotice();
     }
-    const phases = {materials:"待补材料",authorization:"核验授权与采集",analysis:"分析与生成规范",ready:"分析完成，待应用"};
-    return `<header class="settings-content-head"><h3>Codex 频道分析</h3><div class="row-actions"><button class="button button-secondary" data-action="refresh-channel-analysis" data-id="${esc(detail.channel.id)}">刷新进度</button><button class="button button-primary" data-action="new-channel-analysis" data-id="${esc(detail.channel.id)}">开始分析</button><button class="button button-secondary" data-action="new-channel-analysis" data-mode="initial" data-id="${esc(detail.channel.id)}">新频道冷启动</button></div></header>${(detail.analysis_runs || []).map(run => `<article class="hub-record"><header><strong>${run.mode === "initial" ? "冷启动初诊断 · 未经数据验证" : "正式分析 · API / ZIP / 截图"}</strong>${tag(run.status)}</header><p>${esc(run.status === "applied" ? "已应用至生产配置" : phases[run.phase] || run.phase)} · ${fmtUtc(run.created_at)} · ${esc(run.input_snapshot.model)}</p>${analysisProgress(run)}${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}<p>材料 ${run.materials.length} 份 · 本地归档${run.mirror_status === "completed" ? "已完成" : run.mirror_status === "failed" ? "同步失败，请重试交付" : "待同步"}${run.status === "applied" ? " · 当前生产使用此版本规范" : ""}</p>${analysisRunActions(run)}</article>`).join("") || `<p>正式频道使用真实数据；未运营频道使用明确的初始定位。打开本页不会采集数据。</p>`}`;
+    const skill=run=>run.kind==="report" ? "分析 Skill 未记录" : `分析 Skill：${run.skill_label || run.skill_id || "名称未记录"} · 修订 ${run.skill_revision ?? "未记录"}`;
+    const binding=current ? `<section class="analysis-current"><div><strong>当前生产使用：${esc(analysisVersionName(current))}</strong><p>分析任务创建于 ${fmtUtc(current.created_at)} · ${esc(skill(current))} · ${esc(current.input_snapshot.model)}</p><span class="cell-sub">后续新运营包使用此版本；本地归档${current.mirror_status==="completed" ? "已完成" : "待同步"}</span></div><button class="button button-secondary" data-action="view-analysis-result" data-id="${esc(current.id)}">查看当前版本</button></section>` : `<div class="hub-empty-note">尚未应用分析版本。完成分析后，需明确选择「应用此版本」。</div>`;
+    const working=h.items.filter(run=>["queued","running","failed","draft"].includes(run.status)).map(run=>`<article class="hub-record analysis-working"><header><strong>${esc(analysisState(run))} · ${fmtUtc(run.created_at)}</strong></header>${analysisProgress(run)}${run.error ? `<p class="is-red">${esc(run.error)}</p>` : ""}${analysisRunActions(run)}</article>`).join("");
+    const rows=h.items.map(run=>`<tr><td><strong>${esc(analysisVersionName(run))}</strong><span class="cell-sub">${run.mode==="initial" ? "冷启动 · 未经数据验证" : "正式数据分析"}</span></td><td>${fmtUtc(run.created_at)}</td><td>${esc(analysisState(run))}</td><td>${esc(skill(run))}</td><td>${run.kind==="report" ? "—" : run.mirror_status==="completed" ? "已同步" : "待同步"}</td><td>${analysisRunActions(run)}</td></tr>`);
+    const pager=`<div class="pagination"><span>共 ${h.total ?? h.items.length} 条 · 第 ${h.page} / ${h.pages} 页 · 每页 10 条</span><button class="button button-secondary button-small" data-action="analysis-history-page" data-id="${esc(detail.channel.id)}" data-page="${h.page-1}" ${h.page<=1 ? "disabled" : ""}>上一页</button><button class="button button-secondary button-small" data-action="analysis-history-page" data-id="${esc(detail.channel.id)}" data-page="${h.page+1}" ${h.page>=h.pages ? "disabled" : ""}>下一页</button></div>`;
+    return binding+working+`<section class="analysis-history"><h3>历史分析结果</h3><p class="cell-sub">报告版本在应用时生成；分析 Skill 修订是独立编号。选择「查看与下载结果」阅读任意历史结果。</p>${rows.length ? table(["分析结果 / 报告版本","任务创建时间","使用状态","分析规则","本地归档","操作"],rows,820,"analysis-history-table") : `<p>暂无分析记录。</p>`}${pager}</section>`;
   }
   function analysisMaterialsForm(run) {
     const slots = [
@@ -578,11 +593,27 @@
     return items.length ? `<div class="hub-record-list">${items.map(item => `<article class="hub-record"><header><strong>${esc(item.segment_value || item.topic || item.keyword || item.recommendation || item.value)}</strong>${item.score != null ? `<span>${Math.round(Number(item.score) * 100)}%</span>` : ""}</header>${item.summary || item.evidence_summary || item.rationale ? `<p>${esc(item.summary || item.evidence_summary || item.rationale)}</p>` : ""}</article>`).join("")}</div>` : `<p class="settings-muted">${esc(emptyText)}</p>`;
   }
   function channelAnalysisPanel(detail) {
-    const reports = detail.analysis_reports || [];
-    const metrics = (detail.channel_metrics || []).slice(0, 14);
-    const metricRows = metrics.map(item => `<tr><td>${fmt(item.metric_date, true)}</td><td>${Number(item.views || 0).toLocaleString()}</td><td>${Math.round(Number(item.watch_time_minutes || 0)).toLocaleString()}</td><td>+${Number(item.subscribers_gained || 0).toLocaleString()} / -${Number(item.subscribers_lost || 0).toLocaleString()}</td><td>${item.ctr == null ? "—" : `${(Number(item.ctr) * 100).toFixed(2)}%`}</td></tr>`);
-    const reportCards = reports.map(item => `<article class="hub-report"><header><div><strong>${reportTypeLabel(item.report_type)} · v${item.version_number}</strong><span class="cell-sub">${fmtUtc(item.created_at)}</span></div>${tag(item.status)}</header><div class="detail-block"><h3>报告摘要</h3><p>${esc(item.summary || "尚无摘要")}</p></div>${item.recommendations ? `<div class="detail-block"><h3>总体建议</h3><p>${esc(item.recommendations)}</p></div>` : ""}<div class="hub-columns"><section><h3>用户画像</h3>${reportList(item.audience_profiles || [], "尚无结构化用户画像")}</section><section><h3>题材与关键词</h3>${reportList([...(item.topic_scores || []), ...(item.keyword_scores || [])], "尚无题材和关键词结论")}</section></div><div class="detail-block"><h3>策略建议</h3>${reportList(item.strategy_recommendations || [], "尚无结构化策略建议")}</div></article>`).join("");
-    return `<div class="detail-block"><h3>频道日数据</h3>${metricRows.length ? table(["日期", "播放量", "观看分钟", "订阅增减", "点击率"], metricRows, 680) : `<div class="hub-empty-note">尚无频道日数据。</div>`}</div><div class="detail-block"><h3>分析报告</h3>${reportCards || `<div class="hub-empty-note">尚无分析报告。初始化推测与真实数据报告将在后续生成阶段分别建立。</div>`}</div>`;
+    const metrics=(detail.channel_metrics || []).slice(0,14);
+    if (!metrics.length) return "";
+    const rows=metrics.map(item=>`<tr><td>${fmt(item.metric_date,true)}</td><td>${Number(item.views || 0).toLocaleString()}</td><td>${Math.round(Number(item.watch_time_minutes || 0)).toLocaleString()}</td><td>+${Number(item.subscribers_gained || 0)} / -${Number(item.subscribers_lost || 0)}</td></tr>`);
+    return `<details class="detail-block"><summary>频道日数据</summary>${table(["日期","播放量","观看分钟","订阅增减"],rows,680)}</details>`;
+  }
+  function analysisDocument(text) {
+    // Escape all content; render document headings/paragraphs without executing embedded HTML.
+    let inCode=false;
+    return String(text || "").split(/\r?\n/).map(line=>{
+      if (/^\s*(```|~~~)/.test(line)) {inCode=!inCode;return inCode ? '<pre class="analysis-code">' : '</pre>';}
+      if (inCode) return esc(line)+"\n";
+      const heading=line.match(/^(#{1,4})\s+(.+)$/);
+      if (heading) {const level=Math.min(heading[1].length+1,5);return `<h${level}>${esc(heading[2])}</h${level}>`;}
+      return line.trim() ? `<p>${esc(line)}</p>` : "";
+    }).join("")+(inCode ? '</pre>' : '');
+  }
+  function analysisReader(run,key="profile") {
+    const titles=run.kind==="report" ? {profile:"报告正文",diagnosis:"报告建议",legacy_details:"原始报告数据"} : {profile:"长期档案",diagnosis:"当前诊断",generation_spec:"生成规范"};
+    const buttons=Object.entries(titles).filter(([name])=>run.result[name]!=null).map(([name,title])=>`<button class="button ${name===key ? "button-primary" : "button-secondary"}" data-action="analysis-document-tab" data-key="${name}">${title}</button>`).join("");
+    const delivery=run.result.delivery;
+    return `<div class="analysis-reader"><header class="analysis-reader-toolbar"><div class="row-actions">${buttons}</div><div class="row-actions"><button class="button button-secondary" data-action="${run.kind==="report" ? "download-legacy-analysis-document" : "download-analysis-document"}" data-id="${esc(run.id)}" data-key="${key}">下载当前文档</button>${run.result.normalized_snapshot ? `<button class="button button-secondary" data-action="download-analysis-document" data-id="${esc(run.id)}" data-key="normalized_snapshot">下载事实快照</button>` : ""}</div></header><p><strong>${esc(analysisVersionName(run))}</strong> · ${esc(analysisState(run))}</p><p class="cell-sub">${run.kind==="report" ? "报告" : "任务"}创建时间：${fmtUtc(run.created_at)} · ${run.kind==="report" ? "保留历史报告正文、建议和原始数据" : "三份文档与快照均保留本次分析结果"}</p><article class="analysis-document">${analysisDocument(run.result[key])}</article>${delivery ? `<details><summary>本地归档路径</summary>${delivery.error ? `<p class="is-red">${esc(delivery.error)}</p>` : Object.values(delivery.paths || {}).map(path=>`<p class="mono">${esc(path)}</p>`).join("")}</details>` : ""}</div>`;
   }
   function channelReferencePanel(detail) {
     const versions = detail.dna_versions || [];
@@ -607,22 +638,26 @@
       const keywordCards = type => detail.keywords.filter(item => item.keyword_type === type).map(item => `<article class="hub-record"><header><strong>${esc(item.keyword)}</strong><button class="button button-quiet button-small" data-action="delete-channel-keyword" data-id="${item.id}" data-channel-id="${detail.channel.id}">移除</button></header><span class="cell-sub">${esc(item.language)} · ${esc(item.source)}</span></article>`).join("");
       body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><header class="settings-content-head"><h3>关键词</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("keyword") || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>标签</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("tag") || `<p class="settings-muted">待完善</p>`}</section></div>`;
     }
-    return `<div class="channel-hub"><button class="button button-secondary" data-action="channel-ledger" data-id="${esc(detail.channel.id)}">${icon("list-checks")} 剧目台账</button>${channelDetailTabs(detail, tab)}<div class="channel-hub-panel">${body}</div></div>`;
+    return `<div class="channel-hub ${tab==="analysis" ? "channel-hub-analysis" : ""}"><div class="channel-hub-fixed"><button class="button button-secondary" data-action="channel-ledger" data-id="${esc(detail.channel.id)}">${icon("list-checks")} 剧目台账</button>${channelDetailTabs(detail, tab)}${tab==="analysis" ? analysisToolbar(detail) : ""}</div><div class="channel-hub-panel">${body}</div></div>`;
   }
-  let analysisRefreshTimer = null;
+  let analysisRefreshTimer = null,channelDetailRequest=0;
   async function showChannelDetail(id, tab = "basic") {
+    const request=++channelDetailRequest,revision=auth.capture();
     clearTimeout(analysisRefreshTimer);
+    if (state.channelDetailId!==id) state.analysisHistoryPage=1;
     const detail = state.channelDetailId === id && state.channelDetail ? state.channelDetail : await api(`/channels/${id}`);
     if (tab === "basic") {
       detail.initialization_readiness = await api(`/channels/${id}/initialization-readiness`);
     } else if (tab === "analysis") {
       const analysis = await loadChannelAnalysisCenter(id);
-      detail.analysis_reports = analysis.reports;
+      if(request!==channelDetailRequest || !auth.isCurrent(revision)) return;
+      detail.analysis_history=analysis.history;state.analysisHistoryPage=analysis.history.page;
       detail.channel_metrics = analysis.metrics;
       detail.analysis_runs = analysis.runs;
     } else if (tab === "reference") {
       detail.dna_versions = await loadChannelReferenceVersions(id);
     }
+    if(request!==channelDetailRequest || !auth.isCurrent(revision)) return;
     state.channelDetail = detail; state.channelDetailId = id; state.channelDetailTab = tab;
     openDrawer(detail.channel.operational_name || detail.channel.original_name || "频道详情", channelDetailBody(detail, tab));
     if (tab === "analysis") scheduleAnalysisRefresh(id);
@@ -634,14 +669,15 @@
     clearTimeout(analysisRefreshTimer);
     const revision=auth.capture(),generation=drawerGeneration;
     const current=()=>generation===drawerGeneration && auth.isCurrent(revision) && !el("drawerBackdrop").hidden && state.channelDetailId===id && state.channelDetailTab==="analysis";
-    if (!current() || !(state.channelDetail?.analysis_runs || []).some(run=>["queued","running"].includes(run.status))) return;
+    if (!current()) return;
     analysisRefreshTimer=setTimeout(async()=>{
       if (!current()) return;
       try {
         if (document.visibilityState==="visible" && el("modalBackdrop").hidden && !analysisActionPending.size) {
-          const runs=await api(`/channels/${id}/analysis-runs`);
-          if (!current()) return;
-          state.channelDetail.analysis_runs=runs;
+          const requestedPage=state.analysisHistoryPage || 1;
+          const history=await api(`/channels/${id}/analysis-history${query({page:requestedPage,page_size:10})}`);
+          if (!current() || requestedPage!==(state.analysisHistoryPage || 1)) return;
+          state.channelDetail.analysis_history=history;state.channelDetail.analysis_runs=history.items;state.analysisHistoryPage=history.page;
           const container=el("channelAnalysisRuns");
           if (container) {container.innerHTML=analysisRunCards(state.channelDetail);renderIcons();}
         }
@@ -2559,6 +2595,13 @@
       else if (action === "edit-analysis-materials") {
         const run=await api(`/analysis-runs/${id}`);openModal("分析材料",analysisMaterialsForm(run));
       }
+      else if (action === "analysis-history-page") {
+        state.analysisHistoryPage=Number(button.dataset.page);await showChannelDetail(id,"analysis");
+      }
+      else if (action === "analysis-document-tab") {
+        if (state.analysisReaderRun && ["profile","diagnosis","generation_spec","legacy_details"].includes(button.dataset.key))
+          openModal("频道分析结果",analysisReader(state.analysisReaderRun,button.dataset.key));
+      }
       else if (action === "refresh-channel-analysis") await showChannelDetail(id,"analysis");
       else if (action === "delete-channel-analysis") {
         if (analysisActionPending.has(id)) return;
@@ -2588,6 +2631,7 @@
           const config={...await prepareV14Executor(auth.capture()),task_type:"channel_analysis"};
           if (action === "resume-channel-analysis") {
             const restored=await api(`/analysis-runs/${id}/resume`,{method:"POST",body:JSON.stringify({stopped_confirmed:true})});
+            state.analysisHistoryPage=1;
             if (restored.status === "draft") {openModal("分析材料",analysisMaterialsForm(restored));return;}
           } else if (action === "apply-channel-analysis") {
             await api(`/analysis-runs/${id}/apply`,{method:"POST"});notify("分析版本已应用，新运营包将使用此规范");
@@ -2601,12 +2645,21 @@
         }
         await showChannelDetail(state.channelDetailId,"analysis");
       }
+      else if (action === "view-legacy-analysis-report") {
+        const report=await api(`/channels/${button.dataset.channelId}/analysis-reports/${id}`);
+        state.analysisReaderRun={id:report.id,kind:"report",report_version:report.version_number,status:"legacy_report",created_at:report.created_at,
+          result:{profile:report.summary || "未填写报告正文",diagnosis:report.recommendations || "未填写诊断建议",legacy_details:"```json\n"+JSON.stringify(report,null,2)+"\n```"}};
+        openModal(`历史报告 v${report.version_number}`,analysisReader(state.analysisReaderRun));
+      }
+      else if (action === "download-legacy-analysis-document") {
+        const key=button.dataset.key,run=state.analysisReaderRun;
+        if(run?.kind==="report" && ["profile","diagnosis","legacy_details"].includes(key)) downloadAnalysisText(run.result[key],`历史报告_${key}.md`);
+      }
       else if (action === "view-analysis-result") {
         const run=await api(`/analysis-runs/${id}`);
-        const blocks=[["profile","频道用户画像与长期经营档案"],["diagnosis","频道当前运营诊断与运营包指导"],["generation_spec","生成规范"]].map(([key,title])=>`<div class="field"><label>${title}</label><textarea class="textarea" readonly>${esc(run.result[key])}</textarea><button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="${key}">下载文件</button></div>`);
-        const delivery=run.result.delivery;
-        const deliveryHtml=delivery ? `<div class="detail-block"><h3>本机交付文件</h3>${delivery.error ? `<p class="is-red">${esc(delivery.error)}</p>` : Object.entries(delivery.paths || {}).map(([key,path])=>`<p class="mono">${esc(path)}</p>`).join('')}</div>` : '';
-        openModal("频道分析结果",deliveryHtml+blocks.join("")+`<button class="button button-secondary" data-action="download-analysis-document" data-id="${id}" data-key="normalized_snapshot">下载 JSON 原始快照</button>`);
+        const summary=(state.channelDetail?.analysis_history?.items || []).find(row=>row.id===id) || (state.channelDetail?.analysis_history?.current?.id===id ? state.channelDetail.analysis_history.current : {});
+        state.analysisReaderRun={...run,...summary,result:run.result};
+        openModal("频道分析结果",analysisReader(state.analysisReaderRun));
       }
       else if (action === "download-analysis-document") {
         const run=await api(`/analysis-runs/${id}`),key=button.dataset.key;
@@ -2995,13 +3048,13 @@
             const config={...await prepareV14Executor(expectedRevision),task_type:'channel_analysis'};
             const run=await api(`/channels/${form.dataset.channelId}/cold-start`, {method:'POST',expectedRevision,
               body:JSON.stringify({chinese_meaning:data.chinese_meaning,positioning:data.positioning,language:data.language,market:data.market})});
-            closeModal();
+            state.analysisHistoryPage=1;closeModal();
             try {await localV14Request('/start',config);} catch(error) {throw new Error(`冷启动已排队，但本机唤起失败：${error.message}，请重试唤起`);}
             await showChannelDetail(state.channelDetailId,'analysis');notify('新频道冷启动已排队，无需上传运营材料');
             return;
           }
           const run=await api(`/channels/${form.dataset.channelId}/analysis-runs`,{method:"POST",body:JSON.stringify({mode:data.mode,positioning:data.positioning,posts_not_applicable:!!form.elements.posts_not_applicable.checked,ab_not_applicable:!!form.elements.ab_not_applicable.checked}),expectedRevision});
-          openModal("分析材料",analysisMaterialsForm(run));await showChannelDetail(state.channelDetailId,"analysis");
+          state.analysisHistoryPage=1;openModal("分析材料",analysisMaterialsForm(run));await showChannelDetail(state.channelDetailId,"analysis");
         } finally {delete form.dataset.busy;}
         return;
       }
@@ -3028,7 +3081,7 @@
           }
           const config={...await prepareV14Executor(expectedRevision),task_type:"channel_analysis"};
           await api(`/analysis-runs/${runId}/start`,{method:"POST",expectedRevision});
-          closeModal();
+          state.analysisHistoryPage=1;closeModal();
           try {await localV14Request("/start",config);} catch(error) {throw new Error(`分析已排队，但本机唤起失败：${error.message}。请重试唤起。`);}
           await showChannelDetail(state.channelDetailId,"analysis");notify("频道分析已开始");
         } finally {delete form.dataset.busy;}

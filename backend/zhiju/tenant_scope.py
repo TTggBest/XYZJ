@@ -70,6 +70,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ("POST", "/api/v3/media-assets/{asset_id}/download-complete"),
     ("PUT", "/api/v3/channels/order"),
     ('GET','/api/v3/channels/{channel_id}/analysis-runs'),
+    ('GET','/api/v3/channels/{channel_id}/analysis-history'),
     ('POST','/api/v3/channels/{channel_id}/analysis-runs'),
     ('GET','/api/v3/analysis-runs/{run_id}'),
     ('DELETE','/api/v3/analysis-runs/{run_id}'),

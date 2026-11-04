@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import yaml
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, literal, union_all
 from zhiju.config import get_settings
 from zhiju.models import (Channel, ChannelProfile, ChannelPlaylist, ChannelAnalysisRun,
     ChannelAnalysisReport, ChannelAudienceProfile, ChannelDnaVersion, YoutubeVideo,
@@ -32,18 +32,66 @@ def list_runs(session, channel_id):
     return [rows[key] for key in ids]
 
 
-def list_run_summaries(session,channel_id):
-    require_tenant_entity(session,Channel,channel_id)
+def production_analysis_id(session,channel_id):
+    setting=session.scalar(select(V14Setting))
+    return ((setting.payload.get('channel_inputs',{}).get(channel_id,{}) if setting else {}).get('analysis_version') or {}).get('run_id')
+
+
+def run_summaries(session,ids,current_id):
     r=ChannelAnalysisRun
     keys=('id','channel_id','host_id','mode','status','phase','claim_id','heartbeat_at','progress','materials','error','report_id','dna_id','mirror_status','created_at','updated_at')
-    ids=list(session.scalars(select(r.id).where(r.channel_id==channel_id,r.status!='deleted').order_by(r.created_at.desc()).limit(30)))
     rows=session.execute(select(*(getattr(r,key) for key in keys),
         r.input_snapshot['model'].as_string().label('model'),
         r.input_snapshot['channel'].label('channel'),
-        r.result['profile'].as_string().is_not(None).label('result_available')).where(r.id.in_(ids))).mappings()
+        r.input_snapshot['skill_version']['revision'].as_integer().label('skill_revision'),
+        r.input_snapshot['skill_version']['id'].as_string().label('skill_id'),
+        r.input_snapshot['skill_version']['label'].as_string().label('skill_label'),
+        ChannelAnalysisReport.version_number.label('report_version'),
+        r.result['profile'].as_string().is_not(None).label('result_available'))
+        .outerjoin(ChannelAnalysisReport,(ChannelAnalysisReport.id==r.report_id)&(ChannelAnalysisReport.tenant_id==r.tenant_id))
+        .where(r.id.in_(ids))).mappings()
     summaries={row['id']:dict({key:row[key] for key in keys},input_snapshot={'model':row['model'],'channel':row['channel']},
-                 result={'available':True} if row['result_available'] else None) for row in rows}
-    return [summaries[key] for key in ids]
+                 kind='task',skill_id=row['skill_id'],skill_revision=row['skill_revision'],skill_label=row['skill_label'],report_version=row['report_version'],
+                 is_current=row['id']==current_id,result={'available':True} if row['result_available'] else None) for row in rows}
+    return [summaries[key] for key in ids if key in summaries]
+
+
+def list_run_summaries(session,channel_id):
+    require_tenant_entity(session,Channel,channel_id)
+    r=ChannelAnalysisRun
+    ids=list(session.scalars(select(r.id).where(r.channel_id==channel_id,r.status!='deleted').order_by(r.created_at.desc(),r.id.desc()).limit(30)))
+    return run_summaries(session,ids,production_analysis_id(session,channel_id))
+
+
+def analysis_history(session,channel_id,page=1,page_size=10):
+    require_tenant_entity(session,Channel,channel_id)
+    r=ChannelAnalysisRun;report=ChannelAnalysisReport
+    condition=(r.channel_id==channel_id,r.status!='deleted')
+    # Manual/initialization reports can exist without an analysis task. Keep them in history.
+    unlinked=(report.channel_id==channel_id,~select(r.id).where(r.report_id==report.id,r.tenant_id==report.tenant_id).exists())
+    index=union_all(select(r.id,r.created_at,literal('task').label('kind')).where(*condition),
+                    select(report.id,report.created_at,literal('report').label('kind')).where(*unlinked)).subquery()
+    total=session.scalar(select(func.count()).select_from(index))
+    pages=max(1,(total+page_size-1)//page_size);page=min(page,pages)
+    entries=session.execute(select(index.c.id,index.c.kind).order_by(index.c.created_at.desc(),index.c.id.desc())
+                            .offset((page-1)*page_size).limit(page_size)).all()
+    current_id=production_analysis_id(session,channel_id)
+    task_ids=[id for id,kind in entries if kind=='task']
+    summaries={row['id']:row for row in run_summaries(session,task_ids,current_id)}
+    report_ids=[id for id,kind in entries if kind=='report']
+    for row in session.execute(select(report.id,report.channel_id,report.version_number,report.created_at,report.report_type)
+                               .where(report.id.in_(report_ids))).mappings():
+        summaries[row['id']]={'id':row['id'],'channel_id':row['channel_id'],'kind':'report',
+            'report_version':row['version_number'],'created_at':row['created_at'],'mode':row['report_type'],
+            'status':'legacy_report','is_current':False,'result':{'available':True},'mirror_status':'not_applicable',
+            'skill_revision':None,'skill_label':None,'materials':[],'input_snapshot':{'model':'历史报告'}}
+    current_ids=list(session.scalars(select(r.id).where(*condition,r.id==current_id))) if current_id else []
+    current=run_summaries(session,current_ids,current_id)
+    items=[summaries[id] for id,kind in entries]
+    for row in items:
+        row['can_apply']=row['status']=='ready' and (not current or row['created_at']>=current[0]['created_at'])
+    return {'items':items,'total':total,'page':page,'page_size':page_size,'pages':pages,
+            'current':current[0] if current else None}
 
 
 def run_read(run):

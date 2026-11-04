@@ -10,7 +10,7 @@ const rows=()=>[
 const page=start(process.argv[1],auth,async(path,options={})=>{
  if(options.method==='DELETE'){mutations.push(path);deleted=true;return new Response('{"status":"deleted"}');}
  if(path==='/api/v3/channels/c')return new Response(JSON.stringify({channel:{id:'c',original_name:'Test'},profile:null,keywords:[],pinned_comment_templates:[],playlists:[],branding_assets:[],drama_types:[],relevant_skills:[]}));
- if(path==='/api/v3/channels/c/analysis-runs')return new Response(JSON.stringify(rows()));
+ if(path.startsWith('/api/v3/channels/c/analysis-history'))return new Response(JSON.stringify({items:rows(),current:null,total:rows().length,page:1,pages:1}));
  return defaultResponse(path);
 },{window:{confirm:()=>confirmed}});
 await settle(page);await clickAction(page,'channel-detail-tab',{id:'c',channelDetailTab:'analysis'});

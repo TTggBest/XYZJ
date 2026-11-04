@@ -32,11 +32,11 @@ def test_channel_analysis_center_loads_structured_existing_data() -> None:
     source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
 
     assert "async function loadChannelAnalysisCenter" in source
-    assert "`/channels/${channelId}/analysis-reports`" in source
+    assert "`/channels/${channelId}/analysis-history${query(" in source
     assert "`/youtube/channel-daily-metrics${query({ channel_id: channelId })}`" in source
     assert "function channelAnalysisPanel" in source
     assert "用户画像" in source
-    assert "策略建议" in source
+    assert "analysis-reader" in source
     assert "频道日数据" in source
 
 
