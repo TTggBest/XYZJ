@@ -72,7 +72,9 @@ def start(run_id:str,s:Session=Depends(get_tenant_db),p=Depends(operator)):
 @router.post('/analysis-runs/{run_id}/screenshot-checks')
 def screenshot_checks(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     checked(s,p,run_id,body.claim_id)
-    return service.run_read(call(service.record_screenshot_checks,s,run_id,body.claim_id,body.result or {}))
+    row=call(service.record_screenshot_checks,s,run_id,body.claim_id,body.result or {})
+    s.refresh(row)  # Return the persisted JSON number representation used by final validation.
+    return service.run_read(row)
 
 
 @router.delete('/analysis-runs/{run_id}')
@@ -127,7 +129,9 @@ def gather(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(
         snapshot['channel']=channel
         snapshot['local_initial_context']=context
         run.input_snapshot=snapshot;s.commit()
-    return service.run_read(call(collect,s,run_id,body.claim_id))
+    row=call(collect,s,run_id,body.claim_id)
+    s.refresh(row)  # MySQL JSON may normalize the last digit of computed floats.
+    return service.run_read(row)
 
 
 @router.post('/analysis-runs/{run_id}/heartbeat')

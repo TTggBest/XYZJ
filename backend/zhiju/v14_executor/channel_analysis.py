@@ -377,6 +377,8 @@ def generate_screenshots(client,model,run,root,progress=None):
 
 
 def reject_document_checkpoints(root,error):
+    # Snapshot transport/persistence failures do not invalidate model documents.
+    if '事实快照与采集来源不一致' in error:return
     # The existing API returns the violated document contract in its error text.
     if '生成规范' in error:keys=('generation_spec',)
     elif 'profile' in error:keys=('profile','diagnosis','generation_spec')
