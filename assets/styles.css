@@ -1005,3 +1005,10 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .analysis-monitor-grid .hub-record { margin: 0; align-content: start; overflow-wrap: anywhere; }
 .analysis-workspace-search { margin: 12px 0; }
 .analysis-workspace-search .input { max-width: 340px; }
+
+.analysis-workspace-results .data-table th { text-align: center; }
+.analysis-workspace-results .data-table td { vertical-align: middle; padding: 12px 16px; }
+.analysis-workspace-results .data-table th:first-child { width: 38%; }
+.analysis-workspace-results .data-table td:last-child { text-align: center; white-space: nowrap; }
+.analysis-result-inline { display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; gap: 12px; white-space: nowrap; }
+.analysis-result-inline > * { flex: 0 0 auto; }
