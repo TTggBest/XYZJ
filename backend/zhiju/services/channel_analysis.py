@@ -27,7 +27,7 @@ def get_run(session, run_id, lock=False):
 def list_runs(session, channel_id):
     require_tenant_entity(session, Channel, channel_id)
     ids=list(session.scalars(select(ChannelAnalysisRun.id).where(
-        ChannelAnalysisRun.channel_id == channel_id).order_by(ChannelAnalysisRun.created_at.desc()).limit(30)))
+        ChannelAnalysisRun.channel_id == channel_id,ChannelAnalysisRun.status!='deleted').order_by(ChannelAnalysisRun.created_at.desc()).limit(30)))
     rows={r.id:r for r in session.scalars(select(ChannelAnalysisRun).where(ChannelAnalysisRun.id.in_(ids)))}
     return [rows[key] for key in ids]
 
@@ -36,7 +36,7 @@ def list_run_summaries(session,channel_id):
     require_tenant_entity(session,Channel,channel_id)
     r=ChannelAnalysisRun
     keys=('id','channel_id','host_id','mode','status','phase','claim_id','heartbeat_at','progress','materials','error','report_id','dna_id','mirror_status','created_at','updated_at')
-    ids=list(session.scalars(select(r.id).where(r.channel_id==channel_id).order_by(r.created_at.desc()).limit(30)))
+    ids=list(session.scalars(select(r.id).where(r.channel_id==channel_id,r.status!='deleted').order_by(r.created_at.desc()).limit(30)))
     rows=session.execute(select(*(getattr(r,key) for key in keys),
         r.input_snapshot['model'].as_string().label('model'),
         r.input_snapshot['channel'].label('channel'),
@@ -191,8 +191,19 @@ def claimed(session,run_id,claim_id):
 
 def cancel_run(session,run_id):
     run=get_run(session,run_id,True)
-    if run.status in {'ready','applied'}:raise ConflictError('分析已完成')
+    if run.status in {'ready','applied','superseded','deleted'}:raise ConflictError('分析已完成或已删除')
     run.status='cancelled';run.claim_id=None;session.commit();return run
+
+
+def delete_run(session,run_id):
+    run=get_run(session,run_id,True)
+    if run.status=='deleted':return run
+    if run.status not in {'draft','failed','cancelled'} or run.report_id or run.dna_id:
+        raise ConflictError('仅可删除草稿、失败或已取消的任务；执行中的任务请先取消，已完成版本需保留')
+    # Keep the tombstone so an executor with a saved submission can discard it safely.
+    run.status='deleted';run.claim_id=None
+    _audit(session,'channel_analysis.deleted','channel_analysis_run',run.id,'从分析任务列表删除，保留材料与历史记录')
+    session.commit();return run
 
 
 def resume_run(session,run_id,stopped_confirmed=False):

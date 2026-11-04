@@ -180,7 +180,7 @@ def test_analysis_routes_classified_and_optional_oauth_refresh_is_explicit():
     from fastapi.testclient import TestClient
     paths=TestClient(app).get('/openapi.json').json()['paths']
     entries=[(m.upper(),path) for path,methods in paths.items() if 'analysis-runs' in path or 'channel-analysis/claims' in path for m in methods]
-    assert len(entries)==15
+    assert len(entries)==16
     for entry in entries:assert entry in TENANT_ROUTES
 
 

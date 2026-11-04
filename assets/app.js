@@ -518,7 +518,7 @@
     const label=run.status === "draft" ? "上传材料并开始" : run.status === "cancelled" ? "恢复分析"
       : run.status === "failed" ? "继续分析" : run.status === "running" ? "分析中"
       : run.status === "applied" ? "同步本地文件" : run.status === "ready" ? "重试交付文件" : "重试唤起";
-    return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
+    return `<div class="analysis-run-actions"><div class="analysis-secondary-actions">${["queued","running","failed","draft"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="cancel-channel-analysis" data-id="${run.id}">取消任务</button>` : ""}${["draft","failed","cancelled"].includes(run.status) ? `<button class="button button-secondary analysis-cancel" data-action="delete-channel-analysis" data-id="${run.id}" ${busy ? "disabled" : ""}>删除任务</button>` : ""}${run.result ? `<button class="button button-secondary" data-action="view-analysis-result" data-id="${run.id}">查看与下载结果</button>` : ""}${run.status === "ready" ? `<button class="button button-primary" data-action="apply-channel-analysis" data-id="${run.id}">应用此版本</button>` : ""}</div><div class="analysis-primary-slot">${action || run.status === "running" ? `<button class="button button-primary" ${action ? `data-action="${action}"` : ""} data-id="${run.id}" ${busy || run.status === "running" ? "disabled" : ""}>${busy ? "正在唤起…" : label}</button>` : ""}</div></div>`;
   }
   function analysisProgress(run) {
     const p=run.progress;
@@ -2560,6 +2560,18 @@
         const run=await api(`/analysis-runs/${id}`);openModal("分析材料",analysisMaterialsForm(run));
       }
       else if (action === "refresh-channel-analysis") await showChannelDetail(id,"analysis");
+      else if (action === "delete-channel-analysis") {
+        if (analysisActionPending.has(id)) return;
+        if (!window.confirm("确定删除这条分析任务？删除后将从列表移除，不能再恢复分析；已保存材料和历史记录保留，生产配置不受影响。")) return;
+        const revision=auth.capture(),channelId=state.channelDetailId;
+        analysisActionPending.add(id);button.disabled=true;
+        try {
+          await api(`/analysis-runs/${id}`,{method:"DELETE",expectedRevision:revision});
+          if (auth.isCurrent(revision) && state.channelDetailId===channelId) {
+            await showChannelDetail(channelId,"analysis");notify("分析任务已删除");
+          }
+        } finally {analysisActionPending.delete(id);button.disabled=false;}
+      }
       else if (action === "cancel-channel-analysis") {
         if (analysisActionPending.has(id)) return;
         if (!window.confirm("确定取消这条分析任务？已上传材料会保留，可稍后恢复。")) return;

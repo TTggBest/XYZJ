@@ -75,6 +75,12 @@ def screenshot_checks(run_id:str,body:Execution,s:Session=Depends(get_tenant_db)
     return service.run_read(call(service.record_screenshot_checks,s,run_id,body.claim_id,body.result or {}))
 
 
+@router.delete('/analysis-runs/{run_id}')
+def delete(run_id:str,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    row=call(service.delete_run,s,run_id)
+    return {'id':row.id,'status':row.status}
+
+
 @router.post('/analysis-runs/{run_id}/cancel')
 def cancel(run_id:str,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     return service.run_read(call(service.cancel_run,s,run_id))
