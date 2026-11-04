@@ -129,6 +129,43 @@ def test_staged_runner_uses_cloud_requests_and_preserves_server_rejection(tmp_pa
     assert not list(tmp_path.rglob('pending.json'))
 
 
+def test_staged_content_repair_continues_without_local_retry_history(tmp_path):
+    from zhiju.v14_executor.client import CloudConflict
+    from zhiju.v14_executor.runner import run_once
+    requests, outcomes = [], []
+    class Cloud:
+        def claim(self):
+            return {'run_id': 'r', 'work_order_id': 'w', 'claim_id': 'c',
+                    'account_profile': 'current', 'model': 'fixed', 'staged_inputs': True,
+                    'rules_snapshot': {}, 'accepted_nodes': ['search'],
+                    'node_sequence': ['search', 'title', 'merge']}
+        def begin(self, envelope, node):
+            return node
+        def stage_input(self, envelope, attempt, evidence=None):
+            requests.append(attempt)
+            return {'node_type': attempt,
+                    'prompt': 'server feedback' if 'content_error' in outcomes else 'first request',
+                    'schema': {}, 'item': {}, 'context': {}, 'rules': {}}
+        def submit(self, envelope, attempt, body):
+            outcomes.append(body['outcome'])
+            if len(outcomes) == 1:
+                raise CloudConflict('V14 验收失败: title must be revised')
+            return {'status': 'text_ready' if attempt == 'merge' else 'running'}
+    class Model:
+        account_profile = 'current'
+        calls = 0
+        def generate(self, stage, model):
+            self.calls += 1
+            assert stage.prompt == ('first request' if self.calls == 1 else 'server feedback')
+            return {'attempt': self.calls}
+    model = Model()
+    assert run_once(Cloud(), model, cache_root=tmp_path, recover=False)
+    assert model.calls == 2
+    assert requests == ['title', 'title', 'merge']
+    assert outcomes == ['accepted', 'content_error', 'accepted', 'accepted']
+    assert not list(tmp_path.rglob('pending.json'))
+
+
 @pytest.mark.parametrize('failure', [ConnectionError, RuntimeError])
 def test_one_connection_failure_does_not_cancel_other_workers(tmp_path, monkeypatch, failure):
     from zhiju.v14_executor import __main__ as cli

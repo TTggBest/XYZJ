@@ -173,7 +173,8 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                 if body["outcome"] == "accepted":
                     envelope["accepted_results"][node] = normalized
                     break
-                envelope["retry_state"].append({"node_type": node, "outcome": body["outcome"], "error": body.get("error"), "result": body.get("result")})
+                if not staged:
+                    envelope["retry_state"].append({"node_type": node, "outcome": body["outcome"], "error": body.get("error"), "result": body.get("result")})
         terminal=True
         return True
     finally:

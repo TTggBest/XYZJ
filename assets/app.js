@@ -1284,8 +1284,12 @@
     const launcherHealth = canRunV14() && tasks.some(item => ["queued", "running", "heartbeat_delayed"].includes(item.execution_status)) ? await localExecutorHealth() : null;
     if (actor !== auth.current() || state.view !== "workorders" || date !== state.date) return;
     state.tasks = tasks;
+    const wakeable = tasks.filter(item => ["queued", "running", "heartbeat_delayed"].includes(item.execution_status));
+    const executorRunning = launcherHealth?.tenant_id === actor?.tenant_id && launcherHealth.running === true &&
+      wakeable.some(item => item.execution_host_id === launcherHealth.host_id);
+    const wakeButton = canRunV14() ? `<button class="button button-secondary" data-action="v14-wake-all" ${!wakeable.length || executorRunning ? "disabled" : ""}>${icon("play")} ${executorRunning ? "执行器运行中" : "一键唤醒"}</button>` : "";
     const rows = tasks.map((item, index) => { const launcherError = localExecutorError(launcherHealth, item.execution_host_id, item.execution_status); return `<tr><td class="serial-cell">${index + 1}</td><td><input type="checkbox" class="task-check" value="${item.task_id}" ${item.task_status !== "pending_dispatch" ? "disabled" : ""}></td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td>${sourceVideoCell(item, "task")}</td><td><span class="cell-main">${esc(item.channel_name)}</span><span class="cell-sub mono">${esc(item.batch_number || "未分批")}</span></td><td>${fmt(item.planned_beijing_time || item.target_publish_date)}</td><td>${communityCountCell(item, "tasks")}</td><td>${workorderState(item, launcherError)}${["running", "heartbeat_delayed"].includes(item.execution_status) && item.execution_heartbeat_at ? `<span class="cell-sub" title="超过 150 秒未收到心跳只表示连接待确认，不代表任务已停止；请先查看详情">最近心跳：${fmt(item.execution_heartbeat_at)}</span>` : ""}${workorderWarning(item, launcherError)}</td><td>${item.work_order_id ? `${nodesStrip(item.nodes)}${progress(item.progress_percent)}` : `<span class="cell-sub">等待开始生产</span>`}</td><td><div class="row-actions">${workorderActions(item, launcherError)}</div></td></tr>`; });
-    const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button>${canRunV14() ? `<button class="button button-secondary" data-action="v14-resume-all" ${interruptedWorkorders().length ? "" : "disabled"}>${icon("rotate-ccw")} 一键恢复（${interruptedWorkorders().length}）</button>` : ""}</div>`;
+    const tools = `<div class="toolbar"><div class="field"><label>工单日期</label><input class="input" type="date" id="workDate" value="${state.date}"></div><button class="button button-secondary" data-action="sync-feishu-workorders">${icon("refresh-cw")} 一键同步飞书</button><button class="button button-secondary" data-action="dispatch-selected">开始生产选中</button><button class="button button-primary" data-action="dispatch-all">${icon("play")} 一键开始待生产</button>${canRunV14() ? `<button class="button button-secondary" data-action="v14-resume-all" ${interruptedWorkorders().length ? "" : "disabled"}>${icon("rotate-ccw")} 一键恢复（${interruptedWorkorders().length}）</button>` : ""}${wakeButton}</div>`;
     const subtitle = window.ZhijuOperationsPageData.workOrderSubtitle(tasks) + " · 排序：频道自定义顺序 → 计划发布时间";
     root.innerHTML = `<div class="page-stack">${versionPicker ? `<section class="section"><div class="toolbar">${versionPicker}${auth.canView("settings", state.deviceRole) ? '<button class="button button-secondary" data-action="workflow-settings">管理运营包流程版本</button>' : ""}<span class="settings-muted">生成运营包时使用所选版本；已有成品不变。</span></div></section>` : ''}${section("工单列表", subtitle, rows.length ? table(["序号", "", "剧目", "Video ID / 链接", "频道 / 批次", "计划发布", "社群", "状态", "生产进度", ""], rows, 1240) : empty("当天没有工单", "可从飞书同步，或先在排期页面生成工单。", "sync-feishu-workorders", "一键同步飞书"), tools)}</div>`;
   }
@@ -2516,6 +2520,27 @@
         await api(`/work-orders/${id}/v14-runs`, { method: "POST", body: productionVersionBody(), expectedRevision: revision });
         await wakeV14Executor(config, revision);
         notify("已唤起本机 V14 执行器，处理完队列后自动退出"); await workDetail(id);
+      }
+      else if (action === "v14-wake-all") {
+        if (taskStartingV14) return;
+        if (!state.tasks.some(item => ["queued", "running", "heartbeat_delayed"].includes(item.execution_status))) return notify("没有等待执行器处理的工单");
+        taskStartingV14 = true;
+        button.disabled = true;
+        try {
+          const revision = auth.capture();
+          const config = await prepareV14Executor(revision);
+          const health = await localExecutorHealth();
+          if (health?.tenant_id === config.tenant_id && health.host_id === config.host_id && health.running) {
+            notify("执行器正在运行，无需重复唤醒");
+          } else {
+            await wakeV14Executor(config, revision);
+            notify("已一键唤醒本机执行器，保留各工单已完成阶段");
+          }
+          if (auth.isCurrent(revision) && state.view === "workorders") await loadView("workorders", {preservePosition: true});
+        } finally {
+          taskStartingV14 = false;
+          button.disabled = false;
+        }
       }
       else if (action === "v14-wake") {
         button.disabled = true;
