@@ -6,18 +6,19 @@ from test_v14_api import client, PRINCIPAL
 from test_v14_runs import store
 from zhiju import auth_context
 from zhiju.database import TenantSession
-from zhiju.models import Channel, ChannelPublishSlot, Drama, DramaProductionState, ChannelDnaVersion, WorkOrder
+from zhiju.models import Channel, ChannelPublishSlot, Drama, DramaProductionState, ChannelDnaVersion, WorkOrder, PublishCadenceTemplateSlot
 from zhiju.models.v14 import V14Setting
 
 
 def seed(store):
     with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
         s.get(Channel,'channel-a').default_language='en'
+        s.get(Channel,'channel-a').timezone='America/New_York'
         d=s.get(Drama,'drama-a');d.content_summary='女主遭到背叛后夺回公司。'
         s.add(DramaProductionState(drama_id='drama-a',production_completion_status='completed',
             finished_languages=['en'],total_duration_seconds=7200))
-        s.add(ChannelPublishSlot(id='slot-plan',channel_id='channel-a',slot_type='main',slot_number=1,
-            local_time=time(20),timezone='America/New_York',status='active'))
+        s.add(PublishCadenceTemplateSlot(id='slot-plan',daily_publish_count=1,slot_type='main',slot_number=1,
+            local_video_time=time(20),engagement_offset_minutes=120))
         s.commit()
 
 
@@ -45,6 +46,15 @@ def test_http_preview_confirm_and_readback(client,store):
     assert rows[0]['planned_beijing_time'].startswith('2026-11-04T09:00:00')
     assert client.post(f'/api/v3/schedule-plans/{pid}/apply').json()['status']=='applied'
     assert len(client.get('/api/v3/schedules').json())==1
+    overview=client.get('/api/v3/schedules/overview',params={
+        'channel_id':'channel-a','date_from':'2026-11-04','date_to':'2026-11-04'})
+    assert overview.status_code==200,overview.text
+    assert overview.json()[0]['slot_type']=='main'
+    assert overview.json()[0]['slot_local_time']=='20:00:00'
+    task=client.post('/api/v3/tasks',json={'schedule_id':rows[0]['id'],'task_date':'2026-11-03',
+        'idempotency_key':'planning-cadence-task'})
+    assert task.status_code==201,task.text
+    assert task.json()['publish_slot_id']==rows[0]['publish_slot_id']
 
 
 def test_http_operator_and_tenant_boundaries(client,store):

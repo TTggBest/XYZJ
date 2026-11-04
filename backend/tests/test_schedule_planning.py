@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timezone
 import pytest
 from sqlalchemy import create_engine, select
 from zhiju.database import TenantSession
-from zhiju.models import Base, Channel, ChannelPublishSlot, Drama, DramaProductionState
+from zhiju.models import Base, Channel, ChannelPublishSlot, Drama, DramaProductionState, PublishCadenceTemplateSlot
 from zhiju.services import operations
 
 
@@ -16,8 +16,8 @@ def data():
         drama = Drama(drama_number=1, drama_code='D1', chinese_title='重获人生', normalized_title='重获人生',
                       status='active', content_summary='女主遭到背叛后夺回公司。')
         s.add_all([channel, drama]); s.flush()
-        slot = ChannelPublishSlot(channel_id=channel.id, slot_type='main', slot_number=1,
-                                  local_time=time(20), timezone='America/New_York', status='active')
+        slot = PublishCadenceTemplateSlot(daily_publish_count=1,slot_type='main',slot_number=1,
+                                          local_video_time=time(20),engagement_offset_minutes=120)
         state = DramaProductionState(drama_id=drama.id, production_completion_status='completed',
                                      finished_languages=['en'], total_duration_seconds=7200)
         s.add_all([slot, state]); s.commit()
@@ -90,7 +90,7 @@ def test_apply_rechecks_changed_inputs_and_writes_nothing(data,change):
     if change=='language':state.finished_languages=[]
     if change=='duration':state.total_duration_seconds=1200
     if change=='expiry':d.expires_at=datetime(2026,11,1,tzinfo=timezone.utc)
-    if change=='slot':slot.local_time=time(21)
+    if change=='slot':slot.local_video_time=time(21)
     if change=='plot':d.content_summary='另一段完全不同的剧情'
     s.commit()
     with pytest.raises(ConflictError):service.apply_plan(s,plan.id)
@@ -105,7 +105,10 @@ def test_all_existing_dates_and_slots_are_protected(data):
     from zhiju.services.identity import ConflictError
     s,c,d,slot,state=data
     plan=ready(data)
-    operations.create_schedule(s,c.id,ScheduleCreate(drama_id=d.id,publish_slot_id=slot.id,
+    stored=ChannelPublishSlot(channel_id=c.id,slot_type='main',slot_number=1,local_time=time(20),
+                              timezone=c.timezone,status='active')
+    s.add(stored);s.commit()
+    operations.create_schedule(s,c.id,ScheduleCreate(drama_id=d.id,publish_slot_id=stored.id,
         publish_date=date(2026,11,3),idempotency_key='manual-existing'))
     with pytest.raises(ConflictError):service.apply_plan(s,plan.id)
     rows=list(s.scalars(select(ChannelScheduleEntry)))

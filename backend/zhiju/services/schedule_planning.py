@@ -5,7 +5,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from zhiju.models import (Channel, ChannelSchedulePlan, ChannelScheduleEntry, ChannelPublishSlot,
-    Drama, DramaProductionState, ChannelDnaVersion, ScheduleCandidate, ScheduleChangeHistory, Language)
+    Drama, DramaProductionState, ChannelDnaVersion, ScheduleCandidate, ScheduleChangeHistory, Language, PublishCadenceTemplateSlot)
 from zhiju.models.v14 import V14Setting
 from zhiju.services import channel_guidance, operations, skill_catalog
 from zhiju.services.identity import ConflictError, _audit
@@ -74,16 +74,58 @@ def candidate_pool(session,channel):
     return pool,excluded
 
 
-def active_slots(session,channel_id,daily_count):
-    slots=list(session.scalars(select(ChannelPublishSlot).where(ChannelPublishSlot.channel_id==channel_id,
-        ChannelPublishSlot.status=='active').order_by(ChannelPublishSlot.local_time,ChannelPublishSlot.id)))
-    if len(slots)<daily_count:
-        raise ConflictError('频道启用档位不足，请先配置所需数量的频道档期')
-    # A one-release plan uses the explicit main slot; larger plans add configured auxiliary slots.
-    slots=sorted(slots,key=lambda r:(r.slot_type!='main',r.slot_number,r.local_time))[:daily_count]
-    slots.sort(key=lambda r:(r.local_time,r.id))
-    return [{'id':r.id,'slot_type':r.slot_type,'slot_number':r.slot_number,'local_time':r.local_time.isoformat(),
-             'timezone':r.timezone} for r in slots]
+def cadence_slots(session,channel_id,daily_count):
+    channel=require_tenant_entity(session,Channel,channel_id)
+    slots=list(session.scalars(select(PublishCadenceTemplateSlot).where(
+        PublishCadenceTemplateSlot.daily_publish_count==daily_count)
+        .order_by(PublishCadenceTemplateSlot.slot_number)))
+    if len(slots)!=daily_count:
+        raise ConflictError(f'所选{daily_count}更的统一档期模板未配置完整，请在频道档期表中配置')
+    return [{'id':r.id,'slot_type':r.slot_type,'slot_number':r.slot_number,
+             'local_time':r.local_video_time.isoformat(),'timezone':channel.timezone} for r in slots]
+
+
+def occupied_targets(session,channel_id,slots,dates):
+    """Match saved schedule definitions to template slots, including historical archived slots."""
+    rows=session.execute(select(ChannelScheduleEntry,ChannelPublishSlot).outerjoin(
+        ChannelPublishSlot,ChannelPublishSlot.id==ChannelScheduleEntry.publish_slot_id).where(
+        ChannelScheduleEntry.channel_id==channel_id,ChannelScheduleEntry.publish_date.in_(dates))).all()
+    occupied=set()
+    counts={}
+    for schedule,_ in rows:
+        counts[schedule.publish_date]=counts.get(schedule.publish_date,0)+1
+    for schedule,stored in rows:
+        if counts[schedule.publish_date]>=len(slots):
+            occupied.update((schedule.publish_date.isoformat(),slot['id']) for slot in slots)
+            continue
+        if stored is None:raise ConflictError('已有排期缺少档位记录，请先核对该日期的排期')
+        same_type=[slot for slot in slots if slot['slot_type']==stored.slot_type]
+        if len(same_type)==1:
+            occupied.add((schedule.publish_date.isoformat(),same_type[0]['id']))
+        elif same_type:
+            matches=[slot for slot in same_type if slot['local_time']==stored.local_time.isoformat()
+                     and slot['timezone']==stored.timezone]
+            if len(matches)!=1:
+                raise ConflictError('所选日期已有辅档排期与当前统一模板不一致，请先核对已有排期')
+            occupied.add((schedule.publish_date.isoformat(),matches[0]['id']))
+    return occupied
+
+
+def stored_slot(session,channel_id,template_slot):
+    """Reuse an identical frozen definition; never reactivate or edit historical slots."""
+    from datetime import time
+    clock=time.fromisoformat(template_slot['local_time'])
+    slot=session.scalar(select(ChannelPublishSlot).where(ChannelPublishSlot.channel_id==channel_id,
+        ChannelPublishSlot.slot_type==template_slot['slot_type'],ChannelPublishSlot.local_time==clock,
+        ChannelPublishSlot.timezone==template_slot['timezone']).order_by(
+            (ChannelPublishSlot.status!='archived'),ChannelPublishSlot.slot_number).limit(1))
+    if slot is None:
+        number=(session.scalar(select(func.max(ChannelPublishSlot.slot_number)).where(
+            ChannelPublishSlot.channel_id==channel_id,ChannelPublishSlot.slot_type==template_slot['slot_type'])) or 0)+1
+        slot=ChannelPublishSlot(channel_id=channel_id,slot_type=template_slot['slot_type'],slot_number=number,
+            local_time=clock,timezone=template_slot['timezone'],status='archived')
+        session.add(slot);session.flush()
+    return slot
 
 
 def create_plan(session,channel_id,start_date,end_date,daily_count):
@@ -96,10 +138,11 @@ def create_plan(session,channel_id,start_date,end_date,daily_count):
     setting=session.scalar(select(V14Setting))
     if not setting:raise ConflictError('请先配置 Codex 执行主机和模型')
     guidance=channel_guidance.resolve(session,channel_id)
-    slots=active_slots(session,channel_id,daily_count)
+    slots=cadence_slots(session,channel_id,daily_count)
     pool,excluded=candidate_pool(session,channel)
     existing=list(session.scalars(select(ChannelScheduleEntry).where(ChannelScheduleEntry.channel_id==channel_id)))
-    occupied={(r.publish_date.isoformat(),r.publish_slot_id) for r in existing}
+    dates=[start_date+timedelta(days=offset) for offset in range((end_date-start_date).days+1)]
+    occupied=occupied_targets(session,channel_id,slots,dates)
     targets=[]
     for offset in range((end_date-start_date).days+1):
         day=(start_date+timedelta(days=offset)).isoformat()
@@ -174,7 +217,7 @@ def apply_plan(session,plan_id):
     snapshot=row.input_snapshot
     if channel.default_language!=snapshot['channel']['default_language']:
         raise ConflictError('频道语言已变化，请重新规划')
-    if active_slots(session,channel.id,snapshot['daily_count'])!=snapshot['slots']:
+    if cadence_slots(session,channel.id,snapshot['daily_count'])!=snapshot['slots']:
         raise ConflictError('频道档位已变化，请重新规划')
     result=validate_result(row,row.result)
     selected=[r for r in result['rows'] if r['drama_id']]
@@ -184,7 +227,8 @@ def apply_plan(session,plan_id):
     for entry in selected:
         if entry['drama_id'] not in current:raise ConflictError('候选剧已失效或已排入本频道，请重新规划')
         if current[entry['drama_id']]!=frozen[entry['drama_id']]:raise ConflictError('候选剧资料已变化，请重新规划')
-    existing={(r.publish_date.isoformat(),r.publish_slot_id) for r in session.scalars(select(ChannelScheduleEntry).where(ChannelScheduleEntry.channel_id==channel.id))}
+    existing=occupied_targets(session,channel.id,snapshot['slots'],
+        {date.fromisoformat(r['publish_date']) for r in selected})
     if any((r['publish_date'],r['publish_slot_id']) in existing for r in selected):
         raise ConflictError('预览后的档位已被占用，请重新规划；未保存任何新排期')
     guidance=snapshot['guidance'];dna_id=guidance['dna_id']
@@ -194,10 +238,14 @@ def apply_plan(session,plan_id):
             dna=ChannelDnaVersion(channel_id=channel.id,version_number=version,status='draft',language=channel.default_language,
                 primary_genre=channel.default_genre or '冷启动定位',audience_summary=guidance['profile'],reference_summary=guidance['generation_spec'])
             session.add(dna);session.flush();dna_id=dna.id
+        definitions={slot['id']:slot for slot in snapshot['slots']}
+        selected_slot_ids={r['publish_slot_id'] for r in selected}
+        saved_slots={key:stored_slot(session,channel.id,slot) for key,slot in definitions.items()
+                     if key in selected_slot_ids}
         ids=[]
         for entry in selected:
             schedule=ChannelScheduleEntry(channel_id=channel.id,drama_id=entry['drama_id'],channel_dna_version_id=dna_id,
-                publish_slot_id=entry['publish_slot_id'],publish_date=date.fromisoformat(entry['publish_date']),
+                publish_slot_id=saved_slots[entry['publish_slot_id']].id,publish_date=date.fromisoformat(entry['publish_date']),
                 planned_local_time=datetime.fromisoformat(entry['planned_local_time']),
                 planned_utc_time=datetime.fromisoformat(entry['planned_utc_time']),
                 planned_beijing_time=datetime.fromisoformat(entry['planned_beijing_time']),
