@@ -8,12 +8,13 @@ from pathlib import Path
 from uuid import uuid4
 import yaml
 from sqlalchemy import select, func, or_, literal, union_all
+from sqlalchemy.orm import aliased
 from zhiju.config import get_settings
 from zhiju.models import (Channel, ChannelProfile, ChannelPlaylist, ChannelAnalysisRun,
     ChannelAnalysisReport, ChannelAudienceProfile, ChannelDnaVersion, YoutubeVideo,
     YoutubeChannelDailyMetric, AccountChannelAuthorization, OAuthGrant)
 from zhiju.models.v14 import V14Setting
-from zhiju.services.identity import ConflictError, _audit
+from zhiju.services.identity import ConflictError, _audit, channel_order_columns
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.channel_analysis_rules.validate_generation_spec import validate_text
 
@@ -92,6 +93,44 @@ def analysis_history(session,channel_id,page=1,page_size=10):
         row['can_apply']=row['status']=='ready' and (not current or row['created_at']>=current[0]['created_at'])
     return {'items':items,'total':total,'page':page,'page_size':page_size,'pages':pages,
             'current':current[0] if current else None}
+
+
+def analysis_workspace(session,view='results',page=1,page_size=20,search=''):
+    """Tenant-wide lightweight channel results and live task monitor."""
+    r=ChannelAnalysisRun;c=Channel
+    counts=dict(session.execute(select(r.status,func.count()).where(r.status!='deleted').group_by(r.status)).all())
+    stats={key:counts.get(key,0) for key in ('running','queued','failed')}
+    stats['worker_limit']=10
+    setting=session.scalar(select(V14Setting));inputs=setting.payload.get('channel_inputs',{}) if setting else {}
+    def enrich(ids):
+        rows=run_summaries(session,ids,None)
+        for row in rows:row['is_current']=row['id']==((inputs.get(row['channel_id'],{}).get('analysis_version') or {}).get('run_id'))
+        return {row['id']:row for row in rows}
+    if view=='progress':
+        condition=(r.status.in_(['queued','running','failed']),c.deleted_at.is_(None))
+        total=session.scalar(select(func.count()).select_from(r).join(c,(c.id==r.channel_id)&(c.tenant_id==r.tenant_id)).where(*condition))
+        pages=max(1,(total+page_size-1)//page_size);page=min(page,pages)
+        selected=session.execute(select(r.id,c.id.label('channel_id'),c.original_name,c.operational_name)
+            .join(c,(c.id==r.channel_id)&(c.tenant_id==r.tenant_id)).where(*condition)
+            .order_by(r.created_at.desc(),r.id.desc()).offset((page-1)*page_size).limit(page_size)).mappings().all()
+        runs=enrich([row['id'] for row in selected])
+        items=[{'channel_id':row['channel_id'],'channel_name':row['operational_name'] or row['original_name'],'run':runs[row['id']]} for row in selected]
+    else:
+        condition=[c.deleted_at.is_(None)]
+        if search.strip():condition.append(or_(c.original_name.contains(search.strip()),c.operational_name.contains(search.strip())))
+        total=session.scalar(select(func.count()).select_from(c).where(*condition))
+        pages=max(1,(total+page_size-1)//page_size);page=min(page,pages)
+        channels=session.execute(select(c.id,c.original_name,c.operational_name).where(*condition)
+            .order_by(*channel_order_columns()).offset((page-1)*page_size).limit(page_size)).mappings().all()
+        channel_ids=[row['id'] for row in channels]
+        ranked=select(r.id,r.channel_id,func.row_number().over(partition_by=r.channel_id,order_by=(r.created_at.desc(),r.id.desc())).label('position'))            .where(r.channel_id.in_(channel_ids),r.status!='deleted').subquery()
+        latest=dict(session.execute(select(ranked.c.channel_id,ranked.c.id).where(ranked.c.position==1)).all())
+        current={id:(inputs.get(id,{}).get('analysis_version') or {}).get('run_id') for id in channel_ids}
+        ids=list(dict.fromkeys([id for id in [*latest.values(),*current.values()] if id]))
+        runs=enrich(ids)
+        items=[{'channel_id':row['id'],'channel_name':row['operational_name'] or row['original_name'],
+                'current':runs.get(current[row['id']]),'latest':runs.get(latest.get(row['id']))} for row in channels]
+    return {'items':items,'total':total,'page':page,'pages':pages,'page_size':page_size,'stats':stats}
 
 
 def run_read(run):
@@ -220,10 +259,13 @@ def start_run(session, run_id):
 
 
 def claim_run(session, host_id):
-    setting=session.scalar(select(V14Setting))
+    setting=session.scalar(select(V14Setting).with_for_update())
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
+    other=aliased(ChannelAnalysisRun)
+    busy=select(other.id).where(other.tenant_id==ChannelAnalysisRun.tenant_id,
+        other.channel_id==ChannelAnalysisRun.channel_id,other.status=='running').exists()
     run_id=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.host_id==host_id,
-        ChannelAnalysisRun.status=='queued').order_by(ChannelAnalysisRun.created_at).with_for_update(skip_locked=True).limit(1))
+        ChannelAnalysisRun.status=='queued',~busy).order_by(ChannelAnalysisRun.created_at).with_for_update(skip_locked=True).limit(1))
     if run_id is None:return None
     run=get_run(session,run_id,True)
     run.claim_id=str(uuid4());run.status='running';run.heartbeat_at=datetime.now(timezone.utc)
@@ -255,9 +297,14 @@ def delete_run(session,run_id):
 
 
 def resume_run(session,run_id,stopped_confirmed=False):
-    run=get_run(session,run_id,True)
+    run=get_run(session,run_id)
+    require_tenant_entity(session,Channel,run.channel_id,lock=True)
+    run=get_run(session,run_id,True);session.refresh(run)
     if not stopped_confirmed or run.status not in {'failed','running','cancelled'}:
         raise ConflictError('继续前请确认旧执行已停止')
+    existing=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id==run.channel_id,
+        ChannelAnalysisRun.id!=run.id,ChannelAnalysisRun.status.in_(['draft','queued','running'])).with_for_update().limit(1))
+    if existing:raise ConflictError('频道已有未结束的分析任务，请先完成或取消该任务')
     run.claim_id=None;run.error=None
     run.status='draft' if run.phase=='materials' else 'queued'
     session.commit();return run

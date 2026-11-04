@@ -1001,3 +1001,7 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .analysis-loading-spinner { flex: 0 0 24px; height: 24px; border: 3px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: analysis-loading-spin 1s linear infinite; }
 @keyframes analysis-loading-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .analysis-loading-spinner { animation: none; } }
+.analysis-monitor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+.analysis-monitor-grid .hub-record { margin: 0; align-content: start; overflow-wrap: anywhere; }
+.analysis-workspace-search { margin: 12px 0; }
+.analysis-workspace-search .input { max-width: 340px; }

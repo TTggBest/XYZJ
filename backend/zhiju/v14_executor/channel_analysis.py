@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from types import SimpleNamespace
 from threading import Event, Thread, Lock
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from time import monotonic
 import json
 import re
@@ -436,7 +437,7 @@ class AnalysisProgress:
         self.client.request('POST',f"/analysis-runs/{self.run['id']}/heartbeat",{'claim_id':self.run['claim_id'],'progress':value})
 
 
-def drain(client,model,config,cache_root,once=False):
+def recover_cached(client,config,cache_root):
     cache_root=Path(cache_root);cache_root.mkdir(parents=True,exist_ok=True)
     workspace=Path(config.get('analysis_workspace_root',str(Path.home()/'Documents/智矩频道分析'))).expanduser()
     for pending in cache_root.glob('*/pending.json'):
@@ -456,69 +457,113 @@ def drain(client,model,config,cache_root,once=False):
                 if run['status']=='applied' or run['mode']=='periodic' or run['input_snapshot'].get('cold_start'):client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'paths':paths})
             except OSError as exc:
                 client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'error':str(exc)})
-    while True:
-        principal=client.request('GET','/auth/me')
-        if principal['tenant_id']!=client.tenant_id:raise PermissionError('当前会话公司不匹配')
-        run=client.request('POST','/channel-analysis/claims',{'host_id':client.host_id})
-        if not run:return
-        if run['tenant_id']!=client.tenant_id:raise PermissionError('分析任务公司不匹配')
-        root=cache_root/run['id'];root.mkdir(parents=True,exist_ok=True)
-        finished=Event();cancelled=Event();progress=AnalysisProgress(client,run)
-        def heartbeat():
-            while not finished.wait(15):
-                try:progress.send()
-                except (PermissionError,CloudConflict):cancelled.set();return
-                except ConnectionError:pass
-        thread=Thread(target=heartbeat,daemon=True);thread.start();model.cancelled=cancelled.is_set
-        body={'claim_id':run['claim_id']}
+
+
+def claim_analysis(client):
+    principal=client.request('GET','/auth/me')
+    if principal['tenant_id']!=client.tenant_id:raise PermissionError('当前会话公司不匹配')
+    run=client.request('POST','/channel-analysis/claims',{'host_id':client.host_id})
+    if run and run['tenant_id']!=client.tenant_id:raise PermissionError('分析任务公司不匹配')
+    return run
+
+
+def process_claimed(client,model,config,cache_root,run,stop_event=None):
+    cache_root=Path(cache_root);cache_root.mkdir(parents=True,exist_ok=True)
+    workspace=Path(config.get('analysis_workspace_root',str(Path.home()/'Documents/智矩频道分析'))).expanduser()
+    root=cache_root/run['id'];root.mkdir(parents=True,exist_ok=True)
+    finished=Event();cancelled=Event();progress=AnalysisProgress(client,run)
+    stopped=stop_event if stop_event is not None else Event()
+    def heartbeat():
+        while not finished.wait(15):
+            try:progress.send()
+            except PermissionError:stopped.set();cancelled.set();return
+            except CloudConflict:cancelled.set();return
+            except ConnectionError:pass
+    thread=Thread(target=heartbeat,daemon=True);thread.start();model.cancelled=lambda:cancelled.is_set() or stopped.is_set()
+    body={'claim_id':run['claim_id']}
+    try:
+        progress.set('collect',0,1,'准备与采集资料')
+        if run['mode']=='periodic':
+            directory=resolve_channel_directory(run,workspace)
+            if not directory.is_dir():raise OSError('本机频道目录不存在：'+str(directory))
+        if run['mode']=='periodic':body['initial_context']=prepare_formal_context(run,workspace)
+        normalized=prepare_cold_start(run,workspace) if run['input_snapshot'].get('cold_start') else None
+        if normalized is not None:body['initial_context']={'channel':run['input_snapshot']['channel'],'facts':run['input_snapshot']['initial_facts'],'source_manifest':normalized['source_manifest']}
+        run=client.request('POST',f"/analysis-runs/{run['id']}/collect",body,timeout=900)
+        if normalized is not None:
+            run['input_snapshot']['sources']={'normalized':normalized}
+            run['input_snapshot']['initial_facts']=normalized['initial_facts']
+        for material in run['materials']:
+            target=root/'materials'/(material['id']+material['suffix']);target.parent.mkdir(exist_ok=True)
+            if not target.exists():target.write_bytes(client.download_analysis_material(run['id'],material['id']))
+        if model.account_profile!=run['input_snapshot']['account_profile']:raise RuntimeError('分析账号绑定不一致')
+        client.request('POST',f"/analysis-runs/{run['id']}/heartbeat",body)
+        if cancelled.is_set():raise RuntimeError('分析已取消')
+        if run['mode']=='periodic':run=generate_screenshots(client,model,run,root,progress.set)
+        result=generate_documents(model,run,root,progress.set)
+        progress.set('delivery',3,3,'校验与交付分析结果')
+        result['normalized_snapshot']=normalized if normalized is not None else run['input_snapshot']['sources']['fact_snapshot'] if run['mode']=='periodic' else json.loads(result['normalized_snapshot'])
+        try:result=bind_analysis_result(result,run)
+        except ValueError as exc:
+            reject_document_checkpoints(root,str(exc))
+            raise
+        body['result']=result
+    except (RuntimeError,ValueError,OSError) as exc:
+        if isinstance(exc,(PermissionError,ConnectionError)):raise
+        body['error']=str(exc)[:4000]
+    finally:
+        finished.set();thread.join(timeout=1)
+    pending=root/'pending.json';pending.write_text(json.dumps({'run_id':run['id'],'body':body},ensure_ascii=False))
+    try:response=submit_cached(client,pending)
+    except CloudConflict as exc:
+        # Validation failures retain raw output and become a visible, resumable error.
+        current=client.request('GET',f"/analysis-runs/{run['id']}")
+        if current['status']!='running' or current['claim_id']!=body['claim_id']:
+            pending.replace(root/'abandoned.json')
+            return
+        pending.replace(root/'rejected.json')
+        if body.get('result') is not None:reject_document_checkpoints(root,str(exc))
+        failure={'claim_id':body['claim_id'],'error':str(exc),'result':body.get('result')}
+        pending.write_text(json.dumps({'run_id':run['id'],'body':failure},ensure_ascii=False))
+        response=submit_cached(client,pending)
+    if response['status'] in {'ready','applied'}:
         try:
-            progress.set('collect',0,1,'准备与采集资料')
-            if run['mode']=='periodic':
-                directory=resolve_channel_directory(run,workspace)
-                if not directory.is_dir():raise OSError('本机频道目录不存在：'+str(directory))
-            if run['mode']=='periodic':body['initial_context']=prepare_formal_context(run,workspace)
-            normalized=prepare_cold_start(run,workspace) if run['input_snapshot'].get('cold_start') else None
-            if normalized is not None:body['initial_context']={'channel':run['input_snapshot']['channel'],'facts':run['input_snapshot']['initial_facts'],'source_manifest':normalized['source_manifest']}
-            run=client.request('POST',f"/analysis-runs/{run['id']}/collect",body,timeout=900)
-            if normalized is not None:
-                run['input_snapshot']['sources']={'normalized':normalized}
-                run['input_snapshot']['initial_facts']=normalized['initial_facts']
-            for material in run['materials']:
-                target=root/'materials'/(material['id']+material['suffix']);target.parent.mkdir(exist_ok=True)
-                if not target.exists():target.write_bytes(client.download_analysis_material(run['id'],material['id']))
-            if model.account_profile!=run['input_snapshot']['account_profile']:raise RuntimeError('分析账号绑定不一致')
-            client.request('POST',f"/analysis-runs/{run['id']}/heartbeat",body)
-            if cancelled.is_set():raise RuntimeError('分析已取消')
-            if run['mode']=='periodic':run=generate_screenshots(client,model,run,root,progress.set)
-            result=generate_documents(model,run,root,progress.set)
-            progress.set('delivery',3,3,'校验与交付分析结果')
-            result['normalized_snapshot']=normalized if normalized is not None else run['input_snapshot']['sources']['fact_snapshot'] if run['mode']=='periodic' else json.loads(result['normalized_snapshot'])
-            try:result=bind_analysis_result(result,run)
-            except ValueError as exc:
-                reject_document_checkpoints(root,str(exc))
-                raise
-            body['result']=result
-        except (RuntimeError,ValueError,OSError) as exc:
-            if isinstance(exc,(PermissionError,ConnectionError)):raise
-            body['error']=str(exc)[:4000]
-        finally:
-            finished.set();thread.join(timeout=1)
-        pending=root/'pending.json';pending.write_text(json.dumps({'run_id':run['id'],'body':body},ensure_ascii=False))
-        try:response=submit_cached(client,pending)
-        except CloudConflict as exc:
-            # Validation failures retain raw output and become a visible, resumable error.
-            current=client.request('GET',f"/analysis-runs/{run['id']}")
-            if current['status']!='running' or current['claim_id']!=body['claim_id']:raise
-            pending.replace(root/'rejected.json')
-            if body.get('result') is not None:reject_document_checkpoints(root,str(exc))
-            failure={'claim_id':body['claim_id'],'error':str(exc),'result':body.get('result')}
-            pending.write_text(json.dumps({'run_id':run['id'],'body':failure},ensure_ascii=False))
-            response=submit_cached(client,pending)
-        if response['status'] in {'ready','applied'}:
-            try:
-                paths=mirror(response,root,workspace)
-                if response['mode']=='periodic' or response['input_snapshot'].get('cold_start'):
-                    client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'paths':paths})
-            except OSError as exc:
-                client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'error':str(exc)})
+            paths=mirror(response,root,workspace)
+            if response['mode']=='periodic' or response['input_snapshot'].get('cold_start'):
+                client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'paths':paths})
+        except OSError as exc:
+            client.request('POST',f"/analysis-runs/{run['id']}/mirror-complete",{'claim_id':run['claim_id'],'error':str(exc)})
+
+
+
+def drain(client,model,config,cache_root,once=False):
+    recover_cached(client,config,cache_root)
+    while True:
+        run=claim_analysis(client)
+        if not run:return
+        process_claimed(client,model,config,cache_root,run)
         if once:return
+
+
+def drain_parallel(client_factory,model_factory,config,cache_root,workers=10,poll_interval=2):
+    """One coordinator claims work; each channel owns its client, model and cache."""
+    client=client_factory()
+    recover_cached(client,config,cache_root)
+    stopped=Event();pool=ThreadPoolExecutor(max_workers=workers);pending=set()
+    try:
+        while not stopped.is_set():
+            finished={future for future in pending if future.done()}
+            for future in finished:
+                pending.remove(future);future.result()
+            empty=False
+            while len(pending)<workers and not stopped.is_set():
+                run=claim_analysis(client)
+                if not run:empty=True;break
+                pending.add(pool.submit(process_claimed,client_factory(),model_factory(),config,cache_root,run,stopped))
+            if empty and not pending:return
+            # Keep spare capacity available for channels queued while another runs.
+            if pending:wait(pending,timeout=poll_interval,return_when=FIRST_COMPLETED)
+        for future in pending:future.result()
+    finally:
+        stopped.set()
+        pool.shutdown(wait=True,cancel_futures=True)

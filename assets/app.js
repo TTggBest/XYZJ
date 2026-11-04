@@ -30,7 +30,7 @@
   ];
   const VIEW_META = {
     channelLedger: ["频道", "剧目台账"],
-    dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
+    channelAnalysis: ["频道", "频道分析"], dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
@@ -554,6 +554,44 @@
     const pager=`<div class="pagination"><span>共 ${h.total ?? h.items.length} 条 · 第 ${h.page} / ${h.pages} 页 · 每页 10 条</span><button class="button button-secondary button-small" data-action="analysis-history-page" data-id="${esc(detail.channel.id)}" data-page="${h.page-1}" ${h.page<=1 ? "disabled" : ""}>上一页</button><button class="button button-secondary button-small" data-action="analysis-history-page" data-id="${esc(detail.channel.id)}" data-page="${h.page+1}" ${h.page>=h.pages ? "disabled" : ""}>下一页</button></div>`;
     return binding+working+`<section class="analysis-history"><h3>历史分析结果</h3><p class="cell-sub">报告版本在应用时生成；分析 Skill 修订是独立编号。选择「查看与下载结果」阅读任意历史结果。</p>${rows.length ? table(["分析结果 / 报告版本","任务创建时间","使用状态","分析规则","本地归档","操作"],rows,820,"analysis-history-table") : `<p>暂无分析记录。</p>`}${pager}</section>`;
   }
+  let analysisWorkspaceTimer=null,analysisWorkspaceRequest=0;
+  async function showAnalysisWorkspace() {
+    clearTimeout(analysisWorkspaceTimer);
+    const request=++analysisWorkspaceRequest,revision=auth.capture();
+    const view=state.analysisWorkspaceTab || "results",page=state.analysisWorkspacePage || 1;
+    const data=await api(`/channel-analysis/workspace${query({view,page,page_size:20,search:state.analysisWorkspaceSearch || ""})}`);
+    if(request!==analysisWorkspaceRequest || !auth.isCurrent(revision) || state.view!=="channelAnalysis") return;
+    state.analysisWorkspaceData=data;state.analysisWorkspacePage=data.page;
+    const stats=data.stats;
+    const tabs=`<div class="detail-tabs"><button class="detail-tab ${view==="results" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="results">分析结果</button><button class="detail-tab ${view==="progress" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="progress">分析进度</button></div>`;
+    const header=`<header class="settings-content-head"><div><h2>频道分析</h2><p>运行中 ${stats.running} · 排队 ${stats.queued} · 失败 ${stats.failed} · 最多 ${stats.worker_limit} 个频道并行</p></div><button class="button button-secondary" data-action="refresh-analysis-workspace">刷新</button></header>${tabs}`;
+    const channelLink=row=>`<button class="button button-secondary button-small" data-action="channel-detail-tab" data-channel-detail-tab="analysis" data-id="${esc(row.channel_id)}">分析内容与历史</button>`;
+    let content;
+    if(view==="results") {
+      const report=(run,emptyLabel)=>run ? `<strong>${esc(analysisVersionName(run))}</strong><span class="cell-sub">${esc(analysisState(run))}</span>${run.result ? `<button class="button button-secondary button-small" data-action="view-analysis-result" data-id="${esc(run.id)}">查看报告</button>` : ""}` : emptyLabel;
+      const rows=data.items.map(row=>`<tr><td><strong>${esc(row.channel_name)}</strong></td><td>${report(row.current,"尚未应用分析版本")}</td><td>${report(row.latest,"尚无分析任务")}</td><td>${channelLink(row)}</td></tr>`);
+      content=`<div class="row-actions analysis-workspace-search"><input class="input" id="analysisWorkspaceSearch" aria-label="搜索频道" placeholder="搜索频道" value="${esc(state.analysisWorkspaceSearch || "")}"><button class="button button-secondary" data-action="query-analysis-workspace">查询</button></div>${rows.length ? table(["频道","当前生产使用","最新分析任务","操作"],rows,760) : empty("暂无匹配的频道","调整搜索条件后重试。")}`;
+    } else {
+      content=`<p class="cell-sub" id="analysisWorkspaceUpdated" role="status">每 5 秒自动刷新 · 只读取任务状态，不会重新启动分析。已完成任务可在「分析结果」中查看。</p><div class="analysis-monitor-grid">${data.items.map(row=>`<article class="hub-record"><header><strong>${esc(row.channel_name)}</strong>${tag(row.run.status)}</header><p>${fmtUtc(row.run.created_at)} · ${esc(row.run.input_snapshot.model)}</p>${row.run.status==="queued" ? `<p role="status">排队中，等待空闲分析槽位</p>` : analysisProgress(row.run)}${row.run.error ? `<p class="is-red">${esc(row.run.error)}</p>` : ""}${channelLink(row)}</article>`).join("") || empty("当前没有运行中、排队或失败的任务","可从分析结果页打开频道开始分析。")}</div>`;
+    }
+    const pager=`<div class="pagination"><span>共 ${data.total} 条 · 第 ${data.page} / ${data.pages} 页</span><button class="button button-secondary" data-action="analysis-workspace-page" data-page="${data.page-1}" ${data.page<=1 ? "disabled" : ""}>上一页</button><button class="button button-secondary" data-action="analysis-workspace-page" data-page="${data.page+1}" ${data.page>=data.pages ? "disabled" : ""}>下一页</button></div>`;
+    root.innerHTML=section("频道分析工作台","按频道查看分析结果和任务进度",header+content+pager);renderIcons();
+    scheduleAnalysisWorkspaceRefresh();
+  }
+  function scheduleAnalysisWorkspaceRefresh() {
+    clearTimeout(analysisWorkspaceTimer);
+    if(state.view!=="channelAnalysis" || state.analysisWorkspaceTab!=="progress") return;
+    const revision=auth.capture();
+    analysisWorkspaceTimer=setTimeout(async()=>{
+      if(!auth.isCurrent(revision) || state.view!=="channelAnalysis" || state.analysisWorkspaceTab!=="progress") return;
+      try {
+        if(document.visibilityState==="visible" && el("modalBackdrop").hidden && el("drawerBackdrop").hidden) {
+          const position=captureViewPosition();await showAnalysisWorkspace();restoreViewPosition(position);
+        }
+      } catch(error) {const status=el("analysisWorkspaceUpdated");if(status && error.name!=="AbortError") status.textContent="进度刷新失败："+error.message+"；将自动重试";}
+      finally {if(auth.isCurrent(revision)) scheduleAnalysisWorkspaceRefresh();}
+    },5000);
+  }
   function analysisMaterialsForm(run) {
     const slots = [
       {key:"studio_zip", title:"28天数据 · Studio 内容导出 ZIP", accept:".zip", path:"YouTube Studio → 数据分析 → 高级模式 → 内容 → 最近28天 → 右上角导出当前视图 → CSV", help:"上传下载得到的原始 ZIP，不用解压。通常包含「表格数据.csv」「图表数据.csv」「总计.csv」。", detail:"数据应包含：内容 / 视频 ID、标题、发布日期、时长、观看次数、观看时长、订阅人数、展示次数和展示点击率；回访观众、收入等字段以 Studio 实际提供为准。只需这一份28天 ZIP，无需另传7天数据。"},
@@ -632,7 +670,7 @@
         state.analysisReaderRun={id:data.id,kind:"report",report_version:data.version_number,status:"legacy_report",created_at:data.created_at,
           result:{profile:data.summary || "未填写报告正文",diagnosis:data.recommendations || "未填写诊断建议",legacy_details:"```json\n"+JSON.stringify(data,null,2)+"\n```"}};
       } else {
-        const summary=(state.channelDetail?.analysis_history?.items || []).find(row=>row.id===id) || (state.channelDetail?.analysis_history?.current?.id===id ? state.channelDetail.analysis_history.current : {});
+        const summary=(state.channelDetail?.analysis_history?.items || []).find(row=>row.id===id) || (state.channelDetail?.analysis_history?.current?.id===id ? state.channelDetail.analysis_history.current : null) || (state.analysisWorkspaceData?.items || []).flatMap(row=>[row.current,row.latest,row.run]).find(row=>row?.id===id) || {};
         state.analysisReaderRun={...data,...summary,result:data.result};
       }
       openModal(kind==="report" ? `历史报告 v${data.version_number}` : "频道分析结果",analysisReader(state.analysisReaderRun));
@@ -1983,7 +2021,7 @@
     return `<form class="form-grid" id="credentialForm"><input type="hidden" name="account_id" value="${esc(accountId)}"><div class="field"><label>凭证类型</label><input class="input mono" name="credential_type" required placeholder="oauth / bot_token / api_key"></div><div class="field field-wide"><label>Secret 引用</label><input class="input mono" name="secret_reference" required placeholder="keychain://zhiju/feishu/main"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存引用</button></div></form>`;
   }
 
-  const renderers = { dashboard: showDashboard, channels: showChannels, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
+  const renderers = { dashboard: showDashboard, channels: showChannels, channelAnalysis:showAnalysisWorkspace, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
   renderers.channelLedger = showChannelLedger;
   function captureViewPosition() {
     const topbarBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom || 0;
@@ -2623,6 +2661,16 @@
       }
       else if (action === "edit-analysis-materials") {
         const run=await api(`/analysis-runs/${id}`);openModal("分析材料",analysisMaterialsForm(run));
+      }
+      else if (action === "analysis-workspace-tab") {
+        state.analysisWorkspaceTab=button.dataset.tab;state.analysisWorkspacePage=1;await loadView("channelAnalysis");
+      }
+      else if (action === "refresh-analysis-workspace") await loadView("channelAnalysis",{preservePosition:true});
+      else if (action === "query-analysis-workspace") {
+        state.analysisWorkspaceSearch=el("analysisWorkspaceSearch").value;state.analysisWorkspacePage=1;await loadView("channelAnalysis");
+      }
+      else if (action === "analysis-workspace-page") {
+        state.analysisWorkspacePage=Number(button.dataset.page);await loadView("channelAnalysis");
       }
       else if (action === "analysis-history-page") {
         state.analysisHistoryPage=Number(button.dataset.page);await showChannelDetail(id,"analysis");

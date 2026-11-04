@@ -43,10 +43,12 @@ def main():
             codex_home=config.get('codex_home')), config, cache / 'channel-scheduling', once=args.once)
         return
     if config.get('task_type') == 'channel_analysis':
-        from .channel_analysis import drain
-        drain(cloud_client(), CodexClient(binary=config.get('codex_binary','codex'),
-            timeout=config.get('timeout',900), account_profile=config.get('account_profile','current'),
-            codex_home=config.get('codex_home')), config, cache / 'channel-analysis', once=args.once)
+        from .channel_analysis import drain,drain_parallel
+        def analysis_model():
+            return CodexClient(binary=config.get('codex_binary','codex'),timeout=config.get('timeout',900),
+                account_profile=config.get('account_profile','current'),codex_home=config.get('codex_home'))
+        if args.once:drain(cloud_client(),analysis_model(),config,cache/'channel-analysis',once=True)
+        else:drain_parallel(cloud_client,analysis_model,config,cache/'channel-analysis',workers=args.workers)
         return
     # Replay old outbound results once, before any parallel worker can claim work.
     # Each newly claimed run then exclusively owns its own run-id cache directory.

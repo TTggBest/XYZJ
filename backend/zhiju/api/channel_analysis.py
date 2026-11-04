@@ -46,6 +46,12 @@ def history(channel_id:str,page:int=Query(1,ge=1),page_size:int=Query(10,ge=1,le
     return service.analysis_history(s,channel_id,page,page_size)
 
 
+@router.get('/channel-analysis/workspace')
+def workspace(view:Literal['results','progress']='results',page:int=Query(1,ge=1),
+              page_size:int=Query(20,ge=1,le=50),search:str='',s:Session=Depends(get_tenant_db)):
+    return service.analysis_workspace(s,view,page,page_size,search)
+
+
 @router.post('/channels/{channel_id}/analysis-runs')
 def create(channel_id:str,body:AnalysisCreate,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     return service.run_read(call(service.create_run,s,channel_id,**body.model_dump()))
