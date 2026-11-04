@@ -156,8 +156,9 @@
       return `<span class="node-dot ${cls}" title="${NODE_LABELS[type]}：${label(status)}"></span>`;
     }).join("")}</div>`;
   }
-  function openModal(title, body) { el("modalTitle").textContent = title; el("modalBody").innerHTML = body; el("modalBackdrop").hidden = false; renderIcons(); }
-  function closeModal() { el("modalBackdrop").hidden = true; el("modalBody").innerHTML = ""; }
+  let modalGeneration=0;
+  function openModal(title, body) { modalGeneration++;el("modalTitle").textContent = title; el("modalBody").innerHTML = body; el("modalBackdrop").hidden = false; renderIcons(); }
+  function closeModal() { modalGeneration++;el("modalBackdrop").hidden = true; el("modalBody").innerHTML = ""; }
   function openDrawer(title, body, workId = "") { drawerGeneration++; state.workDetailId = workId; el("drawerTitle").textContent = title; el("drawerBody").innerHTML = body; el("drawerBackdrop").hidden = false; renderIcons(); }
   function closeDrawer() { drawerGeneration++; state.workDetailId = ""; el("drawerBackdrop").hidden = true; }
   function formData(form) { return Object.fromEntries(new FormData(form).entries()); }
@@ -614,6 +615,34 @@
     const buttons=Object.entries(titles).filter(([name])=>run.result[name]!=null).map(([name,title])=>`<button class="button ${name===key ? "button-primary" : "button-secondary"}" data-action="analysis-document-tab" data-key="${name}">${title}</button>`).join("");
     const delivery=run.result.delivery;
     return `<div class="analysis-reader"><header class="analysis-reader-toolbar"><div class="row-actions">${buttons}</div><div class="row-actions"><button class="button button-secondary" data-action="${run.kind==="report" ? "download-legacy-analysis-document" : "download-analysis-document"}" data-id="${esc(run.id)}" data-key="${key}">下载当前文档</button>${run.result.normalized_snapshot ? `<button class="button button-secondary" data-action="download-analysis-document" data-id="${esc(run.id)}" data-key="normalized_snapshot">下载事实快照</button>` : ""}</div></header><p><strong>${esc(analysisVersionName(run))}</strong> · ${esc(analysisState(run))}</p><p class="cell-sub">${run.kind==="report" ? "报告" : "任务"}创建时间：${fmtUtc(run.created_at)} · ${run.kind==="report" ? "保留历史报告正文、建议和原始数据" : "三份文档与快照均保留本次分析结果"}</p><article class="analysis-document">${analysisDocument(run.result[key])}</article>${delivery ? `<details><summary>本地归档路径</summary>${delivery.error ? `<p class="is-red">${esc(delivery.error)}</p>` : Object.values(delivery.paths || {}).map(path=>`<p class="mono">${esc(path)}</p>`).join("")}</details>` : ""}</div>`;
+  }
+  let analysisReaderLoading=null;
+  async function loadAnalysisReader(id,kind,channelId,button) {
+    const key=kind+":"+id;
+    if (analysisReaderLoading?.key===key && analysisReaderLoading.generation===modalGeneration) return;
+    const revision=auth.capture(),originalLabel=button.textContent;
+    button.disabled=true;button.textContent="加载中…";
+    openModal("加载分析报告",`<div class="analysis-reader-loading" role="status" aria-live="polite"><span class="analysis-loading-spinner" aria-hidden="true"></span><div><strong>正在加载报告…</strong><p>正在从云端读取已保存的分析结果，请稍候。</p></div></div>`);
+    const request={key,generation:modalGeneration};analysisReaderLoading=request;
+    const current=()=>analysisReaderLoading===request && request.generation===modalGeneration && auth.isCurrent(revision);
+    try {
+      const data=await api(kind==="report" ? `/channels/${channelId}/analysis-reports/${id}` : `/analysis-runs/${id}`,{expectedRevision:revision});
+      if (!current()) return;
+      if (kind==="report") {
+        state.analysisReaderRun={id:data.id,kind:"report",report_version:data.version_number,status:"legacy_report",created_at:data.created_at,
+          result:{profile:data.summary || "未填写报告正文",diagnosis:data.recommendations || "未填写诊断建议",legacy_details:"```json\n"+JSON.stringify(data,null,2)+"\n```"}};
+      } else {
+        const summary=(state.channelDetail?.analysis_history?.items || []).find(row=>row.id===id) || (state.channelDetail?.analysis_history?.current?.id===id ? state.channelDetail.analysis_history.current : {});
+        state.analysisReaderRun={...data,...summary,result:data.result};
+      }
+      openModal(kind==="report" ? `历史报告 v${data.version_number}` : "频道分析结果",analysisReader(state.analysisReaderRun));
+    } catch(error) {
+      if (!current() || error.name==="AbortError") return;
+      openModal("报告加载失败",`<div role="alert"><h3>加载失败</h3><p>${esc(error.message)}</p><button class="button button-primary" data-action="${kind==="report" ? "view-legacy-analysis-report" : "view-analysis-result"}" data-id="${esc(id)}" data-channel-id="${esc(channelId || "")}">重试</button></div>`);
+    } finally {
+      if (analysisReaderLoading===request) analysisReaderLoading=null;
+      button.disabled=false;button.textContent=originalLabel;
+    }
   }
   function channelReferencePanel(detail) {
     const versions = detail.dna_versions || [];
@@ -2646,20 +2675,14 @@
         await showChannelDetail(state.channelDetailId,"analysis");
       }
       else if (action === "view-legacy-analysis-report") {
-        const report=await api(`/channels/${button.dataset.channelId}/analysis-reports/${id}`);
-        state.analysisReaderRun={id:report.id,kind:"report",report_version:report.version_number,status:"legacy_report",created_at:report.created_at,
-          result:{profile:report.summary || "未填写报告正文",diagnosis:report.recommendations || "未填写诊断建议",legacy_details:"```json\n"+JSON.stringify(report,null,2)+"\n```"}};
-        openModal(`历史报告 v${report.version_number}`,analysisReader(state.analysisReaderRun));
+        await loadAnalysisReader(id,"report",button.dataset.channelId,button);
       }
       else if (action === "download-legacy-analysis-document") {
         const key=button.dataset.key,run=state.analysisReaderRun;
         if(run?.kind==="report" && ["profile","diagnosis","legacy_details"].includes(key)) downloadAnalysisText(run.result[key],`历史报告_${key}.md`);
       }
       else if (action === "view-analysis-result") {
-        const run=await api(`/analysis-runs/${id}`);
-        const summary=(state.channelDetail?.analysis_history?.items || []).find(row=>row.id===id) || (state.channelDetail?.analysis_history?.current?.id===id ? state.channelDetail.analysis_history.current : {});
-        state.analysisReaderRun={...run,...summary,result:run.result};
-        openModal("频道分析结果",analysisReader(state.analysisReaderRun));
+        await loadAnalysisReader(id,"task",state.channelDetailId,button);
       }
       else if (action === "download-analysis-document") {
         const run=await api(`/analysis-runs/${id}`),key=button.dataset.key;
