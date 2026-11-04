@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 import pytest
 from zhiju.v14_executor import channel_analysis as executor
+from test_channel_analysis_runs import session
 
 
 def test_screenshots_checkpoint_each_image_and_resume(tmp_path, monkeypatch):
@@ -168,3 +169,19 @@ def test_rejected_output_regenerates_failed_document_and_dependents(tmp_path,mon
         assert len(calls)==(4 if failure=='spec' else 5) and calls[-1]==['generation_spec']
     finally:
         session_generator.close()
+
+
+def test_progress_listing_sorts_ids_without_sorting_json_payload(session):
+    from sqlalchemy import event
+    from zhiju.services import channel_analysis as service
+    s,c=session
+    run=service.create_run(s,c.id,mode='initial',positioning='冷启动')
+    statements=[]
+    def capture(conn,cursor,statement,parameters,context,executemany):statements.append(statement)
+    event.listen(s.bind,'before_cursor_execute',capture)
+    try:
+        rows=service.list_run_summaries(s,c.id)
+    finally:event.remove(s.bind,'before_cursor_execute',capture)
+    assert rows[0]['id']==run.id
+    assert any('ORDER BY' in sql and 'channel_analysis_runs.id' in sql for sql in statements)
+    assert all('ORDER BY' not in sql for sql in statements if 'JSON_EXTRACT' in sql)

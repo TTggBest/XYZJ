@@ -36,12 +36,14 @@ def list_run_summaries(session,channel_id):
     require_tenant_entity(session,Channel,channel_id)
     r=ChannelAnalysisRun
     keys=('id','channel_id','host_id','mode','status','phase','claim_id','heartbeat_at','progress','materials','error','report_id','dna_id','mirror_status','created_at','updated_at')
+    ids=list(session.scalars(select(r.id).where(r.channel_id==channel_id).order_by(r.created_at.desc()).limit(30)))
     rows=session.execute(select(*(getattr(r,key) for key in keys),
         r.input_snapshot['model'].as_string().label('model'),
         r.input_snapshot['channel'].label('channel'),
-        r.result['profile'].as_string().is_not(None).label('result_available')).where(r.channel_id==channel_id).order_by(r.created_at.desc()).limit(30)).mappings()
-    return [dict({key:row[key] for key in keys},input_snapshot={'model':row['model'],'channel':row['channel']},
-                 result={'available':True} if row['result_available'] else None) for row in rows]
+        r.result['profile'].as_string().is_not(None).label('result_available')).where(r.id.in_(ids))).mappings()
+    summaries={row['id']:dict({key:row[key] for key in keys},input_snapshot={'model':row['model'],'channel':row['channel']},
+                 result={'available':True} if row['result_available'] else None) for row in rows}
+    return [summaries[key] for key in ids]
 
 
 def run_read(run):
