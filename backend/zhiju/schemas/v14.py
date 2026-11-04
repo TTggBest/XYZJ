@@ -19,11 +19,18 @@ class V14SettingsWrite(BaseModel):
 class ClaimRequest(BaseModel):
     host_id: str
     executor_protocol: int = 1
+    claim_id: str | None = Field(default=None, min_length=36, max_length=36)
 
 
 class AttemptStart(BaseModel):
     claim_id: str
     node_type: Literal["search", "title", "cover_scene", "cover", "description", "community_scene", "community", "merge"]
+    executor_protocol: int = 1
+
+
+class AttemptInput(BaseModel):
+    claim_id: str
+    external_evidence: dict | None = None
 
 
 class AttemptSubmission(BaseModel):

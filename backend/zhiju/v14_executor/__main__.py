@@ -57,6 +57,7 @@ def main():
         while replay_pending(recovery, cache):
             pass
     stopped = Event()
+    worker_errors = []
     def worker():
         cloud = cloud_client()
         model = CodexClient(binary=config.get("codex_binary", "codex"), timeout=config.get("timeout", 900),
@@ -68,9 +69,13 @@ def main():
                     return
                 if not args.drain:
                     stopped.wait(5)
-        except Exception:
-            stopped.set()  # Expired authorization stops all claims and model children.
+        except PermissionError:
+            stopped.set()  # Revoked authorization applies to the whole process.
             raise
+        except Exception as exc:
+            # Leave only this worker's durable result for replay. Other workers
+            # can finish their runs; a network timeout is not expired authority.
+            worker_errors.append(exc)
     with ThreadPoolExecutor(max_workers=1 if args.once else args.workers) as pool:
         try:
             futures = [pool.submit(worker) for _ in range(1 if args.once else args.workers)]
@@ -78,6 +83,9 @@ def main():
                 future.result()
         finally:
             stopped.set()
+    if worker_errors:
+        print(f'{len(worker_errors)} 个线程失败；其他线程已完成，待回传结果保留', file=sys.stderr)
+        raise worker_errors[0]
 
 
 if __name__ == "__main__":

@@ -115,6 +115,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ("POST", "/api/v3/v14/claims"),
     ("POST", "/api/v3/v14/executor-session"),
     ("POST", "/api/v3/v14/runs/{run_id}/attempts"),
+    ("POST", "/api/v3/v14/runs/{run_id}/attempts/{attempt_id}/input"),
     ("PUT", "/api/v3/v14/runs/{run_id}/attempts/{attempt_id}"),
     ("POST", "/api/v3/v14/runs/{run_id}/heartbeat"),
     ("POST", "/api/v3/v14/runs/{run_id}/cancel"),

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from zhiju.auth_context import Principal, get_current_principal, get_tenant_db
 from zhiju.models import WorkOrder
 from zhiju.models.v14 import V14Run
-from zhiju.schemas.v14 import (V14SettingsWrite, ClaimRequest, AttemptStart, AttemptSubmission, ClaimIdentity, ResumeRequest, WorkflowRecoveryRequest)
+from zhiju.schemas.v14 import (V14SettingsWrite, ClaimRequest, AttemptStart, AttemptInput, AttemptSubmission, ClaimIdentity, ResumeRequest, WorkflowRecoveryRequest)
 from zhiju.services import v14_runs as service
 from zhiju.services.identity import ConflictError
 from zhiju.services.channel import NotFoundError
@@ -101,7 +101,7 @@ def current(work_order_id: str, s: Session = Depends(get_tenant_db), p=Depends(o
 @router.post("/v14/claims")
 def claim(body: ClaimRequest, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     bound_host(s, p, body.host_id)
-    result = call(service.claim_run, s, body.host_id, executor_protocol=body.executor_protocol)
+    result = call(service.claim_run, s, body.host_id, executor_protocol=body.executor_protocol, claim_id=body.claim_id)
     return result if result else Response(status_code=204)
 
 
@@ -114,12 +114,20 @@ def execution_run(s, p, run_id):
 @router.post("/v14/runs/{run_id}/attempts")
 def begin(run_id: str, body: AttemptStart, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     execution_run(s, p, run_id)
-    attempt = call(service.begin_attempt, s, run_id, body.claim_id, body.node_type)
+    attempt = call(service.begin_attempt, s, run_id, body.claim_id, body.node_type,
+                   reuse_running=body.executor_protocol >= 4)
     result = {"attempt_id": attempt.id}
-    if body.node_type in {'cover_scene', 'community_scene'}:
+    if body.executor_protocol < 4 and body.node_type in {'cover_scene', 'community_scene'}:
         current = service.envelope(s, service.get_run(s, run_id))
         result['planning_context'] = {key: current[key] for key in ('creative_history', 'planning_history_ids')}
     return result
+
+
+@router.post('/v14/runs/{run_id}/attempts/{attempt_id}/input')
+def attempt_input(run_id: str, attempt_id: str, body: AttemptInput,
+                  s: Session = Depends(get_tenant_db), p=Depends(operator)):
+    run = execution_run(s, p, run_id)
+    return call(service.attempt_input, s, run, attempt_id, body.claim_id, body.external_evidence)
 
 
 @router.put("/v14/runs/{run_id}/attempts/{attempt_id}")

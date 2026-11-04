@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, PackageCommunityPost,
                           PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language)
@@ -191,7 +191,8 @@ def envelope(session, run):
     rows = active_attempts(session, run)
     rules = execution_rules(session, run)
     # Serialize accepts across the tenant using the same settings row lock used by submit.
-    history = list(session.scalars(select(V14Run).where(V14Run.tenant_id == run.tenant_id, V14Run.id != run.id)))
+    history = list(session.scalars(select(V14Run).options(load_only(V14Run.id, V14Run.input_snapshot))
+        .where(V14Run.tenant_id == run.tenant_id, V14Run.id != run.id)))
     history_rows = []
     for old in history:
         for a in active_attempts(session, old):
@@ -213,8 +214,42 @@ def envelope(session, run):
                          **({"result": a.raw_payload} if latest_failures.get(a.node_type) == a.id else {})} for a in rows]}
 
 
-def claim_run(session, host_id: str, *, executor_protocol: int = 2):
+def claim_read(session, run):
+    """Deliver the immutable Skills once; fetch model inputs at each stage."""
+    return {**run_read(session, run), 'tenant_id': run.tenant_id,
+            'account_profile': run.account_profile, 'staged_inputs': True,
+            'node_sequence': execution_nodes(execution_rules(session, run)),
+            'rules_snapshot': execution_rules(session, run),
+            'accepted_nodes': [a.node_type for a in active_attempts(session, run)
+                               if a.outcome == 'accepted']}
+
+
+def attempt_input(session, run, attempt_id, claim_id, external_evidence=None):
+    """Keep full history/validator context on the server, preserving the model request."""
+    check_claim(run, claim_id)
+    attempt = require_tenant_entity(session, V14Attempt, attempt_id)
+    if attempt.run_id != run.id or attempt.claim_id != claim_id or attempt.outcome != 'running':
+        raise ConflictError('阶段输入不属于当前执行')
+    from zhiju.v14_runtime.contract import build_stage_input
+    data = envelope(session, run)
+    if external_evidence is not None:
+        data['external_evidence'] = external_evidence
+    stage = build_stage_input(data, attempt.node_type)
+    from zhiju.v14_executor.runner import apply_content_recovery
+    apply_content_recovery(stage, data, attempt.node_type)
+    # The server still validates against the full, unchanged context on submission.
+    # Only search needs its frozen plot locally to attach retrieval evidence.
+    return {key: getattr(stage, key) for key in ('node_type', 'prompt', 'schema', 'item', 'rules')} | {
+        'context': {'plot_payload': stage.context['plot_payload']} if attempt.node_type == 'search' else {}}
+
+
+def claim_run(session, host_id: str, *, executor_protocol: int = 2, claim_id: str | None = None):
     session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info["tenant_id"]).with_for_update())
+    if executor_protocol >= 4 and claim_id:
+        existing = session.scalar(select(V14Run).where(V14Run.host_id == host_id,
+            V14Run.claim_id == claim_id, V14Run.status == 'running'))
+        if existing is not None:
+            return claim_read(session, existing)
     # Sort only IDs: full Skills JSON snapshots can exceed MySQL's sort buffer.
     run_id = session.scalar(select(V14Run.id).join(WorkOrder, WorkOrder.id == V14Run.work_order_id).join(Channel, Channel.id == WorkOrder.channel_id).where(V14Run.tenant_id == session.info["tenant_id"],
         V14Run.host_id == host_id, V14Run.status == "queued").order_by(*channel_order_columns(), V14Run.created_at, V14Run.id).with_for_update().limit(1))
@@ -224,10 +259,10 @@ def claim_run(session, host_id: str, *, executor_protocol: int = 2):
     from zhiju.workflow_bundles import executor_protocol as required_protocol
     if executor_protocol < required_protocol(execution_rules(session, run)):
         raise ConflictError('当前执行器不支持成套 Skills，请更新本机执行器；任务仍保持待执行')
-    run.status, run.claim_id = "running", str(uuid4())
+    run.status, run.claim_id = "running", claim_id if executor_protocol >= 4 and claim_id else str(uuid4())
     run.heartbeat_at = datetime.now(timezone.utc)
     session.commit()
-    return envelope(session, run)
+    return claim_read(session, run) if executor_protocol >= 4 else envelope(session, run)
 
 
 def check_claim(run, claim_id):
@@ -235,10 +270,15 @@ def check_claim(run, claim_id):
         raise ConflictError("执行已停止或领取凭证已失效")
 
 
-def begin_attempt(session, run_id: str, claim_id: str, node_type: str):
+def begin_attempt(session, run_id: str, claim_id: str, node_type: str, *, reuse_running=False):
     run = get_run(session, run_id)
     check_claim(run, claim_id)
     rows = active_attempts(session, run)
+    if reuse_running:
+        existing = next((a for a in rows if a.outcome == 'running'
+                         and a.node_type == node_type and a.claim_id == claim_id), None)
+        if existing is not None:
+            return existing
     done = {a.node_type for a in rows if a.outcome == "accepted"}
     expected = next((n for n in execution_nodes(execution_rules(session, run)) if n not in done), None)
     if node_type != expected or any(a.outcome == "running" for a in rows):

@@ -1,9 +1,11 @@
 import json
 import urllib.error
 import urllib.request
+import time
 from urllib.parse import urlparse
+from uuid import uuid4
 
-EXECUTOR_PROTOCOL = 3
+EXECUTOR_PROTOCOL = 4
 
 
 class CloudConflict(RuntimeError):
@@ -38,24 +40,43 @@ class CloudClient:
                 error = json.load(exc).get("detail", "执行状态冲突")
                 raise CloudConflict(str(error)) from None
             raise RuntimeError(f"云端请求失败 HTTP {exc.code}") from None
-        except (urllib.error.URLError, TimeoutError) as exc:
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             raise ConnectionError("无法连接智矩；保留本地待回传结果") from exc
 
     def claim(self):
         principal = self.request("GET", "/auth/me")
         if principal["tenant_id"] != self.tenant_id:
             raise PermissionError("当前会话公司已切换；停止领取")
-        result = self.request("POST", "/v14/claims", {"host_id": self.host_id, "executor_protocol": EXECUTOR_PROTOCOL})
+        # A lost response must retry the same claim, never allocate a second job.
+        result = self.transport_request("POST", "/v14/claims", {
+            "host_id": self.host_id, "executor_protocol": EXECUTOR_PROTOCOL, 'claim_id': str(uuid4())})
         if result and result["tenant_id"] != self.tenant_id:
             raise PermissionError("领取结果不属于本机配置的公司")
         return result
 
+    def transport_request(self, method, path, body):
+        for retry in range(3):
+            try:
+                return self.request(method, path, body, timeout=60)
+            except ConnectionError:
+                if retry == 2:
+                    raise
+                time.sleep(2)
+
     def begin(self, envelope, node):
-        result = self.request("POST", f"/v14/runs/{envelope['run_id']}/attempts",
-            {"claim_id": envelope["claim_id"], "node_type": node})
+        body = {"claim_id": envelope["claim_id"], "node_type": node}
+        if envelope.get('staged_inputs'):
+            body['executor_protocol'] = EXECUTOR_PROTOCOL
+            result = self.transport_request("POST", f"/v14/runs/{envelope['run_id']}/attempts", body)
+        else:
+            result = self.request("POST", f"/v14/runs/{envelope['run_id']}/attempts", body)
         if 'planning_context' in result:
             envelope.update(result['planning_context'])
         return result['attempt_id']
+
+    def stage_input(self, envelope, attempt, external_evidence=None):
+        return self.transport_request('POST', f"/v14/runs/{envelope['run_id']}/attempts/{attempt}/input",
+            {'claim_id': envelope['claim_id'], 'external_evidence': external_evidence})
 
     def current(self, envelope):
         return self.request("GET", f"/work-orders/{envelope['work_order_id']}/v14-runs/current")

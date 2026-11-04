@@ -4,7 +4,7 @@ from pathlib import Path
 from threading import Event, Thread
 import time
 
-from zhiju.v14_runtime.contract import build_stage_input, validate_result
+from zhiju.v14_runtime.contract import StageInput, build_stage_input, validate_result
 from zhiju.v14_runtime.market import collect_agent_reach_evidence, build_market_packaging_prompt
 from .client import CloudConflict, CloudNotFound
 from .execution_state import ExecutionState
@@ -15,7 +15,8 @@ NODES = ("search", "title", "cover", "description", "community", "merge")
 def send_cached(client, envelope, attempt_id, body, path, retry_delay):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"envelope": envelope, "attempt_id": attempt_id, "body": body}, ensure_ascii=False), encoding="utf-8")
+    identity = {k: envelope[k] for k in ('run_id', 'work_order_id', 'claim_id') if k in envelope}
+    temporary.write_text(json.dumps({"envelope": identity, "attempt_id": attempt_id, "body": body}, ensure_ascii=False), encoding="utf-8")
     temporary.replace(path)
     for retry in range(3):
         try:
@@ -85,6 +86,13 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
     envelope = client.claim()
     if not envelope:
         return False
+    envelope.setdefault('accepted_results', {})
+    staged = envelope.get('staged_inputs', False)
+    def prepare(attempt, node, evidence=None):
+        if staged:
+            return StageInput(**client.stage_input(envelope, attempt, evidence),
+                              skill_bundle=envelope['rules_snapshot'].get('skill_bundle'))
+        return build_stage_input({**envelope, **({'external_evidence': evidence} if evidence is not None else {})}, node)
     path = root / envelope["run_id"] / "pending.json"
     state=ExecutionState(root / envelope["run_id"] / "execution.json",envelope)
     terminal=False
@@ -110,7 +118,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
     model_client.cancelled = lambda: cancelled.is_set() or bool(stop_event and stop_event.is_set())
     try:
         for node in envelope.get("node_sequence", NODES):
-            if node in envelope["accepted_results"]:
+            if node in envelope["accepted_results"] or node in envelope.get('accepted_nodes', []):
                 continue
             while True:
                 attempt_id = client.begin(envelope, node)
@@ -118,7 +126,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                 try:
                     if envelope["account_profile"] != model_client.account_profile:
                         raise RuntimeError("本机 Codex 账号配置与运行绑定不一致")
-                    stage = build_stage_input(envelope, node)
+                    stage = prepare(attempt_id, node)
                     if node == "merge":
                         result = {"text_complete": True}
                     elif node == "community_scene" and stage.item["community_count"] == 0:
@@ -134,16 +142,18 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                         # Keep failed retrieval evidence so Find can use its
                         # existing plot-only fallback instead of stopping the run.
                         if stage.skill_bundle:
-                            stage = build_stage_input({**envelope, 'external_evidence': evidence}, node)
+                            stage = prepare(attempt_id, node, evidence)
                         else:
                             stage.prompt = build_market_packaging_prompt(stage.item, stage.context["plot_payload"], stage.rules["prompts"]["search"], evidence)
-                        apply_content_recovery(stage, envelope, node)
+                        if not staged:
+                            apply_content_recovery(stage, envelope, node)
                         result = {"plot_payload": stage.context["plot_payload"], "market_payload": model_client.generate(stage, envelope["model"]), "external_evidence": evidence}
                     else:
-                        apply_content_recovery(stage, envelope, node)
+                        if not staged:
+                            apply_content_recovery(stage, envelope, node)
                         result = model_client.generate(stage, envelope["model"])
                     normalized = deepcopy(result)
-                    issues = validate_result(stage, normalized)
+                    issues = [] if staged else validate_result(stage, normalized)
                     if issues:
                         body.update(outcome="content_error", result=result, error="; ".join(issues)[:4000])
                     else:
@@ -153,7 +163,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                 try:
                     response = send_cached(client, envelope, attempt_id, body, path, retry_delay)
                 except CloudConflict as exc:
-                    if body["outcome"] != "accepted" or not str(exc).startswith("V14 验收失败:"):
+                    if body["outcome"] != "accepted" or not str(exc).startswith(("V14 验收失败:", "V14 结构或输入不完整:")):
                         raise
                     body.update(outcome="content_error", error=str(exc)[:4000])
                     response = send_cached(client, envelope, attempt_id, body, path, retry_delay)
