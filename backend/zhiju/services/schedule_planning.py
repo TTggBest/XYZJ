@@ -34,8 +34,11 @@ def get_plan(session, plan_id, lock=False):
 
 def list_plans(session, channel_id):
     require_tenant_entity(session,Channel,channel_id)
-    return list(session.scalars(select(ChannelSchedulePlan).where(ChannelSchedulePlan.channel_id==channel_id)
+    ids=list(session.scalars(select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.channel_id==channel_id)
         .order_by(ChannelSchedulePlan.created_at.desc(),ChannelSchedulePlan.id.desc()).limit(20)))
+    # Keep large frozen story snapshots out of MySQL's filesort buffer.
+    rows={row.id:row for row in session.scalars(select(ChannelSchedulePlan).where(ChannelSchedulePlan.id.in_(ids)))}
+    return [rows[id] for id in ids]
 
 
 def language_aliases(session):
@@ -165,10 +168,11 @@ def create_plan(session,channel_id,start_date,end_date,daily_count):
 def claim_plan(session,host_id):
     setting=session.scalar(select(V14Setting))
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
-    row=session.scalar(select(ChannelSchedulePlan).where(ChannelSchedulePlan.host_id==host_id,
+    plan_id=session.scalar(select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.host_id==host_id,
         ChannelSchedulePlan.status=='queued').order_by(ChannelSchedulePlan.created_at)
         .with_for_update(skip_locked=True).limit(1))
-    if row is None:return None
+    if plan_id is None:return None
+    row=get_plan(session,plan_id,True)
     row.status='running';row.claim_id=str(uuid4());row.heartbeat_at=datetime.now(timezone.utc)
     session.commit();return {**read(row),'tenant_id':row.tenant_id}
 

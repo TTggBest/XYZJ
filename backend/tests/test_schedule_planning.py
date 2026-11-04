@@ -42,6 +42,41 @@ def configured(data):
     s.commit()
 
 
+@pytest.mark.parametrize('action',['history','claim'])
+def test_large_story_snapshot_does_not_participate_in_database_sort(data,action):
+    from datetime import timedelta
+    from sqlalchemy import event
+    from zhiju.models import ChannelSchedulePlan
+    from zhiju.services import schedule_planning as service
+    configured(data)
+    s,c,*_=data
+    plans=[]
+    for i in range(22):
+        plan=ChannelSchedulePlan(channel_id=c.id,host_id='host',status='queued' if i==0 else 'ready',
+            created_at=datetime(2026,11,1,tzinfo=timezone.utc)+timedelta(minutes=i),
+            input_snapshot={'candidates':[{'plot':'large frozen story '*20000}]})
+        s.add(plan);plans.append(plan)
+    s.commit()
+    expected=[p.id for p in plans]
+    def mysql_sort_limit(conn,cursor,statement,parameters,context,executemany):
+        # Reproduce MySQL's wide-JSON filesort failure without a live database.
+        if 'FROM channel_schedule_plans' in statement and 'ORDER BY' in statement:
+            assert 'channel_schedule_plans.input_snapshot' not in statement,'large story JSON in database sort'
+            assert 'channel_schedule_plans.result' not in statement,'large generated result in database sort'
+    engine=s.get_bind()
+    event.listen(engine,'before_cursor_execute',mysql_sort_limit)
+    try:
+        if action=='history':
+            rows=service.list_plans(s,c.id)
+            assert [p.id for p in rows]==list(reversed(expected))[:20]
+            assert rows[0].input_snapshot['candidates'][0]['plot'].startswith('large frozen story')
+        else:
+            claim=service.claim_plan(s,'host')
+            assert claim['id']==expected[0] and claim['status']=='running'
+            assert claim['input_snapshot']['candidates'][0]['plot'].startswith('large frozen story')
+    finally:event.remove(engine,'before_cursor_execute',mysql_sort_limit)
+
+
 def test_preview_is_read_only_and_apply_is_atomic_idempotent_with_frozen_guidance(data):
     from zhiju.services import schedule_planning as service
     from zhiju.models import ChannelScheduleEntry, ChannelDnaVersion
@@ -307,7 +342,7 @@ def test_schedule_plan_migration_can_upgrade_and_downgrade_in_isolation():
     from sqlalchemy import inspect
     root=Path(__file__).resolve().parents[2]
     config=Config(str(root/'alembic.ini'));config.set_main_option('script_location',str(root/'backend/alembic'))
-    assert ScriptDirectory.from_config(config).get_heads()==['f21e20261102']
+    assert ScriptDirectory.from_config(config).get_heads()==['f22a20261104']
     spec=importlib.util.spec_from_file_location('schedule_plan_migration',root/'backend/alembic/versions/f21e20261102_channel_schedule_plans.py')
     migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
     engine=create_engine('sqlite://')
