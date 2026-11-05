@@ -25,6 +25,14 @@ const html = context.youtubeChannelImportForm({
 assert.match(html, /value="FR" selected/);
 assert.match(html, /data-import-language value="fr"/);
 assert.match(html, /data-import-timezone value="Europe\/Paris"/);
+const thai = context.youtubeChannelImportForm({candidates:[{id:'thai',title:'หัวใจพันล้าน',youtube_country_code:'TH',youtube_default_language:'th'}],countries:JSON.parse(process.argv[2])});
+assert.match(thai,/value="TH" selected/);
+assert.match(thai,/data-import-language value="th"/);
+assert.match(thai,/data-import-timezone value="Asia\/Bangkok"/);
+const unknown = context.youtubeChannelImportForm({candidates:[{id:'unknown',title:'Unknown',youtube_country_code:null,youtube_default_language:'th'}],countries:JSON.parse(process.argv[2])});
+assert.doesNotMatch(unknown,/value="US" selected/);
+assert.doesNotMatch(unknown,/data-import-country[^>]*required/);
+assert.match(unknown,/data-import-language value="th"/);
 assert.equal(context.languageLabel('fr'), '法语（fr）');
 assert.equal(context.languageLabel('en'), '英语（en）');
 """

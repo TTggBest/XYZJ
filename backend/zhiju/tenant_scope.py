@@ -57,6 +57,7 @@ INTERNAL_ROUTES: frozenset[RouteKey] = frozenset()
 
 # Tenant routes operate on the active tenant's business or membership context.
 TENANT_ROUTES: frozenset[RouteKey] = frozenset({
+    ("POST", "/api/v3/feishu-sync/channel-materials"),
     ('GET','/api/v3/channels/{channel_id}/schedule-plans'),
     ('POST','/api/v3/channels/{channel_id}/schedule-plans'),
     ('GET','/api/v3/schedule-plans/{plan_id}'),

@@ -63,6 +63,9 @@ LANGUAGE_HINTS = {
     "巴葡": "pt-BR", "葡萄牙": "pt-BR", "印地": "hi", "俄语": "ru", "菲律宾": "fil", "土耳其": "tr",
 }
 CHANNEL_LANGUAGE_CONFIG = {
+    "泰语": ("th", "TH", "泰国", "Asia/Bangkok"),
+    "法语": ("fr", "FR", "法国", "Europe/Paris"),
+    "拉美西班牙语": ("es", "MX", "墨西哥", "America/Mexico_City"),
     "印地语": ("hi", "IN", "印度", "Asia/Kolkata"),
     "孟加拉语": ("bn", "BD", "孟加拉国", "Asia/Dhaka"),
     "印尼语": ("id", "ID", "印度尼西亚", "Asia/Jakarta"),
@@ -2010,6 +2013,9 @@ def _sync_pinned_template(session: Session, channel: Channel, language: str, bod
         ChannelPinnedCommentTemplate.language == language,
     ).order_by(ChannelPinnedCommentTemplate.version_number.desc())))
     if rows and rows[0].body == body:
+        for previous in rows[1:]:
+            if previous.status == "active":
+                previous.status = "superseded"
         rows[0].status = "active"
         return
     for row in rows:

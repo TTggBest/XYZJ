@@ -63,3 +63,18 @@ def post_operation_package_sync(session: Session = Depends(get_tenant_db)) -> Fe
         return sync_operation_packages(session)
     except FeishuSyncError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+from pydantic import BaseModel,Field
+from zhiju.api.v14 import operator
+class ChannelMaterialsRequest(BaseModel):
+    wiki_token:str=Field(min_length=1)
+    refresh_channel_ids:list[str]=Field(default_factory=list)
+    preview:bool=True
+
+
+@router.post('/channel-materials')
+def post_channel_materials(body:ChannelMaterialsRequest,session:Session=Depends(get_tenant_db),p=Depends(operator)):
+    from zhiju.services.channel_material_sync import sync_channel_materials
+    try:return sync_channel_materials(session,body.wiki_token,body.refresh_channel_ids,body.preview)
+    except FeishuSyncError as exc:raise HTTPException(409,str(exc)) from exc

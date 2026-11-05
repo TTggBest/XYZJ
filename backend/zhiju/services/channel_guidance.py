@@ -1,7 +1,7 @@
 """Resolve the applied channel documents; generation does not change this selection."""
 from copy import deepcopy
 from sqlalchemy import select
-from zhiju.models import ChannelDnaVersion, ChannelAnalysisReport, ChannelAnalysisRun, ChannelProfile, ChannelSchedulePlan
+from zhiju.models import Channel, ChannelDnaVersion, ChannelAnalysisReport, ChannelAnalysisRun, ChannelProfile, ChannelSchedulePlan
 from zhiju.models.v14 import V14Setting
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.identity import ConflictError
@@ -15,6 +15,9 @@ def resolve(session, channel_id, dna_id=None):
     material=(setting.payload.get('channel_inputs',{}).get(channel_id,{}) if setting else {})
     if dna:
         if dna.channel_id != channel_id:raise ConflictError('频道资料版本不属于当前频道')
+        channel=require_tenant_entity(session,Channel,channel_id)
+        if dna.language and channel.default_language and dna.language!=channel.default_language:
+            raise ConflictError('分析资料的语言与当前频道不一致，请重新分析并应用正确语言版本')
         plan=session.scalar(select(ChannelSchedulePlan).where(ChannelSchedulePlan.dna_id==dna.id,
             ChannelSchedulePlan.status=='applied'))
         if plan:

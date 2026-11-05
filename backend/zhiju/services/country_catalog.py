@@ -29,6 +29,7 @@ _COUNTRIES = (
     CountryOption("MX", "墨西哥", "es", "America/Mexico_City", ("America/Mexico_City",)),
     CountryOption("PH", "菲律宾", "fil", "Asia/Manila", ("Asia/Manila",)),
     CountryOption("SA", "沙特阿拉伯", "ar", "Asia/Riyadh", ("Asia/Riyadh",)),
+    CountryOption("TH", "泰国", "th", "Asia/Bangkok", ("Asia/Bangkok",)),
     CountryOption("TR", "土耳其", "tr", "Europe/Istanbul", ("Europe/Istanbul",)),
     CountryOption(
         "US",

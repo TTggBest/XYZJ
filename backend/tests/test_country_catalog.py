@@ -31,3 +31,9 @@ def test_france_is_available_for_import_with_french_and_paris_timezone() -> None
     assert country.recommended_language == "fr"
     assert country.recommended_timezone == "Europe/Paris"
     assert country.recommended_timezone in country.timezones
+
+
+def test_thailand_has_its_own_language_and_timezone():
+    from zhiju.services.country_catalog import get_country_option
+    country=get_country_option('TH')
+    assert (country.name_zh,country.recommended_language,country.recommended_timezone)==('泰国','th','Asia/Bangkok')

@@ -458,9 +458,9 @@
   function youtubeChannelImportForm(importData) {
     const countryOptions = (selectedCode => importData.countries.map(country => `<option value="${esc(country.code)}" ${country.code === selectedCode ? "selected" : ""}>${esc(country.name_zh)}（${esc(country.code)}）</option>`).join(""));
     const cards = importData.candidates.map((candidate, index) => {
-      const selectedCountry = importData.countries.find(country => country.code === candidate.youtube_country_code) || importData.countries.find(country => country.code === "US") || importData.countries[0];
+      const selectedCountry = importData.countries.find(country => country.code === candidate.youtube_country_code);
       const avatar = candidate.avatar_url ? `<img src="${esc(candidate.avatar_url)}" alt="">` : `<span>${esc((candidate.title || "频").slice(0, 1))}</span>`;
-      return `<section class="channel-import-card" data-import-row data-candidate-id="${esc(candidate.id)}"><header><label class="channel-import-check"><input type="checkbox" data-import-candidate checked> 导入</label><div class="channel-import-identity">${avatar}<div><strong>${esc(candidate.title)}</strong><span class="mono">${esc(candidate.youtube_channel_id)}</span></div></div></header><div class="form-grid"><div class="field"><label>运营昵称（可选）</label><input class="input" data-import-name maxlength="255"></div><div class="field"><label>目标国家/地区</label><select class="select" data-import-country>${countryOptions(selectedCountry?.code)}</select></div><div class="field"><label>默认语言（自动推荐，可修改）</label><input class="input" data-import-language value="${esc(selectedCountry?.recommended_language || candidate.youtube_default_language || "")}" maxlength="20"></div><div class="field"><label>时区（自动推荐，可修改）</label><input class="input mono" data-import-timezone value="${esc(selectedCountry?.recommended_timezone || "")}" maxlength="64"></div><div class="field field-wide"><label>默认题材</label><input class="input" data-import-genre maxlength="120" placeholder="例如：女频·豪门爱情"></div></div></section>`;
+      return `<section class="channel-import-card" data-import-row data-candidate-id="${esc(candidate.id)}"><header><label class="channel-import-check"><input type="checkbox" data-import-candidate checked> 导入</label><div class="channel-import-identity">${avatar}<div><strong>${esc(candidate.title)}</strong><span class="mono">${esc(candidate.youtube_channel_id)}</span></div></div></header><div class="form-grid"><div class="field"><label>运营昵称（可选）</label><input class="input" data-import-name maxlength="255"></div><div class="field"><label>目标国家/地区</label><select class="select" data-import-country><option value="">请选择目标国家/地区</option>${countryOptions(selectedCountry?.code)}</select></div><div class="field"><label>默认语言（自动推荐，可修改）</label><input class="input" data-import-language value="${esc(candidate.youtube_default_language || selectedCountry?.recommended_language || "")}" maxlength="20"></div><div class="field"><label>时区（自动推荐，可修改）</label><input class="input mono" data-import-timezone value="${esc(selectedCountry?.recommended_timezone || "")}" maxlength="64"></div><div class="field field-wide"><label>默认题材</label><input class="input" data-import-genre maxlength="120" placeholder="例如：女频·豪门爱情"></div></div></section>`;
     }).join("");
     return `<form id="youtubeChannelImportForm" data-import-session-id="${esc(importData.id)}"><div class="channel-import-intro">已从 YouTube 读取 ${importData.candidates.length} 个可管理频道。勾选要导入的频道，并补充运营信息。</div><div class="channel-import-list">${cards}</div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">${icon("download")} 导入所选频道</button></div></form>`;
   }
@@ -744,9 +744,12 @@
     } else if (tab === "reference") {
       body = channelReferencePanel(detail);
     } else if (tab === "versions") {
-      const skills = detail.relevant_skills.map(item => `<article class="hub-record"><header><strong>${esc(item.name)}</strong>${item.version_number ? tag(item.version_status) : tag("missing")}</header><p class="mono">${esc(item.code)}</p><span class="cell-sub">${item.version_number ? `当前 v${item.version_number}` : "尚未发布版本"}</span></article>`).join("");
+      const skills = detail.relevant_skills.map(item => `<article class="hub-record"><header><strong>${esc(item.name)}</strong>${item.version_number ? tag(item.version_status) : `<span class="tag">未发布规则</span>`}</header><p class="mono">${esc(item.code)}</p><span class="cell-sub">${item.version_number ? `规则 v${item.version_number}` : "尚未发布生成规则"}</span></article>`).join("");
       const assets = detail.branding_assets.map(item => `<article class="hub-record"><header><strong>${item.role === "avatar" ? "频道头像" : item.role === "banner" ? "频道横幅" : esc(item.role)}</strong>${tag(item.status)}</header><p class="mono">素材 ${esc(item.asset_id)}</p></article>`).join("");
-      body = `<div class="hub-columns"><section><h3>模块规则版本</h3>${skills || `<p class="settings-muted">尚未配置频道相关 Skill</p>`}</section><section><h3>装修资源版本</h3>${assets || `<p class="settings-muted">尚无装修资源历史</p>`}</section></div>`;
+      const profile=detail.profile || {};
+      const materialRows=[["频道说明",profile.description],["头像出图词",profile.avatar_prompt],["横幅出图词",profile.banner_prompt],["弹框方案",profile.popup_scheme],["标题模板",profile.title_template],["标题固定符号",profile.fixed_symbol],["关键词",(detail.keywords || []).filter(x=>x.keyword_type==="keyword").length],["标签",(detail.keywords || []).filter(x=>x.keyword_type==="tag").length],["置顶评论",detail.pinned_comment_templates.filter(x=>x.status==="active").length],["播放列表",detail.playlists.filter(x=>x.status==="active").length]];
+      const materials=materialRows.map(([label,value])=>`<tr><td>${esc(label)}</td><td>${value ? `<span class="is-green">已配置</span>` : `<span class="settings-muted">尚未填写</span>`}</td><td>${typeof value==="number" ? value+" 条" : esc(value || "—")}</td></tr>`);
+      body = `<section class="detail-block"><h3>当前频道资料</h3><p class="settings-muted">与基础与装修、运营配置读取同一份数据库资料。资料存在与否和生成 Skill 是否发布分别展示。</p>${table(["资料项目","配置状态","当前内容"],materials,600)}</section><details class="detail-block"><summary>生成规则（Skill）版本</summary><p class="settings-muted">以下是生成新资料时使用的规则，不是已同步频道资料的版本；未发布规则不表示已有资料缺失。</p>${skills || `<p class="settings-muted">尚未配置生成规则</p>`}</details><section class="detail-block"><h3>装修素材登记历史</h3>${assets || `<p class="settings-muted">尚无在智矩登记的装修素材历史；这不代表频道没有头像或横幅。</p>`}</section>`;
     } else {
       const keywordCards = type => detail.keywords.filter(item => item.keyword_type === type).map(item => `<article class="hub-record"><header><strong>${esc(item.keyword)}</strong><button class="button button-quiet button-small" data-action="delete-channel-keyword" data-id="${item.id}" data-channel-id="${detail.channel.id}">移除</button></header><span class="cell-sub">${esc(item.language)} · ${esc(item.source)}</span></article>`).join("");
       body = `${channelInitializationReadiness(detail.initialization_readiness)}${channelHubForm(detail)}<div class="hub-columns"><section><header class="settings-content-head"><h3>关键词</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("keyword") || `<p class="settings-muted">待完善</p>`}</section><section><header class="settings-content-head"><h3>标签</h3><button class="button button-secondary button-small" data-action="add-channel-keyword" data-id="${detail.channel.id}">${icon("plus")} 新增</button></header>${keywordCards("tag") || `<p class="settings-muted">待完善</p>`}</section></div>`;
@@ -987,6 +990,17 @@
   function canCreateScheduleTask(item) {
     return !item.task_id && ["planned", "reserved", "confirmed"].includes(item.schedule_status);
   }
+  function updateScheduleSelectionCount() {
+    const checks = [...document.querySelectorAll(".schedule-task-check")].filter(item => !item.disabled);
+    const selected = checks.filter(item => item.checked).length;
+    const count = document.getElementById("scheduleSelectedCount");
+    if (count) count.textContent = `已选 ${selected} 条`;
+    const all = document.getElementById("scheduleTaskSelectAll");
+    if (all) {
+      all.checked = checks.length > 0 && selected === checks.length;
+      all.indeterminate = selected > 0 && selected < checks.length;
+    }
+  }
   function scheduleTaskCheckbox(item) {
     return `<td><input type="checkbox" class="schedule-task-check" value="${esc(item.schedule_id)}" aria-label="选择排期：${esc(item.chinese_title)}" ${canCreateScheduleTask(item) ? "" : "disabled"}></td>`;
   }
@@ -1002,7 +1016,7 @@
     const selectedChannel = channels.find(channel => channel.channel_id === state.scheduleChannelId);
     const listItems = fullMode ? full.items : schedules;
     const selectionHeader = "选择";
-    const batchAction = `<label class="schedule-batch-select"><input type="checkbox" id="scheduleTaskSelectAll" aria-label="全选当前列表可生成工单的排期" title="仅全选当前列表，不包含其他页">全选本页</label><button class="button button-secondary" data-action="create-selected-tasks" title="工单日期：${date}；仅处理当前列表选中排期" ${listItems.some(canCreateScheduleTask) ? "" : "disabled"}>${icon("list-checks")} 批量生成选中工单</button>`;
+    const batchAction = `<label class="schedule-batch-select"><input type="checkbox" id="scheduleTaskSelectAll" aria-label="全选当前列表可生成工单的排期" title="仅全选当前列表，不包含其他页">全选本页</label><span id="scheduleSelectedCount" role="status" aria-live="polite">已选 0 条</span><button class="button button-secondary" data-action="create-selected-tasks" title="工单日期：${date}；仅处理当前列表选中排期" ${listItems.some(canCreateScheduleTask) ? "" : "disabled"}>${icon("list-checks")} 批量生成选中工单</button>`;
     const channelOptions = channels.map(channel => `<option value="${channel.channel_id}" ${channel.channel_id === state.scheduleChannelId ? "selected" : ""}>${esc(channel.display_name)}</option>`).join("");
     const viewSwitch = `<div class="schedule-view-switch" role="group" aria-label="排期视图"><button class="button ${!fullMode && !allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="day">按日查看</button><button class="button ${fullMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="full">频道完整排期</button><button class="button ${allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="all-day">全部频道当日</button></div>`;
     const commonActions = `${batchAction}${allDayMode ? "" : `<button class="button button-secondary" data-action="sync-schedule-channel" ${state.scheduleChannelId ? "" : "disabled"}>${icon("refresh-cw")} 同步频道视频</button>`}<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button>${allDayMode ? "" : `<button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button><button class="button button-secondary" data-action="schedule-planning" ${state.scheduleChannelId ? "" : "disabled"}>AI 排期</button>`}`;
@@ -3108,7 +3122,9 @@
     if (event.target.matches('[data-workflow-compare]')) { state.workflowCompareId = event.target.value; await workflowFiles(event.target.dataset.id); }
     if (event.target.id === "scheduleTaskSelectAll") {
       document.querySelectorAll(".schedule-task-check").forEach(item => { if (!item.disabled) item.checked = event.target.checked; });
+      updateScheduleSelectionCount();
     }
+    if (event.target.matches(".schedule-task-check")) updateScheduleSelectionCount();
     if (event.target.name === "lease_mode") accountCenter.syncLeaseMode(event.target.form);
     if (event.target.matches("[data-import-country]")) {
       const country = state.channelImport?.countries?.find(item => item.code === event.target.value);
