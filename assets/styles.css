@@ -1003,7 +1003,7 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 @media (prefers-reduced-motion: reduce) { .analysis-loading-spinner { animation: none; } }
 .analysis-monitor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 14px; }
 .analysis-monitor-grid .hub-record { margin: 0; align-content: start; overflow-wrap: anywhere; }
-.analysis-workspace { width: 100%; max-width: 1680px; overflow: hidden; }
+.analysis-workspace { width: 100%; max-width: 1800px; margin: 0 auto; overflow: hidden; }
 .analysis-workspace-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
 .analysis-workspace-metrics { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; color: var(--muted); font-size: 13px; }
 .analysis-workspace-metrics strong { margin-left: 4px; color: var(--text); }
@@ -1039,3 +1039,12 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .schedule-monitor-table td { vertical-align:middle; padding:14px 18px; }
 .schedule-task-progress { display:flex; flex-direction:column; gap:5px; min-width:240px; }
 .schedule-task-progress progress { width:100%; max-width:320px; height:7px; accent-color:#087f5b; }
+
+/* 小五登记文件转换 */
+.xiaowu-upload { padding: 24px; display: flex; gap: 16px; align-items: end; flex-wrap: wrap; }
+.xiaowu-upload label { display: grid; gap: 10px; }
+.xiaowu-upload p { width: 100%; margin: 0; }
+.xiaowu-preview-summary { padding: 20px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; border-top: 1px solid var(--border); }
+.xiaowu-preview-summary button { margin-left: auto; }
+.xiaowu-error { color: #b42318; }
+.xiaowu-preview td { overflow-wrap: anywhere; }

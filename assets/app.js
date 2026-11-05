@@ -30,7 +30,7 @@
   ];
   const VIEW_META = {
     channelLedger: ["频道", "剧目台账"],
-    scheduleProgress:["排期","排期进度"], channelAnalysis: ["频道", "频道分析"], dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
+    xiaowuSync:["运营资料","同步小五"], scheduleProgress:["排期","排期进度"], channelAnalysis: ["频道", "频道分析"], dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
@@ -40,6 +40,7 @@
   Object.assign(state, { ledgerChannelId: "", ledgerSearch: "", ledgerVisibility: "", ledgerScheduled: "",
     ledgerSortBy: "drama_code", ledgerSortOrder: "asc", ledgerPage: 1, ledgerPageSize: 50, ledgerReturnY: 0 });
   const root = el("viewRoot");
+  Object.assign(state, {xiaowuKind:"binding", xiaowuPreviews:{binding:null,cid:null}});
   const emptyPageState = structuredClone(state);
   const youtubeReauthorizationChannels = new Set();
   let realtimeRetryTimer = null;
@@ -2091,7 +2092,41 @@
     return `<form class="form-grid" id="credentialForm"><input type="hidden" name="account_id" value="${esc(accountId)}"><div class="field"><label>凭证类型</label><input class="input mono" name="credential_type" required placeholder="oauth / bot_token / api_key"></div><div class="field field-wide"><label>Secret 引用</label><input class="input mono" name="secret_reference" required placeholder="keychain://zhiju/feishu/main"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存引用</button></div></form>`;
   }
 
-  const renderers = { dashboard: showDashboard, channels: showChannels, channelAnalysis:showAnalysisWorkspace, scheduleProgress:showScheduleProgress, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
+  function showXiaowuSync() {
+    const kind=state.xiaowuKind;
+    const binding=kind==='binding', preview=state.xiaowuPreviews[kind];
+    const rows=preview?.rows || [];
+    const body=preview ? `<div class="xiaowu-preview-summary"><strong>共 ${preview.total} 条 · ${preview.file_count} 个文件</strong><span class="${preview.issue_count?'xiaowu-error':'settings-muted'}">${preview.issue_count ? `${preview.issue_count} 条需要核对，暂不能导出` : '全部通过，可以下载'}</span><button class="button button-primary" data-action="xiaowu-export" ${preview.issue_count?'disabled':''}>下载 Excel</button></div>${table(['来源',...preview.headers,'匹配 / 核对结果'],rows.map(row=>`<tr><td>${esc(row.file)}<br><span class="settings-muted">第 ${row.line} 行</span></td>${row.values.map(value=>`<td>${esc(value)}</td>`).join('')}<td class="${row.issues.length?'xiaowu-error':''}">${esc(row.issues.length?row.issues.join('；'):(row.source || '已汇总'))}</td></tr>`),binding?1100:1500)}` : empty('上传文件后生成预览', binding?'按视频 ID 对照智矩上架信息和排期，匹配对应剧名。':'支持一次选择多个频道的 CSV，合并为一张表。');
+    root.innerHTML=`<div class="page-stack"><section class="section"><div class="section-head"><div><h2>同步小五</h2><p class="settings-muted">上传文件 → 核对预览 → 下载登记表</p></div></div><div class="toolbar"><button class="button ${binding?'button-primary':'button-secondary'}" data-action="xiaowu-tab" data-kind="binding">视频绑定</button><button class="button ${binding?'button-secondary':'button-primary'}" data-action="xiaowu-tab" data-kind="cid">解 CID</button></div><form id="xiaowuUploadForm" class="xiaowu-upload"><label>${binding?'上传频道视频数据（XLSX）':'上传版权 CSV（可多选）'}<input type="file" name="files" accept="${binding?'.xlsx':'.csv'}" ${binding?'':'multiple'} required></label><button class="button button-primary" type="submit">${binding?'匹配并预览':'汇总并预览'}</button><p class="settings-muted">${binding?'运作套餐统一为“译制代运营”；发布语种取对应频道配置。匹配异常会显示来源行，修正后重新上传。':'授权方固定为“杭州小五和她的兄弟们科技有限公司”；填写方名称、授权证明留空。禁播方原样保留，各条版权记录分别列出。'}</p><p id="xiaowuFeedback" role="status" aria-live="polite"></p></form><div id="xiaowuPreview" class="xiaowu-preview">${body}</div></section></div>`;
+  }
+  async function uploadXiaowu(form) {
+    if(form.dataset.busy==='true')return;
+    const kind=state.xiaowuKind, revision=auth.capture();
+    const submit=form.querySelector('button[type="submit"]'),feedback=el('xiaowuFeedback');
+    form.dataset.busy='true';submit.disabled=true;submit.textContent='正在上传并处理…';
+    feedback.textContent='正在读取文件'+(kind==='binding'?'并比对智矩上架信息和排期…':'并汇总版权记录…');
+    try {
+      const result=await api(`/xiaowu-sync/preview/${kind}`,{method:'POST',body:new FormData(form),expectedRevision:revision});
+      state.xiaowuPreviews[kind]=result;
+      if(state.view==='xiaowuSync' && state.xiaowuKind===kind)showXiaowuSync();
+      notify(`已处理 ${result.total} 条，${result.issue_count} 条待核对`,Boolean(result.issue_count));
+    }catch(error){
+      if(auth.isCurrent(revision)){feedback.textContent=error.message;feedback.className='xiaowu-error';}
+    }finally{form.dataset.busy='false';submit.disabled=false;submit.textContent=kind==='binding'?'匹配并预览':'汇总并预览';}
+  }
+  async function downloadXiaowu(button) {
+    const kind=state.xiaowuKind,preview=state.xiaowuPreviews[kind];
+    if(!preview || preview.issue_count)return;
+    button.disabled=true;button.textContent='正在生成 Excel…';
+    try {
+      const {blob}=await api('/xiaowu-sync/export',{method:'POST',body:JSON.stringify({kind,rows:preview.rows}),responseType:'blob'});
+      const url=URL.createObjectURL(blob),link=document.createElement('a');
+      link.href=url;link.download=kind==='binding'?'小五视频绑定.xlsx':'小五解CID汇总.xlsx';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      notify('Excel 已生成并开始下载');
+    }finally{button.disabled=false;button.textContent='下载 Excel';}
+  }
+
+  const renderers = { xiaowuSync:showXiaowuSync, dashboard: showDashboard, channels: showChannels, channelAnalysis:showAnalysisWorkspace, scheduleProgress:showScheduleProgress, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
   renderers.channelLedger = showChannelLedger;
   function captureViewPosition() {
     const topbarBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom || 0;
@@ -2446,6 +2481,8 @@
         await api(`/skills/${skillId}/versions/${versionId}/publish`, { method: "POST" });
         notify("Skill 版本已发布"); await skillDetail(skillId);
       }
+      else if (action === "xiaowu-tab") {state.xiaowuKind=button.dataset.kind;showXiaowuSync();}
+      else if (action === "xiaowu-export") await downloadXiaowu(button);
       else if (action === "go-skills") await loadView("skills");
       else if (action === "add-channel-drama-type") openModal("新增短剧类型", channelDramaTypeForm());
       else if (action === "edit-channel-drama-type") {
@@ -3172,6 +3209,7 @@
     if (["loginForm", "tenantSwitchForm"].includes(event.target.id)) return;
     if (!auth.current()) { event.preventDefault(); return; }
     event.preventDefault(); const expectedRevision = auth.capture(); const form = event.target; const data = formData(form);
+    if (form.id === "xiaowuUploadForm") { await uploadXiaowu(form); return; }
     if (form.id === "channelOrderForm") {
       if (form.dataset.busy === "true") return;
       form.dataset.busy = "true";

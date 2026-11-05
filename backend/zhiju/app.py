@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from zhiju import __version__
 from zhiju.api.auth import router as auth_router
 from zhiju.api.platform_admin import router as platform_admin_router, tenant_router as tenant_users_router
+from zhiju.api.xiaowu_sync import router as xiaowu_sync_router
 from zhiju.api.health import router as health_router
 from zhiju.api.settings import router as settings_router
 from zhiju.api.history import router as history_router
@@ -81,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(demo_router, prefix="/api")
     app.include_router(realtime_router, prefix="/api")
     app.include_router(feishu_sync_router, prefix="/api")
+    app.include_router(xiaowu_sync_router, prefix="/api")
     app.mount("/assets", StaticFiles(directory=frontend_root / "assets"), name="assets")
 
     @app.middleware("http")
