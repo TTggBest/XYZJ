@@ -3,7 +3,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_, case
 from zhiju.models import (Channel, ChannelSchedulePlan, ChannelScheduleEntry, ChannelPublishSlot,
     Drama, DramaProductionState, ChannelDnaVersion, ScheduleCandidate, ScheduleChangeHistory, Language, PublishCadenceTemplateSlot)
 from zhiju.models.v14 import V14Setting
@@ -20,7 +20,7 @@ def utc(value):
 
 
 def read(plan, *, summary=False):
-    result={key:getattr(plan,key) for key in ('id','channel_id','host_id','status','claim_id','heartbeat_at',
+    result={key:getattr(plan,key) for key in ('id','channel_id','host_id','status','claim_id','heartbeat_at','progress',
         'dna_id','input_snapshot','result','error','created_at','updated_at')}
     if summary:
         result['input_snapshot']={k:plan.input_snapshot[k] for k in ('channel','start_date','end_date','daily_count')}
@@ -39,6 +39,35 @@ def list_plans(session, channel_id):
     # Keep large frozen story snapshots out of MySQL's filesort buffer.
     rows={row.id:row for row in session.scalars(select(ChannelSchedulePlan).where(ChannelSchedulePlan.id.in_(ids)))}
     return [rows[id] for id in ids]
+
+
+def workspace(session,page=1,page_size=20,status='active',search=''):
+    r=ChannelSchedulePlan;c=Channel
+    join=(c.id==r.channel_id)&(c.tenant_id==r.tenant_id)
+    condition=[c.deleted_at.is_(None)]
+    if status=='active':condition.append(r.status.in_(['queued','running','failed','ready']))
+    elif status!='all':condition.append(r.status==status)
+    if search.strip():condition.append(or_(c.original_name.contains(search.strip()),c.operational_name.contains(search.strip())))
+    stats=dict(session.execute(select(r.status,func.count()).join(c,join).where(c.deleted_at.is_(None)).group_by(r.status)).all())
+    total=session.scalar(select(func.count()).select_from(r).join(c,join).where(*condition))
+    pages=max(1,(total+page_size-1)//page_size);page=min(page,pages)
+    # Sorting only IDs keeps full candidate plots and generated previews out of filesort.
+    ids=list(session.scalars(select(r.id).join(c,join).where(*condition).order_by(
+        case((r.status=='running',0),(r.status=='queued',1),(r.status=='failed',2),else_=3),r.created_at.desc(),r.id.desc())
+        .offset((page-1)*page_size).limit(page_size)))
+    array_length=func.json_length if session.get_bind().dialect.name=='mysql' else func.json_array_length
+    records=session.execute(select(r.id,r.channel_id,r.status,r.progress,r.heartbeat_at,r.error,r.created_at,
+        c.original_name,c.operational_name,
+        r.input_snapshot['start_date'].as_string().label('start_date'),
+        r.input_snapshot['end_date'].as_string().label('end_date'),
+        r.input_snapshot['daily_count'].as_integer().label('daily_count'),
+        array_length(r.input_snapshot['candidates']).label('candidate_count'),
+        array_length(r.input_snapshot['targets']).label('target_count'))
+        .join(c,join).where(r.id.in_(ids))).mappings()
+    rows={row['id']:dict(row,channel_name=row['operational_name'] or row['original_name']) for row in records}
+    from zhiju.services.executor_queue import counts
+    return {'items':[rows[id] for id in ids],'total':total,'page':page,'pages':pages,'page_size':page_size,
+            'stats':{key:stats.get(key,0) for key in ('running','queued','failed','ready','applied')},'executor':counts(session)}
 
 
 def language_aliases(session):
@@ -165,15 +194,20 @@ def create_plan(session,channel_id,start_date,end_date,daily_count):
     session.add(plan);session.commit();session.refresh(plan);return plan
 
 
-def claim_plan(session,host_id):
+def claim_plan(session,host_id,*,claim_id=None,plan_id=None):
+    preferred_id=plan_id
     setting=session.scalar(select(V14Setting))
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
+    from zhiju.services.executor_queue import admission
+    if not admission(session):return None
     plan_id=session.scalar(select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.host_id==host_id,
-        ChannelSchedulePlan.status=='queued').order_by(ChannelSchedulePlan.created_at)
+        ChannelSchedulePlan.status=='queued',*([ChannelSchedulePlan.id==preferred_id] if preferred_id else [])).order_by(ChannelSchedulePlan.created_at)
         .with_for_update(skip_locked=True).limit(1))
     if plan_id is None:return None
     row=get_plan(session,plan_id,True)
-    row.status='running';row.claim_id=str(uuid4());row.heartbeat_at=datetime.now(timezone.utc)
+    row.status='running';row.claim_id=claim_id or str(uuid4());row.progress=None;row.heartbeat_at=datetime.now(timezone.utc)
+    from zhiju.services.executor_queue import reserve
+    reserve(session,'channel_scheduling',row)
     session.commit();return {**read(row),'tenant_id':row.tenant_id}
 
 
@@ -210,7 +244,9 @@ def resume_plan(session,plan_id,stopped_confirmed):
     row=get_plan(session,plan_id,True)
     if not stopped_confirmed or row.status not in {'failed','running','cancelled'}:
         raise ConflictError('确认旧执行已停止后才能恢复失败或中断的规划')
-    row.claim_id=None;row.status='queued';row.error=None;session.commit();return row
+    from zhiju.services.executor_queue import release_stopped_run
+    release_stopped_run(session,'channel_scheduling',row.id)
+    row.claim_id=None;row.status='queued';row.error=None;row.progress=None;row.heartbeat_at=None;session.commit();return row
 
 
 def apply_plan(session,plan_id):

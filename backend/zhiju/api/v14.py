@@ -98,11 +98,38 @@ def current(work_order_id: str, s: Session = Depends(get_tenant_db), p=Depends(o
     return service.run_read(s, run) if run else None
 
 
+def require_shared_queue_protocol(protocol):
+    if protocol<5:
+        raise HTTPException(status_code=409,detail='本机执行器需要更新：请安装支持全局10个名额的版本后重新唤起；任务仍在排队')
+
+
 @router.post("/v14/claims")
 def claim(body: ClaimRequest, s: Session = Depends(get_tenant_db), p=Depends(operator)):
     bound_host(s, p, body.host_id)
+    require_shared_queue_protocol(body.executor_protocol)
     result = call(service.claim_run, s, body.host_id, executor_protocol=body.executor_protocol, claim_id=body.claim_id)
     return result if result else Response(status_code=204)
+
+
+@router.post('/executor/claims')
+def executor_claim(body:ClaimRequest,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    bound_host(s,p,body.host_id)
+    require_shared_queue_protocol(body.executor_protocol)
+    from zhiju.services.executor_queue import claim_next
+    result=call(claim_next,s,body.host_id,body.claim_id,body.executor_protocol)
+    return result if result else Response(status_code=204)
+
+
+@router.post('/executor/releases')
+def executor_release(body:ClaimIdentity,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    from zhiju.services.executor_queue import release
+    return release(s,p.device_id,body.claim_id)
+
+
+@router.get('/executor/queue')
+def executor_queue(s:Session=Depends(get_tenant_db)):
+    from zhiju.services.executor_queue import counts
+    return counts(s)
 
 
 def execution_run(s, p, run_id):

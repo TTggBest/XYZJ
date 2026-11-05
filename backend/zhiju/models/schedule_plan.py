@@ -16,6 +16,7 @@ class ChannelSchedulePlan(TenantOwnedMixin, IdMixin, TimestampMixin, Base):
     dna_id: Mapped[str | None] = mapped_column(String(36))
     claim_id: Mapped[str | None] = mapped_column(String(36))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    progress: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     input_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
     result: Mapped[dict | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)

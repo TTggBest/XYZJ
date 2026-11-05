@@ -16,7 +16,7 @@ from zhiju.models.v14 import V14Run, V14Attempt
 def claim_staged(client):
     run = client.post('/api/v3/work-orders/work-a/v14-runs').json()
     response = client.post('/api/v3/v14/claims', json={
-        'host_id': 'device-a', 'executor_protocol': 4,
+        'host_id': 'device-a', 'executor_protocol': 5,
         'claim_id': '11111111-1111-4111-8111-111111111111'})
     assert response.status_code == 200, response.text
     return run, response.json()
@@ -36,7 +36,7 @@ def test_staged_claim_never_builds_or_transmits_full_history(client, monkeypatch
 def test_lost_claim_response_reuses_same_run_and_claim(client, store):
     _, first = claim_staged(client)
     again = client.post('/api/v3/v14/claims', json={
-        'host_id': 'device-a', 'executor_protocol': 4, 'claim_id': first['claim_id']})
+        'host_id': 'device-a', 'executor_protocol': 5, 'claim_id': first['claim_id']})
     assert again.status_code == 200
     assert again.json()['run_id'] == first['run_id']
     assert again.json()['claim_id'] == first['claim_id']
@@ -49,12 +49,12 @@ def test_stage_delivery_keeps_exact_model_request_but_not_validator_history(clie
     from zhiju.v14_runtime.contract import build_stage_input
     _, claim = claim_staged(client)
     begin = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts", json={
-        'claim_id': claim['claim_id'], 'node_type': 'search', 'executor_protocol': 4})
+        'claim_id': claim['claim_id'], 'node_type': 'search', 'executor_protocol': 5})
     assert begin.status_code == 200, begin.text
     attempt = begin.json()['attempt_id']
     # A lost begin response must not leave a second attempt or poison the claim.
     again = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts", json={
-        'claim_id': claim['claim_id'], 'node_type': 'search', 'executor_protocol': 4})
+        'claim_id': claim['claim_id'], 'node_type': 'search', 'executor_protocol': 5})
     assert again.json()['attempt_id'] == attempt
     evidence = {'status': 'failed', 'reason': 'offline test', 'videos': []}
     response = client.post(f"/api/v3/v14/runs/{claim['run_id']}/attempts/{attempt}/input",
@@ -94,7 +94,7 @@ def test_claim_network_retry_has_stable_identity(monkeypatch):
     monkeypatch.setattr('zhiju.v14_executor.client.time.sleep', lambda *_: None, raising=False)
     assert cloud.claim()['run_id'] == 'run'
     assert len(sent) == 2 and sent[0] == sent[1]
-    assert sent[0]['claim_id'] and sent[0]['executor_protocol'] == 4
+    assert sent[0]['claim_id'] and sent[0]['executor_protocol'] == 5
 
 
 def test_staged_runner_uses_cloud_requests_and_preserves_server_rejection(tmp_path):
@@ -168,35 +168,27 @@ def test_staged_content_repair_continues_without_local_retry_history(tmp_path):
 
 @pytest.mark.parametrize('failure', [ConnectionError, RuntimeError])
 def test_one_connection_failure_does_not_cancel_other_workers(tmp_path, monkeypatch, failure):
-    from zhiju.v14_executor import __main__ as cli
-    ready = threading.Barrier(2)
-    lock = threading.Lock()
-    calls = 0
-    healthy_completed = []
-    def run_once(*args, stop_event, **kwargs):
-        nonlocal calls
-        with lock:
-            calls += 1
-            number = calls
+    from zhiju.v14_executor import dispatch
+    from types import SimpleNamespace
+    from collections import deque
+    ready=threading.Barrier(2);tasks=deque([1,2]);healthy_completed=[]
+    class Cloud:
+        def claim_any(self,claim_id=None):
+            if not tasks:return None
+            number=tasks.popleft()
+            return {'task_type':'operation_package','run':{'id':number,'claim_id':claim_id}}
+        def transport_request(self,*args):return {'released':True}
+    def run_once(*args,stop_event,envelope,**kw):
         ready.wait(timeout=3)
-        if number == 1:
-            raise failure('one worker offline')
-        # Wait for the failing worker's exception path to run.
-        import time
-        time.sleep(.05)
-        assert not stop_event.is_set(), 'a network timeout cancelled a healthy worker'
-        healthy_completed.append(number)
-        return False
-    monkeypatch.setattr(cli, 'run_once', run_once)
-    monkeypatch.setattr(cli, 'replay_pending', lambda *_: False)
-    monkeypatch.setattr(cli.signal, 'signal', lambda *_: None)
-    monkeypatch.setattr(sys, 'argv', ['v14', '--config-stdin', '--drain', '--workers', '2'])
-    monkeypatch.setattr(sys, 'stdin', io.StringIO(json.dumps({
-        'base_url': 'http://localhost', 'session_token': 'test', 'host_id': 'device',
-        'tenant_id': 'tenant', 'cache_root': str(tmp_path)})))
-    with pytest.raises(failure):
-        cli.main()
-    assert len(healthy_completed) == 1
+        if envelope['id']==1:raise failure('one worker offline')
+        assert not stop_event.is_set()
+        healthy_completed.append(envelope['id'])
+    monkeypatch.setattr(dispatch,'run_once',run_once)
+    monkeypatch.setattr(dispatch,'replay_pending',lambda *_:None)
+    monkeypatch.setattr(dispatch.channel_analysis,'recover_cached',lambda *_:None)
+    monkeypatch.setattr(dispatch.schedule_planning,'recover_cached',lambda *_:None)
+    dispatch.drain(Cloud,SimpleNamespace,{},tmp_path,workers=2)
+    assert healthy_completed==[2]
 
 
 def test_outbound_cache_contains_result_and_identity_not_full_task(tmp_path):
@@ -250,10 +242,10 @@ def test_ten_workers_finish_over_http_after_one_lost_claim_response(tmp_path, mo
                         dropped = True
                         self.close_connection = True
                         return  # Server allocated the job; client lost its response.
-                self.respond({'tenant_id': 'tenant', 'run_id': run_id, 'work_order_id': run_id,
+                self.respond({'task_type':'operation_package','run':{'tenant_id': 'tenant', 'run_id': run_id, 'work_order_id': run_id,
                     'claim_id': key, 'model': 'never-called', 'account_profile': 'current',
                     'staged_inputs': True, 'node_sequence': ['merge'],
-                    'accepted_nodes': [], 'rules_snapshot': {}})
+                    'accepted_nodes': [], 'rules_snapshot': {}}})
             elif self.path.endswith('/input'):
                 self.respond({'node_type': 'merge', 'prompt': '', 'schema': {},
                               'item': {}, 'context': {}, 'rules': {}})

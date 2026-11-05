@@ -243,16 +243,19 @@ def attempt_input(session, run, attempt_id, claim_id, external_evidence=None):
         'context': {'plot_payload': stage.context['plot_payload']} if attempt.node_type == 'search' else {}}
 
 
-def claim_run(session, host_id: str, *, executor_protocol: int = 2, claim_id: str | None = None):
+def claim_run(session, host_id: str, *, executor_protocol: int = 2, claim_id: str | None = None, run_id: str | None = None):
+    preferred_id=run_id
     session.scalar(select(V14Setting).where(V14Setting.tenant_id == session.info["tenant_id"]).with_for_update())
     if executor_protocol >= 4 and claim_id:
         existing = session.scalar(select(V14Run).where(V14Run.host_id == host_id,
             V14Run.claim_id == claim_id, V14Run.status == 'running'))
         if existing is not None:
             return claim_read(session, existing)
+    from zhiju.services.executor_queue import admission
+    if not admission(session):return None
     # Sort only IDs: full Skills JSON snapshots can exceed MySQL's sort buffer.
     run_id = session.scalar(select(V14Run.id).join(WorkOrder, WorkOrder.id == V14Run.work_order_id).join(Channel, Channel.id == WorkOrder.channel_id).where(V14Run.tenant_id == session.info["tenant_id"],
-        V14Run.host_id == host_id, V14Run.status == "queued").order_by(*channel_order_columns(), V14Run.created_at, V14Run.id).with_for_update().limit(1))
+        V14Run.host_id == host_id, V14Run.status == "queued",*([V14Run.id==preferred_id] if preferred_id else [])).order_by(*channel_order_columns(), V14Run.created_at, V14Run.id).with_for_update().limit(1))
     if run_id is None:
         return None
     run = session.scalar(select(V14Run).where(V14Run.id == run_id).with_for_update())
@@ -261,6 +264,8 @@ def claim_run(session, host_id: str, *, executor_protocol: int = 2, claim_id: st
         raise ConflictError('当前执行器不支持成套 Skills，请更新本机执行器；任务仍保持待执行')
     run.status, run.claim_id = "running", claim_id if executor_protocol >= 4 and claim_id else str(uuid4())
     run.heartbeat_at = datetime.now(timezone.utc)
+    from zhiju.services.executor_queue import reserve
+    reserve(session,'operation_package',run)
     session.commit()
     return claim_read(session, run) if executor_protocol >= 4 else envelope(session, run)
 
@@ -379,6 +384,8 @@ def resume_run(session, run_id, stopped_confirmed, *, retry_content=False):
     for a in rows:
         if a.outcome == "running":
             a.outcome, a.error = "interrupted", "原执行已停止"
+    from zhiju.services.executor_queue import release_stopped_run
+    release_stopped_run(session,'operation_package',run.id)
     run.claim_id, run.status, run.error = None, "queued", None
     session.commit()
     return run_read(session, run)

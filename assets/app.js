@@ -30,7 +30,7 @@
   ];
   const VIEW_META = {
     channelLedger: ["频道", "剧目台账"],
-    channelAnalysis: ["频道", "频道分析"], dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
+    scheduleProgress:["排期","排期进度"], channelAnalysis: ["频道", "频道分析"], dashboard: ["总览", "运营总览"], channels: ["频道", "频道管理"], dramas: ["剧库", "本地剧库"], dramaProgress: ["剧库", "制剧进度"], schedules: ["排期", "频道排期"], publishSlots: ["排期", "频道档期表"], channelCadence: ["排期", "频道更新配置"],
     workorders: ["工单", "工单列表"], packages: ["运营包", "运营包列表"], youtube: ["YouTube", "YouTube 数据"],
     media: ["素材", "素材资产"], skills: ["Skills", "Skills 管理"], logs: ["系统日志", "状态与审计日志"], settings: ["设置", "系统设置"], accounts: ["账号", "账号中心"]
   };
@@ -564,7 +564,7 @@
     state.analysisWorkspaceData=data;state.analysisWorkspacePage=data.page;
     const stats=data.stats;
     const tabs=`<div class="detail-tabs analysis-workspace-tabs"><button class="detail-tab ${view==="results" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="results">分析结果</button><button class="detail-tab ${view==="progress" ? "is-active" : ""}" data-action="analysis-workspace-tab" data-tab="progress">分析进度</button></div>`;
-    const header=`<header class="analysis-workspace-summary"><div class="analysis-workspace-metrics"><span>运行中 <strong>${stats.running}</strong></span><span>排队 <strong>${stats.queued}</strong></span><span class="${stats.failed ? "is-red" : ""}">失败 <strong>${stats.failed}</strong></span><span class="analysis-workspace-capacity">最多 ${stats.worker_limit} 个频道并行</span></div><button class="button button-secondary button-small" data-action="refresh-analysis-workspace">${icon("refresh-cw")} 刷新</button></header>`;
+    const header=`<header class="analysis-workspace-summary"><div class="analysis-workspace-metrics"><span>运行中 <strong>${stats.running}</strong></span><span>排队 <strong>${stats.queued}</strong></span><span class="${stats.failed ? "is-red" : ""}">失败 <strong>${stats.failed}</strong></span><span class="analysis-workspace-capacity">与排期、运营包共享 ${stats.worker_limit} 个执行名额</span></div><button class="button button-secondary button-small" data-action="refresh-analysis-workspace">${icon("refresh-cw")} 刷新</button></header>`;
     const channelLink=row=>`<button class="button button-secondary button-small" data-action="channel-detail-tab" data-channel-detail-tab="analysis" data-id="${esc(row.channel_id)}">分析内容与历史</button>`;
     let content,search="";
     if(view==="results") {
@@ -594,6 +594,49 @@
         }
       } catch(error) {const status=el("analysisWorkspaceUpdated");if(status && error.name!=="AbortError") status.textContent="进度刷新失败："+error.message+"；将自动重试";}
       finally {if(auth.isCurrent(revision)) scheduleAnalysisWorkspaceRefresh();}
+    },5000);
+  }
+  const SCHEDULE_STATES={queued:"排队中",running:"执行中",ready:"预览已就绪",failed:"失败",applied:"已保存",cancelled:"已取消"};
+  function scheduleTaskProgress(plan,capacity=null) {
+    if(plan.status==="queued") return `<span class="cell-sub">${capacity && capacity.running>=capacity.worker_limit ? "等待全局执行名额" : "等待执行器领取，可进入任务唤起"}</span>`;
+    if(plan.status==="ready") return `<span class="is-green">预览已生成，等待确认保存</span>`;
+    if(plan.status==="applied") return `<span class="is-green">排期已保存</span>`;
+    const p=plan.progress,stages={preparing:"准备资料",assessing:"阅读与评估剧情",planning:"编排日期与档位",validating:"校验排期",delivery:"回传预览"};
+    const heartbeat=plan.heartbeat_at ? Math.max(0,Math.floor((Date.now()-new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(plan.heartbeat_at)?plan.heartbeat_at:plan.heartbeat_at+"Z").getTime())/1000)) : null;
+    const live=plan.status==="running" ? heartbeat===null ? "等待执行器心跳" : heartbeat>60 ? `连接待确认 · ${heartbeat} 秒未收到心跳` : `执行器在线 · ${heartbeat} 秒前收到心跳` : "";
+    const count=p && p.total_items ? `已评估 ${p.completed_items} / ${p.total_items} 部` : "";
+    const elapsed=p ? `本次执行 ${Math.floor((p.elapsed_seconds || 0)/60)}分${(p.elapsed_seconds || 0)%60}秒` : "";
+    return `<div class="schedule-task-progress" role="status"><strong>${esc(p ? stages[p.stage] || p.stage : plan.status==="running" ? "执行中，等待分步进度" : SCHEDULE_STATES[plan.status] || plan.status)}</strong>${count ? `<span>${esc(count)}</span>` : ""}${p?.total_items ? `<progress max="${Number(p.total_items)}" value="${Math.min(Number(p.completed_items || 0),Number(p.total_items))}" aria-label="候选剧情评估进度"></progress>` : ""}${p?.current_item ? `<span class="cell-sub">${esc(p.current_item)}</span>` : ""}<span class="cell-sub">${esc([elapsed,live].filter(Boolean).join(" · "))}</span></div>`;
+  }
+  let scheduleMonitorTimer=null,scheduleMonitorRequest=0;
+  async function showScheduleProgress() {
+    clearTimeout(scheduleMonitorTimer);
+    const revision=auth.capture(),request=++scheduleMonitorRequest;
+    const data=await api(`/schedule-planning/workspace${query({page:state.scheduleMonitorPage || 1,page_size:20,status:state.scheduleMonitorStatus || "active",search:state.scheduleMonitorSearch || ""})}`,{expectedRevision:revision});
+    if(request!==scheduleMonitorRequest || !auth.isCurrent(revision) || state.view!=="scheduleProgress") return;
+    state.scheduleMonitorPage=data.page;
+    const stats=data.stats,e=data.executor;
+    const metrics=`<header class="analysis-workspace-summary"><div class="analysis-workspace-metrics"><span>执行中 <strong>${stats.running}</strong></span><span>排队 <strong>${stats.queued}</strong></span><span>待确认 <strong>${stats.ready}</strong></span><span class="${stats.failed ? "is-red" : ""}">失败 <strong>${stats.failed}</strong></span></div><button class="button button-secondary button-small" data-action="refresh-schedule-progress">${icon("refresh-cw")} 刷新</button></header>`;
+    const kinds={operation_package:"运营包",channel_analysis:"频道分析",channel_scheduling:"AI 排期"};
+    const capacity=`<div class="schedule-executor-summary"><strong>全局执行名额 ${e.running} / ${e.worker_limit}</strong><span>排队 ${e.queued}</span>${Object.entries(e.types || {}).map(([key,value])=>`<span>${kinds[key] || key}：执行 ${value.running} · 排队 ${value.queued}</span>`).join("")}</div>`;
+    const filters=`<form id="scheduleMonitorFilterForm" class="schedule-monitor-filters"><input class="input" name="search" aria-label="搜索频道" placeholder="搜索频道" value="${esc(state.scheduleMonitorSearch || "")}"><select class="select" name="status" aria-label="任务状态">${[["active","进行中及待处理"],["all","全部任务"],...Object.entries(SCHEDULE_STATES)].map(([key,value])=>`<option value="${key}" ${(state.scheduleMonitorStatus || "active")===key ? "selected" : ""}>${value}</option>`).join("")}</select><button class="button button-secondary" type="submit">查询</button></form>`;
+    const rows=data.items.map(plan=>`<tr><td><strong class="analysis-channel-name" title="${esc(plan.channel_name)}">${esc(plan.channel_name)}</strong><span class="cell-sub">${esc(plan.start_date)} ～ ${esc(plan.end_date)} · 每日 ${plan.daily_count} 更</span></td><td><span class="tag">${esc(SCHEDULE_STATES[plan.status])}</span></td><td>${scheduleTaskProgress(plan,e)}${plan.error ? `<p class="is-red">${esc(plan.error)}</p>` : ""}</td><td>${Number(plan.candidate_count || 0)} 部候选 · ${Number(plan.target_count || 0)} 个档位<span class="cell-sub">创建于 ${fmtUtc(plan.created_at)}</span></td><td><button class="button button-secondary button-small" data-action="schedule-plan-view" data-channel-id="${esc(plan.channel_id)}" data-id="${esc(plan.id)}">查看进度 / 预览</button></td></tr>`);
+    const pager=`<div class="pagination"><span>共 ${data.total} 条 · 第 ${data.page} / ${data.pages} 页 · 每页 20 条</span><button class="button button-secondary" data-action="schedule-progress-page" data-page="${data.page-1}" ${data.page<=1 ? "disabled" : ""}>上一页</button><button class="button button-secondary" data-action="schedule-progress-page" data-page="${data.page+1}" ${data.page>=data.pages ? "disabled" : ""}>下一页</button></div>`;
+    root.innerHTML=`<section class="section analysis-workspace" aria-label="排期任务进度">${metrics}${capacity}${filters}<p class="cell-sub schedule-monitor-note" id="scheduleMonitorUpdated" role="status">每 5 秒自动刷新 · 名额由分析、排期、运营包共享；查看进度不会重复启动任务。</p>${rows.length ? table(["频道 / 排期范围","状态","当前进度","任务规模","操作"],rows,1100,"schedule-monitor-table") : empty("暂无匹配的排期任务","可以调整筛选，或在频道排期中创建 AI 排期预览。")}${pager}</section>`;
+    renderIcons();scheduleProgressRefresh();
+  }
+  function scheduleProgressRefresh() {
+    clearTimeout(scheduleMonitorTimer);
+    if(state.view!=="scheduleProgress") return;
+    const revision=auth.capture();
+    scheduleMonitorTimer=setTimeout(async()=>{
+      if(!auth.isCurrent(revision) || state.view!=="scheduleProgress") return;
+      try {
+        if(document.visibilityState==="visible" && el("modalBackdrop").hidden && el("drawerBackdrop").hidden && !document.activeElement?.closest?.("#scheduleMonitorFilterForm")) {
+          const position=captureViewPosition();await showScheduleProgress();restoreViewPosition(position);
+        }
+      } catch(error) {const note=el("scheduleMonitorUpdated");if(note && error.name!=="AbortError") note.textContent="进度刷新失败："+error.message+"；将自动重试";}
+      finally {if(auth.isCurrent(revision)) scheduleProgressRefresh();}
     },5000);
   }
   function analysisMaterialsForm(run) {
@@ -1071,9 +1114,14 @@
     await loadChannelScheduling(channel.channel_id);
   }
   async function openSchedulePlanning(channelId = state.scheduleChannelId, planId = null) {
-    const channel = state.channels.find(c => c.channel_id === channelId);
-    if (!channel) return notify("请先选择频道", true);
-    const revision = auth.capture();
+    const revision=auth.capture();
+    if(!state.channels.some(c=>c.channel_id===channelId)) {
+      const channels=await api('/channels/overview',{expectedRevision:revision});
+      if(!auth.isCurrent(revision)) return;
+      state.channels=channels;
+    }
+    const channel=state.channels.find(c=>c.channel_id===channelId);
+    if(!channel) return notify("请先选择频道",true);
     const plans = await api(`/channels/${channelId}/schedule-plans`, {expectedRevision:revision});
     if (!auth.isCurrent(revision)) return;
     const selected = planId ? await api(`/schedule-plans/${planId}`, {expectedRevision:revision}) : null;
@@ -1087,7 +1135,7 @@
       const heartbeat = selected.heartbeat_at ? new Date(/(?:Z|[+-]\d{2}:\d{2})$/i.test(selected.heartbeat_at) ? selected.heartbeat_at : `${selected.heartbeat_at}Z`).getTime() : 0;
       const connectionDelayed = selected.status === "running" && heartbeat && Date.now() - heartbeat > 150000;
       const rows = selected.result?.rows || [];
-      preview = `<section class="detail-block"><h3>本次规划 · ${esc(connectionDelayed ? "连接待确认" : labels[selected.status] || selected.status)}</h3><p>资料：${guidance.mode === "periodic" ? "已生效正式分析" : "冷启动定位（未经数据验证）"} · 已按完整频道历史去重 · ${selected.input_snapshot.candidates.length} 部可用候选</p><p>${esc(selected.error || (connectionDelayed ? "超过150秒未收到心跳，暂时无法确认执行状态；请先检查本机进程，确认停止后再恢复。" : selected.status === "running" ? "正在阅读剧情并编排，点击刷新可查看进度。" : ""))}</p>${rows.length ? table(["当地日期 / 档位","北京时间","剧目 / 时长","剧情依据与编排理由"], rows.map(r => `<tr><td>${esc(r.publish_date)}<br>${r.slot_type === "main" ? "主档" : r.slot_type === "aux" ? "辅档" : "待补档位"}</td><td>${esc(r.planned_beijing_time?.replace("T"," ") || "—")}</td><td>${esc(r.chinese_title || "缺少合格剧目")}<br>${r.duration_seconds ? Math.round(r.duration_seconds/60)+" 分钟" : "时长未验证"}</td><td>${esc(r.reason)}<br>${esc(r.plot_evidence || "")}<br>${esc(r.pairing_reason || "")}${(r.warnings || []).map(w => `<p>${esc(w)}</p>`).join("")}</td></tr>`), 900) : ""}<div class="form-actions"><button class="button button-secondary" data-action="schedule-plan-view" data-channel-id="${channelId}" data-id="${selected.id}">刷新进度</button>${selected.status === "ready" ? `<button class="button button-primary" data-action="schedule-plan-apply" data-channel-id="${channelId}" data-id="${selected.id}">确认并保存排期</button>` : ""}${selected.status === "queued" ? `<button class="button button-secondary" data-action="schedule-plan-wake" data-channel-id="${channelId}" data-id="${selected.id}">唤起执行器</button>` : ""}${["failed","cancelled","running"].includes(selected.status) ? `<button class="button button-secondary" data-action="schedule-plan-resume" data-channel-id="${channelId}" data-id="${selected.id}">确认停止后恢复</button>` : ""}${["queued","running","ready","failed"].includes(selected.status) ? `<button class="button button-secondary" data-action="schedule-plan-cancel" data-channel-id="${channelId}" data-id="${selected.id}">取消本次规划</button>` : ""}</div></section>`;
+      preview = `<section class="detail-block"><h3>本次规划 · ${esc(connectionDelayed ? "连接待确认" : labels[selected.status] || selected.status)}</h3><p>资料：${guidance.mode === "periodic" ? "已生效正式分析" : "冷启动定位（未经数据验证）"} · 已按完整频道历史去重 · ${selected.input_snapshot.candidates.length} 部可用候选</p>${scheduleTaskProgress(selected)}<p>${esc(selected.error || (connectionDelayed ? "超过150秒未收到心跳，暂时无法确认执行状态；请先检查本机进程，确认停止后再恢复。" : selected.status === "running" ? "正在阅读剧情并编排，点击刷新可查看进度。" : ""))}</p>${rows.length ? table(["当地日期 / 档位","北京时间","剧目 / 时长","剧情依据与编排理由"], rows.map(r => `<tr><td>${esc(r.publish_date)}<br>${r.slot_type === "main" ? "主档" : r.slot_type === "aux" ? "辅档" : "待补档位"}</td><td>${esc(r.planned_beijing_time?.replace("T"," ") || "—")}</td><td>${esc(r.chinese_title || "缺少合格剧目")}<br>${r.duration_seconds ? Math.round(r.duration_seconds/60)+" 分钟" : "时长未验证"}</td><td>${esc(r.reason)}<br>${esc(r.plot_evidence || "")}<br>${esc(r.pairing_reason || "")}${(r.warnings || []).map(w => `<p>${esc(w)}</p>`).join("")}</td></tr>`), 900) : ""}<div class="form-actions"><button class="button button-secondary" data-action="schedule-plan-view" data-channel-id="${channelId}" data-id="${selected.id}">刷新进度</button>${selected.status === "ready" ? `<button class="button button-primary" data-action="schedule-plan-apply" data-channel-id="${channelId}" data-id="${selected.id}">确认并保存排期</button>` : ""}${selected.status === "queued" ? `<button class="button button-secondary" data-action="schedule-plan-wake" data-channel-id="${channelId}" data-id="${selected.id}">唤起执行器</button>` : ""}${["failed","cancelled","running"].includes(selected.status) ? `<button class="button button-secondary" data-action="schedule-plan-resume" data-channel-id="${channelId}" data-id="${selected.id}">确认停止后恢复</button>` : ""}${["queued","running","ready","failed"].includes(selected.status) ? `<button class="button button-secondary" data-action="schedule-plan-cancel" data-channel-id="${channelId}" data-id="${selected.id}">取消本次规划</button>` : ""}</div></section>`;
     }
     openModal(`AI 排期 · ${channel.display_name}`, `<p>依据本频道冷启动定位或已生效分析，阅读真实剧情选剧。仅填空档位，保留已有排期；生成预览后确认保存。</p><form class="form-grid" id="schedulePlanForm" data-channel-id="${channelId}"><div class="field"><label>开始日期（频道当地日期）</label><input class="input" name="start_date" type="date" value="${state.date}" required></div><div class="field"><label>结束日期（最多31天）</label><input class="input" name="end_date" type="date" value="${end.toISOString().slice(0,10)}" required></div><div class="field"><label>每日更新数量（优先主档，时间取频道配置）</label><input class="input" name="daily_count" type="number" min="1" max="10" value="${channel.daily_publish_count || 2}" required></div><div class="form-actions"><button class="button button-primary" type="submit">生成排期预览</button></div></form>${preview}<h3>最近规划</h3>${history || "暂无规划"}`);
   }
@@ -1151,6 +1199,7 @@
     if (!ready.ready || ready.host_id !== config.host_id || ready.tenant_id !== config.tenant_id) {
       throw new Error("本机 V14 唤起组件与当前公司或执行主机不匹配，请检查安装");
     }
+    if (Number(ready.executor_protocol || 0)<5) throw new Error("本机执行器需要更新：请安装支持全局 10 个执行名额的版本后重新唤起");
     if (!auth.isCurrent(expectedRevision)) throw new DOMException("账号已切换", "AbortError");
     return config;
   }
@@ -2028,7 +2077,7 @@
     return `<form class="form-grid" id="credentialForm"><input type="hidden" name="account_id" value="${esc(accountId)}"><div class="field"><label>凭证类型</label><input class="input mono" name="credential_type" required placeholder="oauth / bot_token / api_key"></div><div class="field field-wide"><label>Secret 引用</label><input class="input mono" name="secret_reference" required placeholder="keychain://zhiju/feishu/main"></div><div class="form-actions"><button class="button button-secondary" type="button" data-close-modal>取消</button><button class="button button-primary" type="submit">保存引用</button></div></form>`;
   }
 
-  const renderers = { dashboard: showDashboard, channels: showChannels, channelAnalysis:showAnalysisWorkspace, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
+  const renderers = { dashboard: showDashboard, channels: showChannels, channelAnalysis:showAnalysisWorkspace, scheduleProgress:showScheduleProgress, dramas: showDramas, dramaProgress: showDramaProgress, schedules: showSchedules, publishSlots: showPublishSlots, channelCadence: showChannelCadence, workorders: showWorkorders, packages: showPackages, youtube: showYoutube, media: showMedia, skills: showSkills, logs: showLogs, settings: showSettings, accounts: showAccounts };
   renderers.channelLedger = showChannelLedger;
   function captureViewPosition() {
     const topbarBottom = document.querySelector(".topbar")?.getBoundingClientRect().bottom || 0;
@@ -2062,6 +2111,7 @@
     const preservePosition = Boolean(options.preservePosition && view === state.view);
     const position = preservePosition ? captureViewPosition() : null;
     state.view = view;
+    if(view!=="scheduleProgress") {clearTimeout(scheduleMonitorTimer);scheduleMonitorRequest++;}
     const meta = VIEW_META[view] || VIEW_META.dashboard;
     el("breadcrumbText").textContent = meta[0]; el("pageTitle").textContent = meta[1];
     el("appShell").classList.toggle("is-workspace-scroll-locked", view === "dramaProgress");
@@ -2389,6 +2439,8 @@
         if (item) openModal("编辑短剧类型", channelDramaTypeForm(item));
       }
       else if (action === "add-schedule") await openScheduleForm();
+      else if (action === "refresh-schedule-progress") await loadView("scheduleProgress",{preservePosition:true});
+      else if (action === "schedule-progress-page") {state.scheduleMonitorPage=Number(button.dataset.page);await loadView("scheduleProgress");}
       else if (action === "schedule-planning") await openSchedulePlanning();
       else if (action === "schedule-plan-view") await openSchedulePlanning(button.dataset.channelId, id);
       else if (["schedule-plan-apply","schedule-plan-wake","schedule-plan-resume","schedule-plan-cancel"].includes(action)) {
@@ -3155,6 +3207,10 @@
           closeModal(); await showSkills(); notify('已保存');
         } finally { delete form.dataset.busy; submit.disabled = false; }
         return;
+      }
+      if (form.id === "scheduleMonitorFilterForm") {
+        const values=new FormData(form);state.scheduleMonitorSearch=String(values.get("search") || "").trim();state.scheduleMonitorStatus=String(values.get("status") || "active");state.scheduleMonitorPage=1;
+        await loadView("scheduleProgress");return;
       }
       if (form.id === "channelAnalysisCreateForm") {
         if (form.dataset.busy) return; form.dataset.busy="true";

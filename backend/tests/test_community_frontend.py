@@ -12,6 +12,7 @@ const row={schedule_id:'schedule-a',task_id:'task-a',work_order_id:'work-a',comm
  chinese_title:'剧目',task_status:'completed',work_order_status:'completed',schedule_status:'planned',nodes:[]};
 const page=start(process.argv[1],auth,async(path,opts={})=>{
  requests.push([path,opts]);
+ if(path==='/api/v3/workflow-versions')return new Response('{"default_id":"builtin-v14","versions":[]}');
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
  if(path==='/api/v3/realtime/config')return new Response('{"enabled":false,"device_role":"worker"}');
@@ -19,7 +20,7 @@ const page=start(process.argv[1],auth,async(path,opts={})=>{
  if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"频道"}]');
  if(path.startsWith('/api/v3/tasks/overview')||path.startsWith('/api/v3/schedules/overview'))return new Response(JSON.stringify([row]));
  if(path==='/api/v3/v14/executor-session')return new Response('{"session_token":"fixture","host_id":"d1","tenant_id":"t1"}');
- if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"host_id":"d1","tenant_id":"t1"}');
+ if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"executor_protocol":5,"host_id":"d1","tenant_id":"t1"}');
  if(path==='http://127.0.0.1:19733/start')return new Response('{"running":true}');
  if(path.endsWith('/community'))return new Response('{"community_count":1,"run":{"status":"queued"}}');
  return new Response('[]');

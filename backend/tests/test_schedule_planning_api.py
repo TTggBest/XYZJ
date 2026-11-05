@@ -29,8 +29,8 @@ def test_http_preview_confirm_and_readback(client,store):
     assert response.status_code==200,response.text
     pid=response.json()['id']
     assert client.get('/api/v3/schedules').json()==[]
-    assert client.post('/api/v3/schedule-planning/claims',json={'host_id':'wrong'}).status_code==403
-    claim=client.post('/api/v3/schedule-planning/claims',json={'host_id':'device-a'})
+    assert client.post('/api/v3/schedule-planning/claims',json={'host_id':'wrong','executor_protocol':5}).status_code==403
+    claim=client.post('/api/v3/schedule-planning/claims',json={'host_id':'device-a','executor_protocol':5})
     assert claim.status_code==200,claim.text
     result={'rows':[{'publish_date':'2026-11-03','publish_slot_id':'slot-plan','drama_id':'drama-a',
         'reason':'主线符合定位','plot_evidence':'女主遭到背叛后夺回公司。','pairing_reason':'单更首日建立方向'}]}
@@ -78,9 +78,11 @@ def test_production_uses_the_schedule_guidance_instead_of_new_current_spec(clien
         setting.payload=config;s.commit()
     response=client.post('/api/v3/work-orders/work-a/v14-runs')
     assert response.status_code==200,response.text
-    envelope=client.post('/api/v3/v14/claims',json={'host_id':'device-a','executor_protocol':3})
+    envelope=client.post('/api/v3/v14/claims',json={'host_id':'device-a','executor_protocol':5})
     assert envelope.status_code==200,envelope.text
-    assert envelope.json()['input_snapshot']['channel']['generation_spec']==original
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        from zhiju.services.v14_runs import envelope as full_envelope,get_run
+        assert full_envelope(s,get_run(s,envelope.json()['run_id']))['input_snapshot']['channel']['generation_spec']==original
 
 
 def test_legacy_operating_reference_remains_usable_for_existing_work(client,store):

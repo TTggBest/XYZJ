@@ -21,6 +21,7 @@ class AnalysisCreate(BaseModel):
 
 class Claim(BaseModel):
     host_id: str
+    executor_protocol: int = 1
 
 
 class Execution(BaseModel):
@@ -111,6 +112,8 @@ def apply(run_id:str,s:Session=Depends(get_tenant_db),p=Depends(operator)):
 @router.post('/channel-analysis/claims')
 def claim(body:Claim,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     bound_host(s,p,body.host_id)
+    from zhiju.api.v14 import require_shared_queue_protocol
+    require_shared_queue_protocol(body.executor_protocol)
     row=call(service.claim_run,s,body.host_id)
     return row if row else Response(status_code=204)
 

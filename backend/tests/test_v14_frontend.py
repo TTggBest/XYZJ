@@ -10,6 +10,7 @@ const detail={work_order:{id:'work-a',status:'queued',production_date:'2026-10-1
 let run=null;
 let createError=false;
 let launcherOffline=false;
+let executorProtocol=5;
 let wakeOffline=false;
 const page=start(process.argv[1],auth,async(path,opts={})=>{
  requests.push([path,opts]);
@@ -17,7 +18,7 @@ const page=start(process.argv[1],auth,async(path,opts={})=>{
  if(path.startsWith('http://127.0.0.1:19733/')){
   if(launcherOffline)throw new TypeError('offline');
   if(wakeOffline&&path.endsWith('/start'))throw new TypeError('offline');
-  return new Response('{"ready":true,"running":true,"pid":123,"host_id":"device-a","tenant_id":"t1"}');
+  return new Response(JSON.stringify({ready:true,executor_protocol:executorProtocol,running:true,pid:123,host_id:'device-a',tenant_id:'t1'}));
  }
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(principal));
  if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
@@ -238,4 +239,14 @@ assert.match(html,/最近心跳/);
 assert.match(html,/150 秒/);
 assert.match(html,/确认停止后恢复/);
 assert.equal(requests.filter(([p])=>p.endsWith('/resume')).length,0);
+""")
+
+
+def test_old_launcher_requires_update_before_creating_any_task():
+    run_node(BOOT + r"""
+executorProtocol=4;
+await click('v14-start','work-a');
+assert(!requests.some(([p,o])=>p.endsWith('/v14-runs')&&o.method==='POST'));
+assert(!requests.some(([p])=>p.endsWith('19733/start')));
+assert.match(toasts.join('\n'),/执行器需要更新/);
 """)

@@ -258,17 +258,22 @@ def start_run(session, run_id):
     session.commit();return run
 
 
-def claim_run(session, host_id):
+def claim_run(session, host_id, *, claim_id=None, run_id=None):
     setting=session.scalar(select(V14Setting).with_for_update())
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
+    from zhiju.services.executor_queue import admission
+    if not admission(session):return None
+    preferred_id=run_id
     other=aliased(ChannelAnalysisRun)
     busy=select(other.id).where(other.tenant_id==ChannelAnalysisRun.tenant_id,
         other.channel_id==ChannelAnalysisRun.channel_id,other.status=='running').exists()
     run_id=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.host_id==host_id,
-        ChannelAnalysisRun.status=='queued',~busy).order_by(ChannelAnalysisRun.created_at).with_for_update(skip_locked=True).limit(1))
+        ChannelAnalysisRun.status=='queued',~busy,*( [ChannelAnalysisRun.id==preferred_id] if preferred_id else [])).order_by(ChannelAnalysisRun.created_at).with_for_update(skip_locked=True).limit(1))
     if run_id is None:return None
     run=get_run(session,run_id,True)
-    run.claim_id=str(uuid4());run.status='running';run.heartbeat_at=datetime.now(timezone.utc)
+    run.claim_id=claim_id or str(uuid4());run.status='running';run.heartbeat_at=datetime.now(timezone.utc)
+    from zhiju.services.executor_queue import reserve
+    reserve(session,'channel_analysis',run)
     session.commit();return {**run_read(run),'tenant_id':run.tenant_id}
 
 
@@ -305,6 +310,8 @@ def resume_run(session,run_id,stopped_confirmed=False):
     existing=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.channel_id==run.channel_id,
         ChannelAnalysisRun.id!=run.id,ChannelAnalysisRun.status.in_(['draft','queued','running'])).with_for_update().limit(1))
     if existing:raise ConflictError('频道已有未结束的分析任务，请先完成或取消该任务')
+    from zhiju.services.executor_queue import release_stopped_run
+    release_stopped_run(session,'channel_analysis',run.id)
     run.claim_id=None;run.error=None
     run.status='draft' if run.phase=='materials' else 'queued'
     session.commit();return run

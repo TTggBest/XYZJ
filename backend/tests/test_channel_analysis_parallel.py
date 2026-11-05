@@ -142,16 +142,16 @@ def test_model_failure_or_cancellation_is_confined_to_its_channel(tmp_path,monke
         else:assert not (tmp_path/str(cancelled)/'bad').exists()
 
 
-def test_cli_selects_parallel_analysis_but_once_remains_single(tmp_path,monkeypatch):
+def test_cli_uses_shared_pool_even_when_woken_for_analysis(tmp_path,monkeypatch):
     import json,sys
     from zhiju.v14_executor.__main__ import main
+    from zhiju.v14_executor import dispatch
     config=tmp_path/'config.json';config.write_text(json.dumps({'task_type':'channel_analysis','tenant_id':'tenant','host_id':'host','base_url':'https://fixture','session_token':'fixture'}))
     calls=[]
-    monkeypatch.setattr(analysis,'drain_parallel',lambda *args,**kwargs:calls.append(('parallel',kwargs['workers'])))
-    monkeypatch.setattr(analysis,'drain',lambda *args,**kwargs:calls.append(('once',kwargs['once'])))
+    monkeypatch.setattr(dispatch,'drain',lambda *args,**kw:calls.append((kw['workers'],kw['once'])))
     monkeypatch.setattr(sys,'argv',['executor','--config',str(config),'--drain']);main()
     monkeypatch.setattr(sys,'argv',['executor','--config',str(config),'--once']);main()
-    assert calls==[('parallel',10),('once',True)]
+    assert calls==[(10,False),(1,True)]
 
 
 def test_interrupt_stops_active_workers_before_waiting_for_shutdown(tmp_path,monkeypatch):

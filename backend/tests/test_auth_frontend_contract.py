@@ -534,7 +534,7 @@ const paths=[];let serverUser=superUser;
 function defaultResponse(path) {
  if(path==='/api/v3/workflow-versions')return new Response(JSON.stringify({default_id:'builtin-v14',versions:[{id:'builtin-v14',label:'V14',revision:1,status:'published'}]}));
  if(path==='/api/v3/v14/executor-session')return new Response('{"host_id":"d1","tenant_id":"t1","account_profile":"current","session_token":"fixture-only"}');
- if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"host_id":"d1","tenant_id":"t1"}');
+ if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"executor_protocol":5,"host_id":"d1","tenant_id":"t1"}');
  if(path==='http://127.0.0.1:19733/start')return new Response('{"running":true,"pid":123}');
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(serverUser));
  if(path==='/api/v3/auth/switch-tenant'){serverUser=companyB;return new Response(JSON.stringify(serverUser));}
@@ -1010,4 +1010,36 @@ const rejected=assert.rejects(older,error=>error.name==='AbortError');
 await auth.resolveBootstrap(async()=>({...principal,display_name:'更新姓名'}));const confirmed=auth.current();
 release(new Response(JSON.stringify(principal)));await rejected;
 assert.equal(auth.current(),confirmed);assert.equal(auth.current().display_name,'更新姓名');
+""")
+
+
+def test_schedule_monitor_shows_independent_channel_progress_capacity_and_pagination():
+    run_node(APP_FIXTURE + r"""
+let completed=4;const timers=new Map();let nextTimer=0;
+const page=start(process.argv[1],auth,async(path,options)=>{
+ paths.push(path);
+ if(path.startsWith('/api/v3/schedule-planning/workspace'))return new Response(JSON.stringify({
+  stats:{running:2,queued:1,ready:0,failed:0},executor:{running:10,queued:3,worker_limit:10,types:{operation_package:{running:5,queued:1},channel_analysis:{running:3,queued:1},channel_scheduling:{running:2,queued:1}}},
+  total:21,page:path.includes('page=2')?2:1,pages:2,items:[
+   {id:'p1',channel_id:'c1',channel_name:'法语频道',status:'running',start_date:'2026-11-09',end_date:'2026-11-18',daily_count:2,candidate_count:156,target_count:20,heartbeat_at:new Date().toISOString(),progress:{stage:'assessing',completed_items:completed,total_items:156,elapsed_seconds:75}},
+   {id:'p2',channel_id:'c2',channel_name:'泰语频道',status:'queued',daily_count:2,candidate_count:100,target_count:20}
+  ]}));
+ return defaultResponse(path);
+},{setTimeout:(fn,delay)=>{timers.set(++nextTimer,{fn,delay});return nextTimer;},clearTimeout:id=>timers.delete(id)});
+await settle(page);
+await page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view:'scheduleProgress'}}:null}});
+await settle(page);
+let html=page.nodes.get('viewRoot').innerHTML;
+assert.match(html,/法语频道/);assert.match(html,/泰语频道/);assert.match(html,/已评估 4 \/ 156 部/);
+assert.match(html,/全局执行名额 10 \/ 10/);assert.match(html,/等待全局执行名额/);
+assert.match(html,/每 5 秒自动刷新/);assert.match(html,/第 1 \/ 2 页/);
+completed=12;await clickAction(page,'refresh-schedule-progress');await settle(page);
+assert.match(page.nodes.get('viewRoot').innerHTML,/已评估 12 \/ 156 部/);
+completed=20;
+const poll=[...timers.values()].find(t=>t.delay===5000);assert(poll);
+await poll.fn();await settle(page);
+assert.match(page.nodes.get('viewRoot').innerHTML,/已评估 20 \/ 156 部/);
+await clickAction(page,'schedule-progress-page',{page:'2'});await settle(page);
+assert.match(page.nodes.get('viewRoot').innerHTML,/第 2 \/ 2 页/);
+assert(!paths.some(p=>/\/(claim|claims|result|apply|start)$/.test(p)));
 """)

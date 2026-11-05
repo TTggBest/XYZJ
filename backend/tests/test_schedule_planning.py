@@ -247,6 +247,7 @@ def test_full_executor_flow_caches_assessments_and_delivers_preview(data,tmp_pat
         host_id='host';tenant_id='planning-test'
         def request(self,method,path,body=None):
             if path=='/schedule-planning/claims':return service.claim_plan(s,'host')
+            if path.endswith('/heartbeat'):return {}
             if method=='PUT':return service.read(service.submit_result(s,plan.id,**body))
             raise AssertionError(path)
     class Model:
@@ -275,6 +276,7 @@ def test_resume_reuses_successful_story_assessment_but_replans_failed_output(dat
         host_id='host';tenant_id='planning-test'
         def request(self,method,path,body=None):
             if path=='/schedule-planning/claims':return service.claim_plan(s,'host')
+            if path.endswith('/heartbeat'):return {}
             if method=='PUT':return service.read(service.submit_result(s,plan.id,**body))
             raise AssertionError(path)
     class Model:
@@ -313,7 +315,10 @@ def test_full_raw_analysis_snapshot_does_not_enter_planning_prompts(data,tmp_pat
                 'plot_evidence':'女主遭到背叛后夺回公司。'}]}
             return {'rows':[{'publish_date':'2026-11-03','publish_slot_id':slot.id,'drama_id':d.id,
                 'reason':'符合定位','plot_evidence':'女主遭到背叛后夺回公司。','pairing_reason':'首日单更'}]}
-    assert generate(Model(),claim,tmp_path)['rows'][0]['drama_id']==d.id
+    updates=[]
+    assert generate(Model(),claim,tmp_path,lambda *p:updates.append(p))['rows'][0]['drama_id']==d.id
+    assert [(p[0],p[1],p[2]) for p in updates]==[
+        ('assessing',0,1),('assessing',1,1),('planning',1,1),('validating',1,1)]
 
 
 def test_scheduling_skill_selection_is_used_and_frozen(data):
@@ -342,7 +347,7 @@ def test_schedule_plan_migration_can_upgrade_and_downgrade_in_isolation():
     from sqlalchemy import inspect
     root=Path(__file__).resolve().parents[2]
     config=Config(str(root/'alembic.ini'));config.set_main_option('script_location',str(root/'backend/alembic'))
-    assert ScriptDirectory.from_config(config).get_heads()==['f22a20261104']
+    assert ScriptDirectory.from_config(config).get_heads()==['f23a20261105']
     spec=importlib.util.spec_from_file_location('schedule_plan_migration',root/'backend/alembic/versions/f21e20261102_channel_schedule_plans.py')
     migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
     engine=create_engine('sqlite://')

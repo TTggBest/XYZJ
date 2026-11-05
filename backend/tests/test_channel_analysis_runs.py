@@ -310,7 +310,7 @@ def test_http_analysis_lifecycle_and_applied_input_are_connected(session):
         assert response.status_code==200
         run_id=response.json()['id']
         assert client.post(f'/api/v3/analysis-runs/{run_id}/start').json()['status']=='queued'
-        claim=client.post('/api/v3/channel-analysis/claims',json={'host_id':'host'}).json()
+        claim=client.post('/api/v3/channel-analysis/claims',json={'host_id':'host','executor_protocol':5}).json()
         assert client.post(f'/api/v3/analysis-runs/{run_id}/collect',json={'claim_id':claim['claim_id']}).status_code==200
         progress={'stage':'screenshots','completed_items':2,'total_items':11,'current_item':'观众.png','elapsed_seconds':50,'stage_elapsed_seconds':10}
         assert client.post(f'/api/v3/analysis-runs/{run_id}/heartbeat',json={'claim_id':'stale','progress':progress}).status_code==409

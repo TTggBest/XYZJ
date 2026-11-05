@@ -55,7 +55,7 @@ const page=start(process.argv[1],auth,async(path,options={})=>{
  if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
  if(path==='/api/v3/channels/overview')return new Response('[{"channel_id":"c1","display_name":"任意频道","daily_publish_count":1}]');
  if(path==='/api/v3/v14/executor-session')return new Response('{"host_id":"d1","tenant_id":"t1","account_profile":"current","session_token":"test-only"}');
- if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"host_id":"d1","tenant_id":"t1"}');
+ if(path==='http://127.0.0.1:19733/prepare')return new Response('{"ready":true,"executor_protocol":5,"host_id":"d1","tenant_id":"t1"}');
  if(path==='http://127.0.0.1:19733/start')return new Response('{"running":true}');
  if(path==='/api/v3/channels/c1/schedule-plans')return new Response(JSON.stringify(options.method==='POST'?plan:[plan]));
  if(path==='/api/v3/schedule-plans/plan-1')return new Response(JSON.stringify(plan));

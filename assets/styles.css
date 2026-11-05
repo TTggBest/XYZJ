@@ -1029,3 +1029,13 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .analysis-workspace-results .data-table td:last-child { text-align: center; white-space: nowrap; }
 .analysis-result-inline { display: flex; align-items: center; justify-content: center; flex-wrap: nowrap; gap: 12px; white-space: nowrap; }
 .analysis-result-inline > * { flex: 0 0 auto; }
+
+.schedule-executor-summary { display:flex; flex-wrap:wrap; align-items:center; gap:12px 24px; padding:16px 24px; background:var(--surface-soft,#f6f9f8); border-bottom:1px solid var(--border,#dce5e1); }
+.schedule-monitor-filters { display:flex; gap:12px; padding:20px 24px 8px; flex-wrap:wrap; }
+.schedule-monitor-filters .input { flex:1; min-width:200px; max-width:420px; }
+.schedule-monitor-filters .select { width:auto; min-width:180px; }
+.schedule-monitor-note { padding:0 24px 12px; }
+.schedule-monitor-table th { text-align:center; }
+.schedule-monitor-table td { vertical-align:middle; padding:14px 18px; }
+.schedule-task-progress { display:flex; flex-direction:column; gap:5px; min-width:240px; }
+.schedule-task-progress progress { width:100%; max-width:320px; height:7px; accent-color:#087f5b; }

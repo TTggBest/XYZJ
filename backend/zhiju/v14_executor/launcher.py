@@ -87,8 +87,7 @@ class WorkerManager:
             raise
         self.process = process
         self.last_error = None
-        if config.get('task_type','operation_package')=='operation_package':
-            Thread(target=self._connection_watchdog,args=(config,process),daemon=True).start()
+        Thread(target=self._connection_watchdog,args=(config,process),daemon=True).start()
 
     def check_connections(self,config,worker_pid):
         root=Path(self.settings.get('cache_root',str(Path.home()/'Library/Caches/zhiju-v14'))) / config['tenant_id'] / config['host_id']

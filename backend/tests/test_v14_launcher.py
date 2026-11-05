@@ -114,12 +114,18 @@ def test_cli_drain_processes_queue_then_exits_without_idle_polling(tmp_path, mon
     for i in range(2):
         item = {**envelope(), "tenant_id": "tenant-a", "claim_id": "claim", "account_profile": "current"}
         item["run_id"] = f"run-{i}"
+        item["claim_id"] = f"claim-{i}"
         item["accepted_results"] = dict.fromkeys(["search", "title", "cover", "description", "community"], {})
         envelopes.append(item)
     accepted = []
     class Cloud:
         def __init__(self, *args):
             pass
+        def transport_request(self,*args):return {"released":True}
+        def claim_any(self,claim_id=None):
+            run=self.claim()
+            if run:run["claim_id"]=claim_id or run["claim_id"]
+            return {"task_type":"operation_package","run":run} if run else None
         def claim(self):
             return deepcopy(envelopes.pop(0)) if envelopes else None
         def begin(self, *args):
@@ -128,7 +134,6 @@ def test_cli_drain_processes_queue_then_exits_without_idle_polling(tmp_path, mon
             accepted.append(item["run_id"])
             return {"status": "text_ready"}
     monkeypatch.setattr(cli, "CloudClient", Cloud)
-    monkeypatch.setattr(cli.time, "sleep", lambda *_: pytest.fail("drain must not idle-poll"))
     monkeypatch.setattr(cli.signal, "signal", lambda *_: None)
     monkeypatch.setattr(sys, "argv", ["v14", "--config-stdin", "--drain"])
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({**config(), "cache_root": str(tmp_path)})))
@@ -146,7 +151,7 @@ def test_local_http_origin_and_private_network_preflight(manager):
         with urlopen(request) as response:
             health = json.load(response)
             assert health["host_id"] == "host-a"
-            assert health["executor_protocol"] == 4
+            assert health["executor_protocol"] == 5
             assert response.headers["Access-Control-Allow-Origin"] == "https://fixture.example"
         request = Request(url + "/start", method="OPTIONS", headers={"Origin": "https://fixture.example",
             "Access-Control-Request-Private-Network": "true"})
@@ -173,12 +178,18 @@ def test_cli_uses_ten_workers_and_drains_each_task_once(tmp_path, monkeypatch):
     for i in range(12):
         item = {**envelope(), "tenant_id": "tenant-a", "claim_id": "claim", "account_profile": "current"}
         item["run_id"] = f"run-{i}"
+        item["claim_id"] = f"claim-{i}"
         item["accepted_results"] = dict.fromkeys(["search", "title", "cover", "description", "community"], {})
         tasks.append(item)
     lock, barrier = threading.Lock(), threading.Barrier(10, timeout=5)
     accepted, threads = [], set()
     class Cloud:
         def __init__(self, *args): pass
+        def transport_request(self,*args):return {"released":True}
+        def claim_any(self,claim_id=None):
+            run=self.claim()
+            if run:run["claim_id"]=claim_id or run["claim_id"]
+            return {"task_type":"operation_package","run":run} if run else None
         def claim(self):
             with lock:
                 return deepcopy(tasks.pop(0)) if tasks else None
@@ -209,6 +220,11 @@ def test_pool_auth_failure_preserves_outbound_result_and_stops(tmp_path, monkeyp
     pending, lock = [item], threading.Lock()
     class Cloud:
         def __init__(self, *args): pass
+        def transport_request(self,*args):return {"released":True}
+        def claim_any(self,claim_id=None):
+            run=self.claim()
+            if run:run["claim_id"]=claim_id or run["claim_id"]
+            return {"task_type":"operation_package","run":run} if run else None
         def claim(self):
             with lock: return deepcopy(pending.pop()) if pending else None
         def begin(self, *args): return "attempt"

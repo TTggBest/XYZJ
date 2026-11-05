@@ -77,13 +77,13 @@ def apply_content_recovery(stage, envelope, node):
     stage.prompt += "\n\n" + instruction + "\n最近校验原因：\n" + feedback + rejected
 
 
-def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/zhiju-v14", evidence_provider=collect_agent_reach_evidence, retry_delay=2, recover=True, stop_event=None):
+def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/zhiju-v14", evidence_provider=collect_agent_reach_evidence, retry_delay=2, recover=True, stop_event=None, envelope=None):
     root = Path(cache_root)
     if recover and replay_pending(client, root, retry_delay):
         return True
     if stop_event and stop_event.is_set():
         return False
-    envelope = client.claim()
+    envelope = envelope or client.claim()
     if not envelope:
         return False
     envelope.setdefault('accepted_results', {})
@@ -96,7 +96,10 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
     path = root / envelope["run_id"] / "pending.json"
     state=ExecutionState(root / envelope["run_id"] / "execution.json",envelope)
     terminal=False
-    model_client.process_changed=lambda pid:state.update(model_pid=pid)
+    previous_process_changed=getattr(model_client,'process_changed',lambda pid:None)
+    def process_changed(pid):
+        previous_process_changed(pid);state.update(model_pid=pid)
+    model_client.process_changed=process_changed
     finished, cancelled = Event(), Event()
     def keepalive():
         while not finished.wait(15):

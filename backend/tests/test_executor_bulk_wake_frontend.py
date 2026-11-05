@@ -17,7 +17,7 @@ const page=start(process.argv[1],auth,async(path,opts={})=>{
  if(path==='/api/v3/v14/executor-session')return new Response('{"host_id":"device-a","tenant_id":"t1","session_token":"test-only"}');
  if(path.startsWith('http://127.0.0.1:19733/')){
   if(path.endsWith('/start')&&holdStart)await holdStart;
-  return new Response(JSON.stringify({ready:true,host_id:'device-a',tenant_id:'t1',running}));
+  return new Response(JSON.stringify({ready:true,executor_protocol:5,host_id:'device-a',tenant_id:'t1',running}));
  }
  return new Response('[]');
 });

@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
-from fastapi import APIRouter, Depends, Response
+from typing import Literal
+from fastapi import APIRouter, Depends, Response, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from zhiju.auth_context import get_tenant_db
@@ -17,16 +18,25 @@ class PlanCreate(BaseModel):
 
 class Claim(BaseModel):
     host_id: str
+    executor_protocol: int = 1
 
 
 class Execution(BaseModel):
     claim_id: str
     result: dict | None = None
     error: str | None = None
+    progress: dict | None = None
 
 
 class Resume(BaseModel):
     stopped_confirmed: bool = False
+
+
+@router.get('/schedule-planning/workspace')
+def workspace(page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=50),
+              status:Literal['active','all','queued','running','failed','ready','applied','cancelled']='active',
+              search:str='',s:Session=Depends(get_tenant_db)):
+    return service.workspace(s,page,page_size,status,search)
 
 
 @router.get('/channels/{channel_id}/schedule-plans')
@@ -47,6 +57,8 @@ def read(plan_id:str,s:Session=Depends(get_tenant_db)):
 @router.post('/schedule-planning/claims')
 def claim(body:Claim,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     bound_host(s,p,body.host_id)
+    from zhiju.api.v14 import require_shared_queue_protocol
+    require_shared_queue_protocol(body.executor_protocol)
     result=call(service.claim_plan,s,body.host_id)
     return result if result else Response(status_code=204)
 
@@ -54,7 +66,9 @@ def claim(body:Claim,s:Session=Depends(get_tenant_db),p=Depends(operator)):
 @router.post('/schedule-plans/{plan_id}/heartbeat')
 def heartbeat(plan_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     row=call(service.claimed,s,plan_id,body.claim_id);bound_host(s,p,row.host_id)
-    row.heartbeat_at=datetime.now(timezone.utc);s.commit();return {'status':row.status}
+    row.heartbeat_at=datetime.now(timezone.utc)
+    if body.progress is not None:row.progress=body.progress
+    s.commit();return {'status':row.status}
 
 
 @router.put('/schedule-plans/{plan_id}/result')

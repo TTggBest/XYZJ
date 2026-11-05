@@ -18,7 +18,7 @@ const page=start(process.argv[1],auth,async(path,opts={})=>{
  if(path==='/api/v3/v14/executor-session')return new Response('{"host_id":"device-a","tenant_id":"t1","session_token":"test-only"}');
  if(path.startsWith('http://127.0.0.1:19733/')){
   if(offline || (wakeOffline&&path.endsWith('/start')))throw new TypeError('offline');
-  return new Response('{"ready":true,"host_id":"device-a","tenant_id":"t1","running":false}');
+  return new Response('{"ready":true,"executor_protocol":5,"host_id":"device-a","tenant_id":"t1","running":false}');
  }
  if(path.endsWith('/resume')){
   await onResume(path);

@@ -1,15 +1,11 @@
 import argparse
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 import signal
 import sys
-import time
-from threading import Event
 
 from .client import CloudClient
 from .codex import CodexClient
-from .runner import run_once, replay_pending
 from zhiju.v14_runtime.contract import bundled_rules
 
 
@@ -36,56 +32,11 @@ def main():
     cache = Path(config.get("cache_root", str(Path.home() / "Library/Caches/zhiju-v14"))) / config["tenant_id"] / config["host_id"]
     def cloud_client():
         return CloudClient(config["base_url"], config["session_token"], config["host_id"], config["tenant_id"])
-    if config.get('task_type') == 'channel_scheduling':
-        from .schedule_planning import drain
-        drain(cloud_client(), CodexClient(binary=config.get('codex_binary','codex'),
-            timeout=config.get('timeout',900), account_profile=config.get('account_profile','current'),
-            codex_home=config.get('codex_home')), config, cache / 'channel-scheduling', once=args.once)
-        return
-    if config.get('task_type') == 'channel_analysis':
-        from .channel_analysis import drain,drain_parallel
-        def analysis_model():
-            return CodexClient(binary=config.get('codex_binary','codex'),timeout=config.get('timeout',900),
-                account_profile=config.get('account_profile','current'),codex_home=config.get('codex_home'))
-        if args.once:drain(cloud_client(),analysis_model(),config,cache/'channel-analysis',once=True)
-        else:drain_parallel(cloud_client,analysis_model,config,cache/'channel-analysis',workers=args.workers)
-        return
-    # Replay old outbound results once, before any parallel worker can claim work.
-    # Each newly claimed run then exclusively owns its own run-id cache directory.
-    if not args.once:
-        recovery = cloud_client()
-        while replay_pending(recovery, cache):
-            pass
-    stopped = Event()
-    worker_errors = []
-    def worker():
-        cloud = cloud_client()
-        model = CodexClient(binary=config.get("codex_binary", "codex"), timeout=config.get("timeout", 900),
-            account_profile=config.get("account_profile", "current"), codex_home=config.get("codex_home"))
-        try:
-            while not stopped.is_set():
-                worked = run_once(cloud, model, cache_root=cache, recover=args.once, stop_event=stopped)
-                if args.once or (args.drain and not worked):
-                    return
-                if not args.drain:
-                    stopped.wait(5)
-        except PermissionError:
-            stopped.set()  # Revoked authorization applies to the whole process.
-            raise
-        except Exception as exc:
-            # Leave only this worker's durable result for replay. Other workers
-            # can finish their runs; a network timeout is not expired authority.
-            worker_errors.append(exc)
-    with ThreadPoolExecutor(max_workers=1 if args.once else args.workers) as pool:
-        try:
-            futures = [pool.submit(worker) for _ in range(1 if args.once else args.workers)]
-            for future in as_completed(futures):
-                future.result()
-        finally:
-            stopped.set()
-    if worker_errors:
-        print(f'{len(worker_errors)} 个线程失败；其他线程已完成，待回传结果保留', file=sys.stderr)
-        raise worker_errors[0]
+    from .dispatch import drain
+    def model():
+        return CodexClient(binary=config.get('codex_binary','codex'),timeout=config.get('timeout',900),
+            account_profile=config.get('account_profile','current'),codex_home=config.get('codex_home'))
+    drain(cloud_client,model,config,cache,workers=1 if args.once else args.workers,once=args.once)
 
 
 if __name__ == "__main__":

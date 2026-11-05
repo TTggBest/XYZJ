@@ -5,7 +5,7 @@ import time
 from urllib.parse import urlparse
 from uuid import uuid4
 
-EXECUTOR_PROTOCOL = 4
+EXECUTOR_PROTOCOL = 5
 
 
 class CloudConflict(RuntimeError):
@@ -52,6 +52,13 @@ class CloudClient:
             "host_id": self.host_id, "executor_protocol": EXECUTOR_PROTOCOL, 'claim_id': str(uuid4())})
         if result and result["tenant_id"] != self.tenant_id:
             raise PermissionError("领取结果不属于本机配置的公司")
+        return result
+
+    def claim_any(self,claim_id=None):
+        result=self.transport_request('POST','/executor/claims',{'host_id':self.host_id,
+            'executor_protocol':EXECUTOR_PROTOCOL,'claim_id':claim_id or str(uuid4())})
+        if result and result.get('run',{}).get('tenant_id',self.tenant_id)!=self.tenant_id:
+            raise PermissionError('领取结果不属于当前公司')
         return result
 
     def transport_request(self, method, path, body):

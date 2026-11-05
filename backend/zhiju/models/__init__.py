@@ -216,3 +216,5 @@ __all__ = [
 
 from zhiju.models.skill_catalog import SkillCategory, SkillBundleVersion
 from zhiju.models.schedule_plan import ChannelSchedulePlan
+
+from zhiju.models.executor_claim import ExecutorClaim

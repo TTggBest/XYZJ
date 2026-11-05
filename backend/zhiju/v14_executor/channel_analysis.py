@@ -338,7 +338,7 @@ def recover_cached(client,config,cache_root):
 def claim_analysis(client):
     principal=client.request('GET','/auth/me')
     if principal['tenant_id']!=client.tenant_id:raise PermissionError('当前会话公司不匹配')
-    run=client.request('POST','/channel-analysis/claims',{'host_id':client.host_id})
+    run=client.request('POST','/channel-analysis/claims',{'host_id':client.host_id,'executor_protocol':5})
     if run and run['tenant_id']!=client.tenant_id:raise PermissionError('分析任务公司不匹配')
     return run
 
