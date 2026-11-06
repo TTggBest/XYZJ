@@ -41,6 +41,7 @@
     ledgerSortBy: "drama_code", ledgerSortOrder: "asc", ledgerPage: 1, ledgerPageSize: 50, ledgerReturnY: 0 });
   const root = el("viewRoot");
   Object.assign(state, {xiaowuKind:"binding", xiaowuPreviews:{binding:null,cid:null}, xiaowuFiles:{binding:[],cid:[]}, xiaowuBusy:{binding:false,cid:false}, xiaowuErrors:{binding:"",cid:""}});
+  Object.assign(state, {packageSelectedIds:new Set(), packageSelectionDate:""});
   const emptyPageState = structuredClone(state);
   const youtubeReauthorizationChannels = new Set();
   let realtimeRetryTimer = null;
@@ -1425,6 +1426,55 @@
     const search = state.packageSearch.trim().toLowerCase();
     return state.packageItems.filter(item => (!state.packageChannel || item.channel_id === state.packageChannel) && (!state.packageStatus || item.package_status === state.packageStatus) && (!search || `${item.chinese_title} ${item.business_drama_id} ${item.batch_number || ""} ${item.channel_name}`.toLowerCase().includes(search)));
   }
+  function selectedPackageItems() {
+    return state.packageItems.filter(item => state.packageSelectedIds.has(item.package_id));
+  }
+  function packageSelectionMarkup() {
+    const selected = selectedPackageItems().length;
+    return `<div class="package-selection-bar"><label><input type="checkbox" id="packageSelectAll" ${filteredPackageItems().length ? '' : 'disabled'}> 全选当前列表</label><span id="packageSelectionCount" role="status" aria-live="polite">已选 ${selected} 个</span><button type="button" class="button button-secondary button-small" data-action="clear-package-selection" ${selected ? '' : 'disabled'}>清空选择</button><button type="button" class="button button-primary button-small" data-action="download-selected-packages" ${selected ? '' : 'disabled'}>${icon('download')} 下载选中内容（MD）</button></div>`;
+  }
+  function renderPackageSelection() {
+    const visible = filteredPackageItems(), selected = selectedPackageItems();
+    const visibleSelected = visible.filter(item => state.packageSelectedIds.has(item.package_id)).length;
+    const all = el('packageSelectAll');
+    if (all) {
+      all.checked = visible.length > 0 && visibleSelected === visible.length;
+      all.indeterminate = visibleSelected > 0 && visibleSelected < visible.length;
+      all.disabled = !visible.length;
+    }
+    const count = el('packageSelectionCount');
+    if (count) count.textContent = `已选 ${selected.length} 个${selected.length > visibleSelected ? `（当前筛选内 ${visibleSelected} 个）` : ''}`;
+    document.querySelectorAll('.package-selectable-card').forEach(card => {
+      const checked = state.packageSelectedIds.has(card.dataset.selectionPackageId);
+      card.classList.toggle('is-selected', checked);
+      card.querySelector('.package-select-check').checked = checked;
+    });
+    document.querySelectorAll('[data-action="clear-package-selection"], [data-action="download-selected-packages"]').forEach(button => { button.disabled = !selected.length; });
+  }
+  function changePackageSelection(target) {
+    if (target.id === 'packageSelectAll') {
+      for (const item of filteredPackageItems()) {
+        if (target.checked) state.packageSelectedIds.add(item.package_id);
+        else state.packageSelectedIds.delete(item.package_id);
+      }
+    } else if (target.classList.contains('package-select-check')) {
+      if (target.checked) state.packageSelectedIds.add(target.value);
+      else state.packageSelectedIds.delete(target.value);
+    } else return;
+    renderPackageSelection();
+  }
+  function downloadSelectedPackages() {
+    const items = selectedPackageItems();
+    if (!items.length) return;
+    const markdown = window.ZhijuPackagePresentation.buildPackagesMarkdown(items, state.date);
+    const blob = new Blob([markdown], {type:'text/markdown;charset=utf-8'});
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = `运营包_${state.date}_${items.length}个.md`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify(`已下载 ${items.length} 个运营包的 Markdown 文档`);
+  }
+
   function packageProgressSummaryMarkup(current) {
     const summary = window.ZhijuPackagePresentation.summarizePackageProgress(state.packageItems, state.packageWorkOrderTotal);
     return `<span class="package-progress-row">${window.ZhijuPackagePresentation.renderPackageProgressSummary(summary, current)}<button class="package-summary-refresh" type="button" data-action="refresh-package-summary" title="从数据库刷新统计">${icon("refresh-cw")}<span>刷新统计</span></button></span>`;
@@ -1444,6 +1494,7 @@
       ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>`
       : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。");
     renderPackageProgressSummary();
+    renderPackageSelection();
     renderIcons();
   }
   function resetPackageInspection() {
@@ -1520,7 +1571,7 @@
     const descriptionCell = copyCell("频道语言说明", item.package_id, "description", description?.localized_text, presentation.localized_description, "copy-cell-full description-copy-cell", tracked("description", description?.id));
     const playlistRows = presentation.playlists.map((playlist, playlistIndex) => `<div class="package-playlist-row ${playlist.selected ? "is-selected" : ""}"><span class="playlist-order">${playlistIndex + 1}</span><span class="playlist-names"><strong>${esc(playlist.name)}</strong>${playlist.chinese_name && playlist.chinese_name !== playlist.name ? `<small>中文：${esc(playlist.chinese_name)}</small>` : ""}</span>${playlist.selected ? `<span class="playlist-selected">本剧已选</span>` : ""}</div>`).join("");
     const playlistList = `<div class="package-playlist-list"><div class="package-playlist-head"><strong>频道播放列表</strong><span>${presentation.playlists.length} 个</span></div>${playlistRows || `<span class="module-empty">暂无播放列表</span>`}</div>`;
-    return `<article class="package-card copy-${esc(item.copy_status || "not_started")} ${sourceIncomplete ? "source-incomplete" : ""}" data-package-id="${item.package_id}" ${sourceIncomplete ? "inert aria-disabled=\"true\"" : ""}><header class="package-card-head"><span class="package-sequence">${index + 1}</span><div class="package-head-meta">${channelIdentity}<span>视频预约：${packageScheduleTime(item.planned_utc_time, item.channel_timezone)} · 生产日期 ${esc(item.production_date || "—")}</span><strong>${esc(item.chinese_title)}</strong>${sourceLanguageBadge(item.source_language)}<span class="mono">${esc(item.business_drama_id)}</span><span class="mono">${esc(item.batch_number || "未分批")}</span><span class="package-version" title="同一工单重新生成或修订时版本号递增">${esc(presentation.version_label)}</span></div><div class="package-card-actions">${incompleteNote}${tag(item.package_status)}${videoCell}${(item.media_assets || []).length ? `<button class="button button-secondary button-small" type="button" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看素材 ${(item.media_assets || []).length}</button>` : ""}<button class="icon-button detail-icon-button" title="查看完整详情" aria-label="查看完整详情" data-action="package-page-detail" data-id="${item.package_id}">${icon("maximize-2")}</button></div></header><div class="package-modules"><section class="package-module package-module-title"><h3>标题</h3><div class="title-list">${titleCells}</div></section><section class="package-module package-module-cover"><h3>封面提示词与成品</h3><div class="cover-list">${coverCells}</div></section><section class="package-module package-module-text"><h3>发布说明与播放列表</h3><div class="description-pair">${descriptionCell}${readCell("中文对照", presentation.chinese_description, "description-translation-cell")}</div>${playlistList}</section><section class="package-module package-module-community"><h3>社群文案与成品</h3><div class="community-list">${communityCells || `<span class="module-empty">${item.community_count > 0 ? `社群待生成（${item.community_count} 套）` : "无需社群内容"}</span>`}</div></section></div></article>`;
+    return `<div class="package-selectable-card" data-selection-package-id="${esc(item.package_id)}"><label class="package-select-label"><input type="checkbox" class="package-select-check" value="${esc(item.package_id)}" aria-label="选择 ${esc(item.channel_name)} · ${esc(item.chinese_title)}" ${state.packageSelectedIds.has(item.package_id)?"checked":""}></label><article class="package-card copy-${esc(item.copy_status || "not_started")} ${sourceIncomplete ? "source-incomplete" : ""}" data-package-id="${item.package_id}" ${sourceIncomplete ? "inert aria-disabled=\"true\"" : ""}><header class="package-card-head"><span class="package-sequence">${index + 1}</span><div class="package-head-meta">${channelIdentity}<span>视频预约：${packageScheduleTime(item.planned_utc_time, item.channel_timezone)} · 生产日期 ${esc(item.production_date || "—")}</span><strong>${esc(item.chinese_title)}</strong>${sourceLanguageBadge(item.source_language)}<span class="mono">${esc(item.business_drama_id)}</span><span class="mono">${esc(item.batch_number || "未分批")}</span><span class="package-version" title="同一工单重新生成或修订时版本号递增">${esc(presentation.version_label)}</span></div><div class="package-card-actions">${incompleteNote}${tag(item.package_status)}${videoCell}${(item.media_assets || []).length ? `<button class="button button-secondary button-small" type="button" data-action="package-assets" data-id="${item.package_id}">${icon("images")} 查看素材 ${(item.media_assets || []).length}</button>` : ""}<button class="icon-button detail-icon-button" title="查看完整详情" aria-label="查看完整详情" data-action="package-page-detail" data-id="${item.package_id}">${icon("maximize-2")}</button></div></header><div class="package-modules"><section class="package-module package-module-title"><h3>标题</h3><div class="title-list">${titleCells}</div></section><section class="package-module package-module-cover"><h3>封面提示词与成品</h3><div class="cover-list">${coverCells}</div></section><section class="package-module package-module-text"><h3>发布说明与播放列表</h3><div class="description-pair">${descriptionCell}${readCell("中文对照", presentation.chinese_description, "description-translation-cell")}</div>${playlistList}</section><section class="package-module package-module-community"><h3>社群文案与成品</h3><div class="community-list">${communityCells || `<span class="module-empty">${item.community_count > 0 ? `社群待生成（${item.community_count} 套）` : "无需社群内容"}</span>`}</div></section></div></article></div>`;
   }
   async function showPackages() {
     state.copyValues.clear();
@@ -1529,6 +1580,10 @@
     ]);
     state.channels = channelList;
     state.packageItems = window.ZhijuOperationsPageData.sortChannelRecords(items, channelList);
+    if (state.packageSelectionDate !== state.date) state.packageSelectedIds.clear();
+    state.packageSelectionDate = state.date;
+    const available = new Set(state.packageItems.map(item => item.package_id));
+    state.packageSelectedIds = new Set([...state.packageSelectedIds].filter(id => available.has(id)));
     state.packageWorkOrderTotal = workOrderTotal;
     resetPackageInspection();
     const channels = [...new Map(state.packageItems.map(item => [item.channel_id, item.channel_name])).entries()];
@@ -1536,8 +1591,9 @@
     const summaryMarkup = packageProgressSummaryMarkup(filtered.length);
     const clearSearch = `<button class="package-search-clear" type="button" data-action="clear-package-search" title="清空搜索" aria-label="清空搜索" ${state.packageSearch ? "" : "hidden"}>${icon("x")}</button>`;
     const tools = `<div class="package-filter-bar" role="search"><div class="package-filter-item package-filter-search"><div class="package-search-control">${icon("search")}<input class="input" id="packageSearch" aria-label="搜索" value="${esc(state.packageSearch)}" placeholder="搜索剧名、剧目 ID、批次或频道">${clearSearch}</div></div><label class="package-filter-item package-filter-date"><span class="package-filter-label">${icon("calendar-days")} 生产日期</span><input class="input" type="date" id="packageDate" value="${state.date}"></label><label class="package-filter-item package-filter-channel"><span class="package-filter-label">${icon("radio-tower")} 频道</span><select class="select" id="packageChannel"><option value="">全部频道</option>${channels.map(([id, name]) => `<option value="${id}" ${state.packageChannel === id ? "selected" : ""}>${esc(name)}</option>`).join("")}</select></label><label class="package-filter-item package-filter-status"><span class="package-filter-label">${icon("list-filter")} 状态</span><select class="select" id="packageStatus"><option value="">全部状态</option>${["review_pending", "changes_requested", "approved", "delivered"].map(status => `<option value="${status}" ${state.packageStatus === status ? "selected" : ""}>${label(status)}</option>`).join("")}</select></label><button class="button button-primary package-filter-sync" data-action="sync-feishu-packages">${icon("refresh-cw")}<span>一键同步飞书</span></button></div>`;
-    const results = `<div id="packageListResults">${filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。")}</div>`;
+    const results = `${packageSelectionMarkup()}<div id="packageListResults">${filtered.length ? `<div class="package-list">${filtered.map(packageCard).join("")}</div>` : empty("没有匹配的运营包", "调整日期、频道、状态或搜索条件。")}</div>`;
     root.innerHTML = `<div class="page-stack package-list-page">${section("运营包操作列表", summaryMarkup + '<span class="cell-sub">排序：频道自定义顺序 → 计划发布时间</span>', results, tools, true)}</div>`;
+    renderPackageSelection();
   }
   function fullOutputField(title, value, packageId, field, copyable = true, progress = null, emptyText = "暂无内容") {
     const key = copyable ? copyKey(packageId, field, value) : "";
@@ -2625,6 +2681,8 @@
         notify(`飞书运营包同步完成：新增 ${result.rows_inserted}，更新 ${result.rows_updated}，跳过 ${result.rows_skipped}`);
         await loadView("packages", { preservePosition: true });
       }
+      else if (action === "download-selected-packages") downloadSelectedPackages();
+      else if (action === "clear-package-selection") { state.packageSelectedIds.clear(); renderPackageSelection(); }
       else if (action === "refresh-package-summary") {
         button.disabled = true;
         await loadView("packages", { preservePosition: true });
@@ -3234,6 +3292,7 @@
     if (event.target.id === "scheduleChannel" && event.target.value) { try { await loadChannelScheduling(event.target.value); } catch (error) { notify(error.message, true); } }
   });
   document.addEventListener("change", event => {
+    changePackageSelection(event.target);
     if(event.target.id==='xiaowuFiles')selectXiaowuFiles(event.target.files);
   });
   for(const type of ['dragover','dragleave','drop'])document.addEventListener(type,event=>{
