@@ -16,6 +16,8 @@ BINDING_HEADERS = ['*视频ID/Video ID', "*作品名称/Works's name", '*运作�
 CID_HEADERS = ['填写方名称', '授权方', '片单名', '视频链接', '禁播方（如不是被xiaowu匹配，请务必在此列备注）', '授权证明']
 AUTHORIZER = '杭州小五和她的兄弟们科技有限公司'
 PACKAGE = '译制代运营'
+# 小五登记系统接受的语种名称，与频道内部语言标签分开。
+XIAOWU_LANGUAGE_NAMES = {'巴西葡萄牙语':'葡萄牙语', '印度尼西亚语':'印尼语'}
 
 
 def text(value):
@@ -98,7 +100,7 @@ def match_binding(rows, context):
                     issues.append('未找到唯一对应剧名，请核对视频关联排期')
                 else:
                     title = match['titles'][0]
-                language = match['language']
+                language = XIAOWU_LANGUAGE_NAMES.get(match['language'], match['language'])
                 if not language:
                     issues.append('对应频道未配置发布语种')
         result.append({**row, 'values':[row['video_id'],title,PACKAGE,language], 'source':source, 'issues':issues})
@@ -137,6 +139,7 @@ def export_workbook(kind, rows):
             raise ValueError('存在待核对的数据，请先修正后重新上传')
         if kind=='binding':
             values[2]=PACKAGE
+            values[3]=XIAOWU_LANGUAGE_NAMES.get(values[3], values[3])
             if not all(values): raise ValueError('视频ID、作品名称和发布语种不能为空')
         else:
             values[0]=''; values[1]=AUTHORIZER; values[5]=''

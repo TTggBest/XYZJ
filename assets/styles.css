@@ -1041,10 +1041,66 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .schedule-task-progress progress { width:100%; max-width:320px; height:7px; accent-color:#087f5b; }
 
 /* 小五登记文件转换 */
-.xiaowu-upload { padding: 24px; display: flex; gap: 16px; align-items: end; flex-wrap: wrap; }
-.xiaowu-upload label { display: grid; gap: 10px; }
-.xiaowu-upload p { width: 100%; margin: 0; }
-.xiaowu-preview-summary { padding: 20px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; border-top: 1px solid var(--border); }
-.xiaowu-preview-summary button { margin-left: auto; }
-.xiaowu-error { color: #b42318; }
-.xiaowu-preview td { overflow-wrap: anywhere; }
+.xiaowu-workspace { max-width: 1500px; }
+.xiaowu-reference { display:grid; grid-template-columns:minmax(240px, .8fr) minmax(360px, 1.2fr); gap:16px; }
+.xiaowu-copy-card { display:grid; grid-template-columns:1fr auto; gap:8px 18px; padding:20px 24px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); text-align:left; cursor:pointer; color:var(--text); transition:border-color .15s,background .15s; }
+.xiaowu-copy-card:hover { border-color:var(--green); background:var(--surface-soft); }
+.xiaowu-copy-card:focus-visible,.xiaowu-tab:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
+.xiaowu-copy-label { color:var(--muted); font-size:13px; }
+.xiaowu-copy-card strong { grid-column:1; font-size:18px; font-weight:600; overflow-wrap:anywhere; }
+.xiaowu-copy-hint { grid-column:2; grid-row:1 / 3; align-self:center; display:flex; align-items:center; gap:6px; font-size:13px; color:var(--green); white-space:nowrap; }
+.xiaowu-copy-hint svg { width:16px; height:16px; }
+.xiaowu-head { padding:24px 28px; display:flex; justify-content:space-between; align-items:center; gap:20px; }
+.xiaowu-head h2 { margin:0; font-size:20px; }
+.xiaowu-head p,.xiaowu-upload-heading p { margin:6px 0 0; color:var(--muted); font-size:13px; }
+.xiaowu-flow { font-size:13px; color:var(--muted); display:flex; gap:12px; white-space:nowrap; }
+.xiaowu-flow span { color:var(--muted-2); }
+.xiaowu-tabs { display:flex; gap:4px; margin:0 28px; padding:5px; background:var(--surface-strong); border-radius:8px; width:fit-content; }
+.xiaowu-tab { display:flex; align-items:center; justify-content:center; gap:8px; min-width:145px; padding:10px 22px; border:0; border-radius:5px; background:transparent; color:var(--muted); font-weight:600; cursor:pointer; }
+.xiaowu-tab svg { width:18px; height:18px; }
+.xiaowu-tab.is-active { background:var(--surface); color:var(--green); box-shadow:0 1px 4px #17201d14; }
+.xiaowu-upload { padding:24px 28px; max-width:920px; margin:0 auto; }
+.xiaowu-upload-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.xiaowu-upload h3,.xiaowu-preview-summary h3 { margin:0; font-size:16px; }
+.xiaowu-dropzone { position:relative; min-height:150px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:1px dashed var(--line-strong); border-radius:8px; background:var(--surface-soft); cursor:pointer; }
+.xiaowu-dropzone:hover,.xiaowu-dropzone:focus-within,.xiaowu-dropzone.is-dragover { border-color:var(--green); background:var(--green-soft); }
+.xiaowu-dropzone>svg { width:28px; height:28px; color:var(--green); margin-bottom:4px; }
+.xiaowu-dropzone strong { font-size:14px; font-weight:600; }
+.xiaowu-dropzone span { color:var(--muted); font-size:12px; }
+.xiaowu-file-input { position:absolute; inset:0; opacity:0; width:100%; height:100%; cursor:pointer; }
+.xiaowu-dropzone.is-busy { opacity:.6; cursor:wait; }
+.xiaowu-file-list { padding:0; margin:12px 0 0; list-style:none; display:grid; gap:8px; max-height:230px; overflow:auto; }
+.xiaowu-file-list li { display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:6px; padding:8px 12px; font-size:13px; }
+.xiaowu-file-list li>svg { width:18px; height:18px; color:var(--green); flex-shrink:0; }
+.xiaowu-file-list li>span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.xiaowu-file-list small { color:var(--muted); }
+.xiaowu-remove,.xiaowu-text-button { border:0; background:transparent; color:var(--muted); cursor:pointer; padding:6px; }
+.xiaowu-remove { display:flex; }
+.xiaowu-remove svg { width:16px; height:16px; }
+.xiaowu-remove:hover,.xiaowu-text-button:hover { color:var(--red); }
+.xiaowu-upload-footer { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-top:16px; }
+.xiaowu-upload-footer p { font-size:13px; color:var(--muted); margin:0; }
+.xiaowu-upload-footer .button { min-width:160px; }
+.xiaowu-rules { display:flex; gap:8px; margin-top:18px; color:var(--muted); font-size:12px; line-height:1.7; }
+.xiaowu-rules svg { width:15px; height:15px; flex-shrink:0; margin-top:3px; }
+.xiaowu-rules p { margin:0; }
+#xiaowuFeedback:empty { display:none; }
+#xiaowuFeedback { margin:14px 0 0; font-size:13px; }
+.xiaowu-preview { border-top:1px solid var(--line); }
+.xiaowu-preview-summary { padding:20px 28px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.xiaowu-preview-summary h3 span { font-size:13px; font-weight:400; margin-left:8px; color:var(--muted); }
+.xiaowu-preview-summary p { margin:6px 0 0; font-size:13px; }
+.xiaowu-preview-empty { display:flex; align-items:center; justify-content:center; gap:14px; padding:36px 24px; background:var(--surface-soft); color:var(--muted); }
+.xiaowu-preview-empty>svg { width:28px; height:28px; color:var(--muted-2); }
+.xiaowu-preview-empty strong { color:var(--text); font-size:14px; }
+.xiaowu-preview-empty p { font-size:13px; margin:6px 0 0; }
+.xiaowu-error { color:var(--red); }
+.xiaowu-preview td { overflow-wrap:anywhere; }
+@media(max-width:800px) {
+  .xiaowu-reference { grid-template-columns:1fr; }
+  .xiaowu-head { padding:20px; }.xiaowu-flow { display:none; }
+  .xiaowu-tabs { margin:0 20px; }.xiaowu-tab { min-width:120px; }
+  .xiaowu-upload { padding:20px; }.xiaowu-copy-card { padding:16px 20px; }
+  .xiaowu-copy-card strong { font-size:16px; }.xiaowu-copy-hint { font-size:12px; }
+  .xiaowu-preview-summary { padding:20px; flex-wrap:wrap; }
+}

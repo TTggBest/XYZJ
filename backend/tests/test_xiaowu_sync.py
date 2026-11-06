@@ -95,3 +95,13 @@ def test_preview_and_binary_export_http_entry(store):
     assert book.active.max_row==3
     assert book.active.cell(3,3).value=='乙'
     assert client.post('/api/v3/xiaowu-sync/preview/cid',files={'files':('bad.csv',b'wrong','text/csv')}).status_code==422
+
+
+@pytest.mark.parametrize(('stored','expected'), [('巴西葡萄牙语','葡萄牙语'),('印度尼西亚语','印尼语'),('法语','法语')])
+def test_xiaowu_language_names_in_preview_and_existing_export_rows(stored,expected):
+    rows=[{'video_id':'v','channel_id':'UC','file':'a.xlsx','line':2}]
+    preview=match_binding(rows,{'v':{'channel':'UC','titles':['剧名'],'language':stored,'source':'频道上架信息 → 排期'}})
+    assert preview[0]['values'][3]==expected
+    # Re-export a preview created before the label correction as well.
+    book=load_workbook(BytesIO(export_workbook('binding',[{'values':['v','剧名','译制代运营',stored],'issues':[]} ])))
+    assert book.active.cell(2,4).value==expected
