@@ -250,3 +250,25 @@ assert(!requests.some(([p,o])=>p.endsWith('/v14-runs')&&o.method==='POST'));
 assert(!requests.some(([p])=>p.endsWith('19733/start')));
 assert.match(toasts.join('\n'),/执行器需要更新/);
 """)
+
+
+def test_run_error_displays_actual_workflow_without_changing_transport_text():
+    run_node(BOOT + r"""
+run={run_id:'run-a',status:'running',host_id:'device-a',model:'selected-model',
+ workflow_version:{id:'r9',label:'V18',revision:9},
+ error:'V14 验收失败: cover_1_source_anchor_not_in_plot',attempts:[]};
+await click('work-detail','work-a');
+assert.match(page.nodes.get('drawerBody').innerHTML,/V18 · 修订 9 验收失败: cover_1_source_anchor_not_in_plot/);
+assert.doesNotMatch(page.nodes.get('drawerBody').innerHTML,/V14 验收失败/);
+assert.equal(run.error,'V14 验收失败: cover_1_source_anchor_not_in_plot');
+""")
+
+
+def test_legacy_run_error_without_version_is_not_falsely_labelled_as_new_workflow():
+    run_node(BOOT + r"""
+run={run_id:'run-a',status:'running',host_id:'device-a',model:'selected-model',
+ error:'V14 验收失败: original issue',attempts:[]};
+await click('work-detail','work-a');
+assert.match(page.nodes.get('drawerBody').innerHTML,/V14 验收失败: original issue/);
+assert.doesNotMatch(page.nodes.get('drawerBody').innerHTML,/V18/);
+""")

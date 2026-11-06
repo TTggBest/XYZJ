@@ -1177,6 +1177,12 @@
   function workflowLabel(version) {
     return version ? `${version.label} · 修订 ${version.revision}` : "旧版运行（未登记 Skills 版本）";
   }
+  function workflowError(run) {
+    const message = String(run.error || "");
+    return run.workflow_version
+      ? message.replace(/^V14 (?=验收失败:|结构或输入不完整:)/, () => `${workflowLabel(run.workflow_version)} `)
+      : message;
+  }
   async function workflowPicker() {
     const registry = await api('/workflow-versions');
     state.workflowRegistry = registry;
@@ -1374,7 +1380,7 @@
     const buttons = !run ? `<button class="button button-primary" data-action="v14-start" data-id="${esc(id)}">生成运营包</button>`
       : ["queued", "running", "heartbeat_delayed"].includes(run.status) ? `${run.status === "heartbeat_delayed" ? `<button class="button button-secondary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">确认停止后恢复</button>` : ""}${(run.status === "queued" || launcherError) ? `<button class="button button-primary" data-action="v14-wake" data-id="${esc(id)}">重试唤起执行器</button>` : ""}<button class="button button-secondary" data-action="v14-cancel" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}">取消执行</button>`
       : ["interrupted", "cancelled", "needs_user_review"].includes(run.status) ? `<button class="button button-primary" data-action="v14-resume" data-id="${esc(run.run_id)}" data-work-id="${esc(id)}"${run.status === "needs_user_review" ? ' data-retry-content="true"' : ''}>恢复生产</button>` : "";
-    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}${run.heartbeat_at ? `<span>最近心跳：${fmt(run.heartbeat_at)}</span>` : ""}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.status === "heartbeat_delayed" ? `<p class="hint">已超过 150 秒未收到心跳，暂时无法确认执行状态，不代表任务已停止。不要重复恢复；先核对本机执行器，确认原进程已停止后再恢复。</p>` : ""}${launcherError ? `<p class="v14-error">本机执行器已退出：${esc(launcherError)}。云端任务仍保留，可重试唤起执行器。</p>` : ""}${run.error ? `<p class="v14-error">${esc(run.error)}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
+    const v14 = canRunV14() ? `<div class="detail-block v14-panel"><h3>运营包本机执行</h3><p>新增执行通道；飞书同步继续保留。文本完成不代表图片或交付完成。</p>${run ? `<div class="row-actions">${tag(run.status)}${run.heartbeat_at ? `<span>最近心跳：${fmt(run.heartbeat_at)}</span>` : ""}<span>主机：${esc(run.host_id)}</span><span>模型：${esc(run.model)}</span></div>${run.status === "heartbeat_delayed" ? `<p class="hint">已超过 150 秒未收到心跳，暂时无法确认执行状态，不代表任务已停止。不要重复恢复；先核对本机执行器，确认原进程已停止后再恢复。</p>` : ""}${launcherError ? `<p class="v14-error">本机执行器已退出：${esc(launcherError)}。云端任务仍保留，可重试唤起执行器。</p>` : ""}${run.error ? `<p class="v14-error">${esc(workflowError(run))}</p>` : ""}` : ""}<div class="row-actions">${buttons}<button class="button button-secondary" data-action="work-detail" data-id="${esc(id)}">刷新状态</button><button class="button button-secondary" data-action="v14-settings">执行主机设置</button></div></div>` : "";
     openDrawer("工单详情", `<div class="detail-block">${versionPicker || `<span>生产流程版本：${esc(workflowLabel(run?.workflow_version))}</span>`}</div><div class="detail-grid"><div class="detail-item"><span>工单状态</span><strong>${tag(w.status)}</strong></div><div class="detail-item"><span>运营包状态</span><strong>${packageStatus}</strong></div><div class="detail-item"><span>生产日期</span><strong>${fmt(w.production_date)}</strong></div><div class="detail-item"><span>目标发布日期</span><strong>${fmt(w.target_publish_date)}</strong></div></div>${v14}<div class="detail-block"><h3>生产节点</h3>${table(["节点", "状态", "尝试", "执行器", "开始", "完成"], detail.nodes.map(n => `<tr><td>${esc(NODE_LABELS[n.node_type] || n.node_type)}</td><td>${tag(n.status)}</td><td>${n.attempt_number}</td><td>${esc(n.worker_key || "—")}</td><td>${fmtUtc(n.started_at)}</td><td>${fmtUtc(n.completed_at)}</td></tr>`), 620)}</div><div class="detail-block"><button class="button button-secondary" data-action="package-detail" data-id="${p.id}">${icon("package-open")} 查看运营包结果</button></div>`, id);
     if (refresh) el("drawerBody").scrollTop = scroll;
     scheduleWorkProgressRefresh();
