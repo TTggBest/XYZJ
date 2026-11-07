@@ -933,6 +933,7 @@ let release;const item={package_id:'pa',chinese_title:'甲公司剧目',titles:[
 const page=start(process.argv[1],auth,async(path,options)=>{
  paths.push(path);
  if(path==='/api/v3/packages/operations-overview')return new Response(JSON.stringify([item]));
+ if(path==='/api/v3/packages/pa/copy-progress')return new Response(JSON.stringify({package_id:'pa',copied_keys:['title:title-a']}));
  return defaultResponse(path);
 },{navigator:{clipboard:{writeText:value=>{assert.equal(value,'甲公司标题');return new Promise(resolve=>{release=resolve;});}}}});
 await settle(page);await clickAction(page,'package-page-detail',{id:'pa'});
@@ -942,6 +943,49 @@ await page.tick();assert.equal(typeof release,'function');if(switchTenant)await 
 release();await pending;
 if(switchTenant){assert.equal(paths.length,count);assert.equal(auth.current().tenant_id,'t2');}
 else {assert.deepEqual(paths.slice(count),['/api/v3/packages/pa/copy-progress']);assert.equal(auth.current().tenant_id,'t1');}
+""")
+
+
+def test_real_app_copy_marks_survive_out_of_order_responses_and_stale_reads():
+    run_node(APP_FIXTURE + """
+const releases=[], toasts=[];
+const item={package_id:'pa',chinese_title:'剧目',titles:[
+ {id:'a',variant_number:1,localized_title:'第一条'},
+ {id:'b',variant_number:2,localized_title:'第二条'}
+]};
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/packages/operations-overview')return new Response(JSON.stringify([item]));
+ if(path==='/api/v3/packages/pa/copy-progress')return new Promise(resolve=>releases.push((keys,status=200)=>
+  resolve(new Response(JSON.stringify({package_id:'pa',copied_keys:keys,detail:'写入失败'}),{status}))));
+ return defaultResponse(path);
+},{navigator:{clipboard:{writeText:async()=>{}}}});
+await settle(page);
+page.nodes.get('toastStack').appendChild=toast=>toasts.push(toast);
+await clickAction(page,'package-page-detail',{id:'pa'});
+const marks=['a','b'].map((outputId,index)=>{
+ const node=page.document.createElement();
+ node.dataset={copyKey:'pa:detail-title-'+(index+1),packageId:'pa',outputType:'title',outputId};
+ return node;
+});
+const query=page.document.querySelectorAll;
+page.document.querySelectorAll=selector=>selector==='[data-output-type][data-output-id]'?marks:query(selector);
+const copy=index=>clickAction(page,'copy-package-field',marks[index].dataset);
+const first=copy(0), second=copy(1);
+await page.tick();assert.equal(releases.length,2);assert.equal(toasts.length,0);
+releases[1](['title:a','title:b']);await second;
+assert.ok(marks.every(node=>node.classList.contains('is-copy-complete')));
+releases[0](['title:a']);await first;
+assert.ok(marks.every(node=>node.classList.contains('is-copy-complete')));
+await clickAction(page,'package-page-detail',{id:'pa'});
+assert.equal((page.nodes.get('viewRoot').innerHTML.match(/is-copy-complete/g)||[]).length,2);
+const again=copy(1);await page.tick();releases[2](['title:a','title:b']);await again;
+assert.ok(marks[1].classList.contains('is-copy-complete'));
+const failed=copy(1);await page.tick();releases[3]([],500);await failed;
+assert.match(toasts.at(-1).textContent,/已复制内容，但复制进度未保存/);
+assert.ok(marks[1].classList.contains('is-copy-complete'));
+item.titles[1].id='new-b';
+await clickAction(page,'package-page-detail',{id:'pa'});
+assert.equal((page.nodes.get('viewRoot').innerHTML.match(/is-copy-complete/g)||[]).length,1);
 """)
 
 

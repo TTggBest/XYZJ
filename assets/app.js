@@ -41,7 +41,7 @@
     ledgerSortBy: "drama_code", ledgerSortOrder: "asc", ledgerPage: 1, ledgerPageSize: 50, ledgerReturnY: 0 });
   const root = el("viewRoot");
   Object.assign(state, {xiaowuKind:"binding", xiaowuPreviews:{binding:null,cid:null}, xiaowuFiles:{binding:[],cid:[]}, xiaowuBusy:{binding:false,cid:false}, xiaowuErrors:{binding:"",cid:""}});
-  Object.assign(state, {packageSelectedIds:new Set(), packageSelectionScope:"", packageViewMode:"date", packageHistoryChannel:""});
+  Object.assign(state, {packageCopyConfirmations:new Map(), packageSelectedIds:new Set(), packageSelectionScope:"", packageViewMode:"date", packageHistoryChannel:""});
   const emptyPageState = structuredClone(state);
   const youtubeReauthorizationChannels = new Set();
   let realtimeRetryTimer = null;
@@ -1408,18 +1408,37 @@
     if (!asset) return `<div class="package-asset-missing"><span>${esc(labelText)}</span><strong>待出图</strong></div>`;
     return `<button class="package-asset-link" type="button" data-action="reveal-media-asset" data-id="${esc(asset.id)}" title="${mediaLocationLabel()}"><img src="/api/v3/media-assets/${encodeURIComponent(asset.id)}/thumbnail" alt="${esc(labelText)}" loading="lazy"><span>${icon(state.deployment === "cloud" ? "image" : "folder-open")} ${esc(labelText)} · ${mediaLocationLabel()}</span><span class="asset-download-status" ${asset.downloaded_at ? "" : "hidden"} title="已下载过原图" aria-label="已下载过原图">${icon("circle-check")}</span></button>`;
   }
+  function mergePackageCopyProgress(item) {
+    const confirmed = state.packageCopyConfirmations.get(item.package_id);
+    if (!confirmed) return;
+    const targets = (item.titles || []).map(row => `title:${row.id}`);
+    for (const cover of item.covers || []) {
+      if (cover.creative_prompt) targets.push(`cover:${cover.id}`);
+    }
+    if (item.description?.localized_text) targets.push(`description:${item.description.id}`);
+    for (const post of item.community_posts || []) {
+      if (post.localized_text) targets.push(`community_text:${post.id}`);
+      if (post.image_prompt) targets.push(`community_image:${post.id}`);
+    }
+    const copied = new Set([...(item.copied_keys || []), ...confirmed]);
+    item.copied_keys = targets.filter(key => copied.has(key));
+    item.copied_count = item.copied_keys.length;
+    item.copy_total = targets.length;
+    item.copy_status = !item.copied_count ? "not_started" : item.copied_count === item.copy_total ? "completed" : "in_progress";
+  }
   function applyCopyProgress(progress) {
+    const confirmed = new Set([...(state.packageCopyConfirmations.get(progress.package_id) || []), ...progress.copied_keys]);
+    state.packageCopyConfirmations.set(progress.package_id, confirmed);
     const item = state.packageItems.find(row => row.package_id === progress.package_id);
-    if (item) Object.assign(item, progress);
+    if (item) mergePackageCopyProgress(item);
     document.querySelectorAll(".package-card").forEach(card => {
-      if (card.dataset.packageId !== progress.package_id) return;
+      if (card.dataset.packageId !== progress.package_id || !item) return;
       card.classList.remove("copy-not_started", "copy-in_progress", "copy-completed");
-      card.classList.add(`copy-${progress.copy_status}`);
+      card.classList.add(`copy-${item.copy_status}`);
     });
-    const copied = new Set(progress.copied_keys || []);
     document.querySelectorAll("[data-output-type][data-output-id]").forEach(node => {
       if (node.dataset.packageId !== progress.package_id) return;
-      node.classList.toggle("is-copy-complete", copied.has(`${node.dataset.outputType}:${node.dataset.outputId}`));
+      if (confirmed.has(`${node.dataset.outputType}:${node.dataset.outputId}`)) node.classList.add("is-copy-complete");
     });
   }
   function filteredPackageItems() {
@@ -1588,6 +1607,7 @@
         (byChannel ? channelId !== state.packageHistoryChannel : productionDate !== state.date || channelId !== state.packageChannel)) return;
     state.copyValues.clear();
     state.channels = channelList;
+    items.forEach(mergePackageCopyProgress);
     state.packageItems = pageData.sortChannelRecords(items, channelList);
     if (byChannel) {
       state.packageItems.sort((a, b) => (b.production_date || "").localeCompare(a.production_date || ""));
@@ -1633,6 +1653,7 @@
     let item = state.packageItems.find(row => row.package_id === id);
     if (!item) item = (await api("/packages/operations-overview")).find(row => row.package_id === id);
     if (!item) throw new Error("运营包不存在");
+    mergePackageCopyProgress(item);
     const missingTargets = window.ZhijuPackagePresentation.resolveMissingImageTargets(missingRoles);
     state.copyValues.clear();
     el("breadcrumbText").textContent = "运营包 / 详情"; el("pageTitle").textContent = item.chinese_title;
@@ -2847,18 +2868,26 @@
         if (!value) return;
         await copyText(value);
         if (!auth.isCurrent(expectedRevision)) return;
-        notify(`已复制${button.querySelector(".copy-cell-label")?.textContent || button.querySelector("h3")?.textContent || "内容"}`);
-        if (button.dataset.outputType && button.dataset.outputId && button.dataset.packageId) {
-          const copyProgress = await api(`/packages/${button.dataset.packageId}/copy-progress`, {
-            method: "PUT", expectedRevision,
-            body: JSON.stringify({ output_type: button.dataset.outputType, output_id: button.dataset.outputId })
-          });
-          applyCopyProgress(copyProgress);
-          renderPackageProgressSummary();
+        const fieldLabel = button.querySelector(".copy-cell-label")?.textContent || button.querySelector("h3")?.textContent || "内容";
+        const { packageId, outputType, outputId } = button.dataset;
+        if (outputType && outputId && packageId) {
+          try {
+            const copyProgress = await api(`/packages/${packageId}/copy-progress`, {
+              method: "PUT", expectedRevision,
+              body: JSON.stringify({ output_type: outputType, output_id: outputId })
+            });
+            if (!auth.isCurrent(expectedRevision)) return;
+            applyCopyProgress(copyProgress);
+            renderPackageProgressSummary();
+          } catch (error) {
+            if (auth.isCurrent(expectedRevision)) notify(`已复制${fieldLabel}，但复制进度未保存：${error.message}`, true);
+            return;
+          }
         } else {
           button.classList.add("is-copied");
           setTimeout(() => button.classList.remove("is-copied"), 900);
         }
+        notify(`已复制${fieldLabel}`);
       }
       else if (action === "approve-package") { await api(`/packages/${id}/review`, { method: "POST", body: JSON.stringify({ decision: "approved", note: "运营台审核通过" }) }); notify("运营包已通过审核"); await loadView("packages", { preservePosition: true }); }
       else if (action === "delete-channel") {

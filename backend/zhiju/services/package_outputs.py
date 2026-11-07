@@ -591,7 +591,7 @@ def get_package_copy_progress(session: Session, package_id: str) -> dict[str, ob
 
 
 def mark_package_output_copied(session: Session, package_id: str, payload: PackageCopyMark) -> dict[str, object]:
-    package = _package(session, package_id)
+    package = require_tenant_entity(session, OperationPackage, package_id, lock=True)
     output_model = {
         "title": PackageTitle, "cover": PackageCoverVariant, "description": PackageDescription,
         "community_text": PackageCommunityPost, "community_image": PackageCommunityPost,
@@ -608,7 +608,7 @@ def mark_package_output_copied(session: Session, package_id: str, payload: Packa
             PackageOutputCopyState.package_id == package_id,
             PackageOutputCopyState.output_type == payload.output_type,
             PackageOutputCopyState.output_id == payload.output_id,
-        )
+        ).with_for_update()
     )
     now = datetime.now(timezone.utc)
     if row is None:
