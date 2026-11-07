@@ -25,7 +25,13 @@
       || identity(a).localeCompare(identity(b)));
   }
 
-  async function loadPackagePageData(request, productionDate) {
+  async function loadPackagePageData(request, productionDate, channelId) {
+    if (productionDate === null) {
+      const items = channelId
+        ? await request(`/packages/operations-overview?channel_id=${encodeURIComponent(channelId)}`)
+        : [];
+      return { items, workOrderTotal: items.length };
+    }
     const date = encodeURIComponent(productionDate);
     const [items, tasks] = await Promise.all([
       request(`/packages/operations-overview?production_date=${date}`),

@@ -186,7 +186,10 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .package-summary-refresh:hover { color: var(--green-dark); background: var(--green-soft); border-color: #c9e8da; }
 .package-summary-refresh:focus-visible { outline: 2px solid rgba(8,123,84,.24); outline-offset: 1px; }
 .package-summary-refresh svg { width: 13px; height: 13px; }
-.package-filter-bar { width: min(1120px, 100%); display: grid; grid-template-columns: minmax(240px, 1.5fr) 155px minmax(180px, 1fr) 145px auto; grid-template-areas: "search date channel status sync"; align-items: stretch; gap: 8px; padding: 8px; background: #f3f6f4; border: 1px solid #e0e7e3; border-radius: 10px; }
+.package-filter-bar { width: min(1120px, 100%); display: grid; grid-template-columns: minmax(240px, 1.5fr) 155px minmax(180px, 1fr) 145px auto; grid-template-areas: ". . . . ." "search date channel status sync"; align-items: stretch; gap: 8px; padding: 8px; background: #f3f6f4; border: 1px solid #e0e7e3; border-radius: 10px; }
+.package-view-modes { grid-column: 1 / -1; grid-row: 1; display: flex; flex-wrap: wrap; gap: 8px; }
+.package-filter-bar.is-channel-history { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 145px); grid-template-areas: ". . ." "search channel status"; }
+
 .package-filter-item { min-width: 0; min-height: 54px; display: grid; align-content: center; gap: 2px; padding: 6px 10px; background: #fff; border: 1px solid #d9e2dd; border-radius: 8px; transition: border-color .15s ease, box-shadow .15s ease; }
 .package-filter-item:hover { border-color: #bccbc3; }
 .package-filter-item:focus-within { border-color: var(--green); box-shadow: 0 0 0 3px rgba(8,123,84,.09); }
@@ -818,7 +821,7 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
   .package-list-page > .section > .section-head { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
   .channel-list-page > .section > .section-head { align-items: flex-start; flex-direction: column; }
   .channel-list-toolbar { width: 100%; justify-content: flex-start; }
-  .package-filter-bar { width: 100%; grid-template-columns: 155px minmax(180px, 1fr) 145px; grid-template-areas: "search search sync" "date channel status"; }
+  .package-filter-bar { width: 100%; grid-template-columns: 155px minmax(180px, 1fr) 145px; grid-template-areas: ". . ." "search search sync" "date channel status"; }
 }
 @media (max-width: 1080px) {
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -878,7 +881,8 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
   .channel-list-page > .section > .section-head { top: var(--topbar-height, 68px); }
   .channel-list-control { flex: 1 1 100%; }
   .channel-list-control .select { width: 100%; }
-  .package-filter-bar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "search search" "date status" "channel channel" "sync sync"; }
+  .package-filter-bar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: ". ." "search search" "date status" "channel channel" "sync sync"; }
+  .package-filter-bar.is-channel-history { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: ". ." "search search" "channel channel" "status status"; }
   .package-filter-sync { min-height: 46px; }
   .package-head-meta { flex: 1 1 100%; flex-wrap: wrap; white-space: normal; }
   .package-card-actions { justify-content: flex-start; }

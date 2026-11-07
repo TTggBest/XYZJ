@@ -373,7 +373,9 @@ def test_package_filters_render_as_one_compact_responsive_toolbar() -> None:
     app_source = (ROOT / "assets" / "app.js").read_text(encoding="utf-8")
     styles = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
 
-    assert 'class="package-filter-bar" role="search"' in app_source
+    assert 'class="package-filter-bar' in app_source
+    assert 'role="search"' in app_source
+    assert 'data-action="package-view-mode"' in app_source
     assert 'class="package-filter-item package-filter-search"' in app_source
     assert 'class="package-filter-item package-filter-date"' in app_source
     assert 'class="package-filter-item package-filter-channel"' in app_source

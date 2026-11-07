@@ -191,7 +191,7 @@
       const parts = Object.fromEntries(new Intl.DateTimeFormat('zh-CN', {timeZone:zone, hourCycle:'h23', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'}).formatToParts(date).map(part => [part.type, part.value]));
       return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
     };
-    const lines = ['# 运营包汇总', '', `生产日期：${heading(productionDate)} · 已选 ${items.length} 个运营包`, '', '内容为导出时已加载的运营包文本；图片成品请在系统中查看或下载。', ''];
+    const lines = ['# 运营包汇总', '', `生产日期：${heading(productionDate ?? "全部日期")} · 已选 ${items.length} 个运营包`, '', '内容为导出时已加载的运营包文本；图片成品请在系统中查看或下载。', ''];
     const channels = new Map();
     for (const item of items) {
       const key = item.channel_id || item.channel_name;
@@ -202,7 +202,7 @@
       lines.push(`## 频道：${heading(group[0].channel_name || group[0].channel_original_name)}`, '');
       for (const item of group) {
         const presentation = buildPackagePresentation(item);
-        lines.push(`### 剧目：${heading(item.chinese_title)}`, '', `- 剧目 ID：${heading(item.business_drama_id)}`, `- 运营包 ID：${heading(item.package_id)}`, `- 版本：${heading(presentation.version_label)}`, `- 批次：${heading(item.batch_number || '未分批')}`, `- 状态：${heading(item.package_status || '未标注')}`, `- 视频预约（北京时间）：${time(item.planned_utc_time, 'Asia/Shanghai')}`, `- 视频预约（频道当地 ${heading(item.channel_timezone || '未配置')}）：${item.channel_timezone ? time(item.planned_utc_time, item.channel_timezone) : '未配置时区'}`, `- Video ID：${heading(item.youtube_video_id || '未绑定')}`, '');
+        lines.push(`### 剧目：${heading(item.chinese_title)}`, '', `- 剧目 ID：${heading(item.business_drama_id)}`, `- 运营包 ID：${heading(item.package_id)}`, `- 版本：${heading(presentation.version_label)}`, `- 生产日期：${heading(item.production_date || productionDate || "未标注")}`, `- 批次：${heading(item.batch_number || '未分批')}`, `- 状态：${heading(item.package_status || '未标注')}`, `- 视频预约（北京时间）：${time(item.planned_utc_time, 'Asia/Shanghai')}`, `- 视频预约（频道当地 ${heading(item.channel_timezone || '未配置')}）：${item.channel_timezone ? time(item.planned_utc_time, item.channel_timezone) : '未配置时区'}`, `- Video ID：${heading(item.youtube_video_id || '未绑定')}`, '');
         if (item.youtube_video_id) lines.push(`视频链接：https://www.youtube.com/watch?v=${encodeURIComponent(item.youtube_video_id)}`, '');
         if (item.source_complete === false) lines.push(`> 数据不完整：${heading(item.source_incomplete_reason || '部分内容尚未同步或生成')}`, '');
         lines.push('#### 标题与封面提示词', '');

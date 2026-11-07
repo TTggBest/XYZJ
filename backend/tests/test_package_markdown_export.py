@@ -17,6 +17,10 @@ for(const value of [long,'🔥 หัวใจ','中文标题','封面提示词'
 assert.equal((md.match(/^## 频道：/gm)||[]).length,2);
 assert(md.includes('````text\n'+long+'\n````'));
 assert.equal(JSON.stringify(item),before);
+const history=buildPackagesMarkdown([item,{...item,package_id:'older',production_date:'2026-11-05'}], null);
+assert(history.includes('生产日期：全部日期'));
+assert(history.includes('- 生产日期：2026-11-07'));
+assert(history.includes('- 生产日期：2026-11-05'));
 const minimal=buildPackagesMarkdown([{package_id:'empty',channel_name:'缺失频道',source_complete:false}], '2026-11-07');
 assert(minimal.includes('数据不完整'));assert(minimal.includes('暂无'));assert(!minimal.includes('undefined'));
 '''
