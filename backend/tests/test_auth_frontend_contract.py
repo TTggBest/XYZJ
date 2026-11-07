@@ -759,7 +759,7 @@ def test_channel_list_keeps_saved_order_and_filters_by_audience_and_language():
 const channels=[
  {channel_id:'old-female',youtube_channel_id:'UC-old',original_name:'旧女频',operational_name:'旧女频-英语-女频',display_name:'旧女频',youtube_avatar_url:null,default_language:'en',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-01T00:00:00Z'},
  {channel_id:'new-male',youtube_channel_id:'UC-new',original_name:'新男频',operational_name:'新男频-印尼语-男频',display_name:'新男频',youtube_avatar_url:null,default_language:'id',default_genre:'男频',channel_type:'男频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-03T00:00:00Z'},
- {channel_id:'mid-female',youtube_channel_id:'UC-mid',original_name:'中女频',operational_name:'中女频-西语-女频',display_name:'中女频',youtube_avatar_url:null,default_language:'es',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-02T00:00:00Z'}
+ {channel_id:'mid-female',youtube_channel_id:'UC-mid',original_name:'中女频',operational_name:'中女频-泰语-女频',display_name:'中女频',youtube_avatar_url:null,default_language:'th',default_genre:'女频',channel_type:'女频',daily_publish_count:1,status:'active',authorized_account_count:1,created_at:'2026-09-02T00:00:00Z'}
 ];
 const page=start(process.argv[1],auth,async(path)=>{
  if(path==='/api/v3/channels/overview')return new Response(JSON.stringify(channels));
@@ -773,10 +773,12 @@ await settle(page);
 let html=page.nodes.get('viewRoot').innerHTML;
 assert(html.indexOf('旧女频') < html.indexOf('中女频'));assert(html.indexOf('中女频') < html.indexOf('新男频'));
 assert.doesNotMatch(html,/最新录入优先/);assert.match(html,/全部频类/);assert.match(html,/全部语言/);assert.match(html,/录入时间/);
-await page.document.emit('change',{target:{id:'channelAudienceFilter',value:'female',matches:()=>false,closest:()=>null}});
+assert.match(html,/<option value="th"[^>]*>泰语（th）<\\/option>/);
+assert.match(html,/<span>泰语<\\/span><span class="cell-sub">th · 女频<\\/span>/);
+await page.document.emit('change',{target:{id:'channelAudienceFilter',value:'female',classList:page.document.createElement().classList,matches:()=>false,closest:()=>null}});
 html=page.nodes.get('viewRoot').innerHTML;
 assert.doesNotMatch(html,/新男频/);assert.match(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 2 个/);
-await page.document.emit('change',{target:{id:'channelLanguageFilter',value:'es',matches:()=>false,closest:()=>null}});
+await page.document.emit('change',{target:{id:'channelLanguageFilter',value:'th',classList:page.document.createElement().classList,matches:()=>false,closest:()=>null}});
 html=page.nodes.get('viewRoot').innerHTML;
 assert.doesNotMatch(html,/旧女频/);assert.match(html,/中女频/);assert.match(html,/当前显示 1 个/);
 await clickAction(page,'reset-channel-list-filters');
@@ -923,6 +925,44 @@ else {
  const endpoint=formId==='dramaBulkForm'?'/api/v3/dramas/bulk-csv':'/api/v3/settings/app-icon';
  assert.equal(paths.filter(path=>path===endpoint).length,1);assert.equal(auth.current().tenant_id,'t1');
 }
+""")
+
+
+def test_media_page_ignores_background_refresh_but_accepts_manual_refresh():
+    run_node(APP_FIXTURE + """
+const timers=new Map();
+let nextTimer=0, source, mediaLoads=0;
+class FixtureEventSource {
+ constructor(){source=this;this.events={};}
+ addEventListener(name,callback){this.events[name]=callback;}
+ close(){}
+}
+const page=start(process.argv[1],auth,async(path)=>{
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":true,"stream_url":"/api/v3/events/stream","device_role":"worker"}');
+ if(path==='/api/v3/settings/image-workspace'){mediaLoads++;return new Response('null');}
+ if(path.startsWith('/api/v3/image-processing/runs/history?'))return new Response('{"items":[],"total":0}');
+ return defaultResponse(path);
+},{
+ window:{ZhijuMediaGallery:require(process.argv[1]+'/assets/media-gallery.js')},
+ EventSource:FixtureEventSource,
+ setTimeout:(fn,delay)=>{const id=++nextTimer;if(delay===250)timers.set(id,fn);return id;},
+ clearTimeout:id=>timers.delete(id)
+});
+for(const id of ['mediaRunHistorySubtitle','mediaRunHistory','mediaRunHistoryPagination','mediaRunHistoryActions',
+ 'mediaLanguageFilter','mediaChannelFilter','mediaStatusFilter','mediaGalleryContent','mediaGallerySummary','mediaGalleryPagination']){
+ page.nodes.set(id,page.document.createElement());
+}
+const nav=view=>page.document.emit('click',{target:{closest:selector=>selector==='[data-view]'?{dataset:{view}}:null}});
+const flush=async()=>{for(const [id,fn] of timers){timers.delete(id);await fn();}};
+await settle(page);assert.ok(source);
+source.events.open();assert.equal(timers.size,1);
+await nav('media');assert.equal(mediaLoads,1);
+assert.match(page.nodes.get('mediaGalleryContent').innerHTML,/没有符合条件的素材/);
+await flush();assert.equal(mediaLoads,1);
+source.events['data.changed']();await flush();assert.equal(mediaLoads,1);
+await page.window.emit('online');await flush();assert.equal(mediaLoads,1);
+await page.nodes.get('refreshView').emit('click');assert.equal(mediaLoads,2);
+await nav('dashboard');source.events['data.changed']();assert.equal(timers.size,1);await flush();
 """)
 
 
