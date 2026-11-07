@@ -162,7 +162,7 @@ svg { width: 18px; height: 18px; stroke-width: 1.8; }
 .demo-banner-copy span { color: var(--muted); font-size: 11px; }
 .demo-banner-actions { display: flex; gap: 7px; margin-left: auto; }
 
-.package-list { display: grid; gap: 11px; padding: 12px; }
+.package-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 11px; padding: 12px; }
 .package-list-page > .section > .section-head { position: sticky; top: var(--topbar-height, 78px); z-index: 20; background: rgba(255,255,255,.97); box-shadow: 0 1px 0 var(--line); backdrop-filter: blur(10px); }
 .package-list-page .section-title > p { margin-top: 7px; }
 .channel-list-page > .section > .section-head { position: sticky; top: var(--topbar-height, 78px); z-index: 20; background: rgba(255,255,255,.97); box-shadow: 0 1px 0 var(--line); backdrop-filter: blur(10px); }
@@ -223,9 +223,9 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .package-card.source-incomplete .package-modules { opacity: .58; }
 .package-card.source-incomplete button { cursor: not-allowed; }
 .source-incomplete-note { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; color: #555e5a; background: #d6dbd8; border: 1px solid #bdc5c1; border-radius: 4px; font-size: 12px; }
-.package-card-head { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px 4px 11px; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+.package-card-head { min-height: 40px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px 4px 11px; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
 .package-sequence { min-width: 22px; color: var(--muted); font-size: 11px; font-weight: 700; text-align: center; }
-.package-head-meta { min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; white-space: nowrap; }
+.package-head-meta { min-width: 0; flex: 1 1 600px; display: flex; flex-wrap: wrap; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 .package-head-meta > * { padding-right: 7px; border-right: 1px solid var(--line); }
 .package-head-meta > *:last-child { padding-right: 0; border-right: 0; }
 .package-head-meta strong { max-width: 420px; overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; }
@@ -235,7 +235,7 @@ button.package-progress-stat:focus-visible { outline: 2px solid currentColor; ou
 .channel-primary { color: var(--text); font-size: 11px; font-weight: 700; }
 .channel-secondary { color: var(--muted); font-size: 9px; }
 .package-version { padding: 2px 6px !important; color: var(--green-dark); background: var(--green-soft); border-right: 0 !important; border-radius: 999px; font-weight: 700; }
-.package-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.package-card-actions { min-width: 0; max-width: 100%; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .detail-icon-button { width: 30px; height: 30px; flex: 0 0 30px; }
 .package-modules { display: grid; grid-template-columns: minmax(360px, 1.3fr) minmax(180px, .6fr) minmax(300px, 1.1fr) minmax(200px, .8fr); align-items: stretch; }
 .package-module { min-width: 0; height: 100%; padding: 7px 9px 8px; border-right: 1px solid var(--line); }
@@ -1114,7 +1114,7 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .package-selection-bar label { display:flex; align-items:center; gap:7px; cursor:pointer; }
 .package-selection-bar input,.package-select-check { width:16px; height:16px; margin:0; accent-color:var(--green); cursor:pointer; }
 #packageSelectionCount { color:var(--muted); font-size:13px; margin-right:auto; }
-.package-selectable-card { position:relative; }
+.package-selectable-card { position: relative; min-width: 0; }
 .package-select-label { position:absolute; top:10px; left:9px; z-index:1; display:flex; padding:4px; }
 .package-selectable-card .package-card-head { padding-left:38px; }
 .package-selectable-card.is-selected .package-card { box-shadow:0 0 0 2px var(--green); }
