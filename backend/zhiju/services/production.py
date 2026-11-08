@@ -198,6 +198,9 @@ def dispatch_task(session: Session, task_id: str, *, commit: bool = True) -> dic
         raise ConflictError("只有待下发任务可以下发")
     now = datetime.now(timezone.utc)
     schedule = require_tenant_entity(session, ChannelScheduleEntry, task.schedule_id) if task.schedule_id else None
+    if schedule and schedule.source_type == "system" and task.community_count == 0:
+        from zhiju.services.community_requirements import initialize_schedule_community
+        task.community_count = initialize_schedule_community(session, schedule)
     dna_version_id = schedule.channel_dna_version_id if schedule else None
     if dna_version_id is None:
         active_dna = session.scalar(

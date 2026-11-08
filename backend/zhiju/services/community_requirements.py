@@ -11,8 +11,8 @@ from zhiju.tenant_repository import require_tenant_entity
 
 
 def initialize_schedule_community(session, schedule):
-    """Resolve Feishu defaults before production, never an explicitly saved count."""
-    if schedule.source_type != "feishu":
+    """Resolve imported and AI defaults before production, preserving explicit counts."""
+    if schedule.source_type not in {"feishu", "system"}:
         return schedule.community_count
     explicit = session.scalar(select(AuditEvent.id).where(
         AuditEvent.action == "community.requirement_updated",
@@ -27,8 +27,9 @@ def initialize_schedule_community(session, schedule):
     if schedule.community_count == count:
         return count
     schedule.community_count = count
+    source = "飞书" if schedule.source_type == "feishu" else "AI 排期"
     _audit(session, "community.requirement_initialized", "channel_schedule_entry", schedule.id,
-        f"飞书默认数量按北京时间当日 {daily_count} 条初始化为 {schedule.community_count} 套")
+        f"{source}默认数量按北京时间当日 {daily_count} 条初始化为 {count} 套")
     return schedule.community_count
 
 

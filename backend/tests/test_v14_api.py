@@ -338,37 +338,56 @@ def test_partial_sync_counts_existing_rows_across_local_dates(store):
 
 
 @pytest.mark.parametrize("updates,expected", [(1, 2), (2, 1)])
-@pytest.mark.parametrize("manual_zero", [False, True])
-def test_legacy_zero_schedule_is_resolved_before_new_task_and_v14_snapshot(client, store, updates, expected, manual_zero):
+@pytest.mark.parametrize("source_type,manual_zero", [
+    ("feishu", False), ("feishu", True), ("system", False), ("system", True), ("manual", False),
+])
+def test_legacy_zero_schedule_is_resolved_before_new_task_and_v14_snapshot(client, store, updates, expected, source_type, manual_zero):
     from zhiju.models import ChannelScheduleEntry, OperationTask
     from zhiju.schemas.production import TaskCreate
-    from zhiju.services import production, v14_runs
+    from zhiju.services import production
     from zhiju.services.community_requirements import update_community
     day = datetime(2026, 10, 29)
+    expected = 0 if manual_zero or source_type == "manual" else expected
     with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
         for number in range(updates):
             s.add(ChannelScheduleEntry(id=f"legacy-{number}", channel_id="channel-a", drama_id="drama-a",
                 publish_slot_id=f"legacy-slot-{number}", publish_date=(day - timedelta(days=number)).date(), planned_local_time=day,
-                planned_beijing_time=day, planned_utc_time=day, source_type="feishu", community_count=0,
+                planned_beijing_time=day, planned_utc_time=day, source_type=source_type, community_count=0,
                 status="planned", idempotency_key=f"legacy-schedule-{number}"))
+        if source_type == "system" and updates == 1:
+            s.add(ChannelScheduleEntry(channel_id="channel-a", drama_id="drama-a",
+                publish_slot_id="cancelled-slot", publish_date=day.date(), planned_local_time=day,
+                planned_beijing_time=day, planned_utc_time=day, source_type="system", community_count=0,
+                status="cancelled", idempotency_key="cancelled-schedule"))
         s.commit()
         if manual_zero:
             # A genuine user override must remain distinguishable from the old default.
             update_community(s, "schedules", "legacy-0", 0)
         task = production.create_task(s, TaskCreate(schedule_id="legacy-0", task_date=day.date(), idempotency_key="legacy-new-task"))
-        assert task.community_count == (0 if manual_zero else expected)
+        assert task.community_count == expected
         # Simulate an old pending task produced before the fix as well.
         task.community_count = 0
         s.get(ChannelScheduleEntry, "legacy-0").community_count = 0
         s.commit()
         task_id = task.id
+    if source_type == "system" and updates == 1:
+        dispatched = client.post(f"/api/v3/tasks/{task_id}/dispatch")
+        assert dispatched.status_code == 200, dispatched.text
+        assert dispatched.json()["work_order"]["community_count"] == expected
+        # Also exercise the start guard on a previously dispatched zero-value order.
+        with TenantSession(store, info={"tenant_id": "tenant-a"}) as s:
+            from zhiju.models import WorkOrder
+            s.get(WorkOrder, dispatched.json()["work_order"]["id"]).community_count = 0
+            s.get(OperationTask, task_id).community_count = 0
+            s.get(ChannelScheduleEntry, "legacy-0").community_count = 0
+            s.commit()
     response = client.post(f"/api/v3/tasks/{task_id}/start-v14")
     assert response.status_code == 200, response.text
     claim = client.post("/api/v3/v14/claims", json={"host_id": "device-a", "executor_protocol": 5})
     assert claim.status_code == 200, claim.text
     with TenantSession(store,info={'tenant_id':'tenant-a'}) as session:
         from zhiju.models.v14 import V14Run
-        assert session.get(V14Run,claim.json()['run_id']).input_snapshot['community_count'] == (0 if manual_zero else expected)
+        assert session.get(V14Run,claim.json()['run_id']).input_snapshot['community_count'] == expected
 
 
 def test_device_less_cloud_login_can_authorize_existing_bound_executor(client, store):

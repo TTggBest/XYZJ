@@ -282,7 +282,7 @@ def apply_plan(session,plan_id):
         selected_slot_ids={r['publish_slot_id'] for r in selected}
         saved_slots={key:stored_slot(session,channel.id,slot) for key,slot in definitions.items()
                      if key in selected_slot_ids}
-        ids=[]
+        schedules=[]
         for entry in selected:
             schedule=ChannelScheduleEntry(channel_id=channel.id,drama_id=entry['drama_id'],channel_dna_version_id=dna_id,
                 publish_slot_id=saved_slots[entry['publish_slot_id']].id,publish_date=date.fromisoformat(entry['publish_date']),
@@ -290,13 +290,19 @@ def apply_plan(session,plan_id):
                 planned_utc_time=datetime.fromisoformat(entry['planned_utc_time']),
                 planned_beijing_time=datetime.fromisoformat(entry['planned_beijing_time']),
                 community_count=0,status='planned',priority=100,source_type='system',idempotency_key=f'plan:{row.id}:{entry["publish_date"]}:{entry["publish_slot_id"]}')
-            session.add(schedule);session.flush();ids.append(schedule.id)
+            session.add(schedule);session.flush();schedules.append(schedule)
             session.add(ScheduleCandidate(schedule_id=schedule.id,drama_id=schedule.drama_id,candidate_type='primary',rank_number=1,
                 reason=entry['reason']+'\n剧情依据：'+entry['plot_evidence']+'\n编排理由：'+entry['pairing_reason'],status='selected'))
             session.add(ScheduleChangeHistory(schedule_id=schedule.id,new_drama_id=schedule.drama_id,
                 new_planned_utc_time=schedule.planned_utc_time,new_status='planned',reason=f'确认AI排期预览 {row.id}',
                 actor_type='system',changed_at=datetime.now(timezone.utc)))
-        row.dna_id=dna_id;row.result={**result,'schedule_ids':ids};row.status='applied'
+        from zhiju.services.community_requirements import initialize_schedule_community
+        # Count after every selected row is flushed so the same day is complete.
+        for schedule in schedules:
+            initialize_schedule_community(session, schedule)
+        row.dna_id = dna_id
+        row.result = {**result, 'schedule_ids': [schedule.id for schedule in schedules]}
+        row.status = 'applied'
         _audit(session,'schedule_plan.applied','channel_schedule_plan',row.id)
         session.commit()
     except Exception:
