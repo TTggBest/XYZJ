@@ -2,6 +2,8 @@
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
+SLOT_TOPICS_PROTOCOL = 9
+
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
 
 
@@ -15,6 +17,8 @@ def validate_result(snapshot,result):
     targets={(r['publish_date'],r['publish_slot_id']) for r in snapshot['targets']}
     candidates={d['id']:d for d in snapshot['candidates']}
     slots={r['id']:r for r in snapshot['slots']}
+    slot_topics=snapshot.get('slot_topics', {})
+    analysis_topics = snapshot.get('analysis_topics')
     seen=set();used=set();rows=[]
     for row in result['rows']:
         if not isinstance(row,dict):raise ValueError('排期行格式错误')
@@ -26,6 +30,10 @@ def validate_result(snapshot,result):
         if drama_id is None:
             rows.append({'publish_date':key[0],'publish_slot_id':key[1],'drama_id':None,'reason':row['reason'],'status':'blocked'});continue
         if drama_id not in candidates or drama_id in used:raise ValueError('选剧不在候选池或同频道重复')
+        if key[1] in slot_topics and row.get('drama_theme') != slot_topics[key[1]]:
+            raise ValueError('所选剧目题材与档位要求不符，请改选匹配的候选剧或标记缺口')
+        if analysis_topics is not None and row.get('theme_basis') not in analysis_topics[slot_topics[key[1]]]:
+            raise ValueError('所选剧目须引用该档题材在生效分析中的具体方向')
         used.add(drama_id);drama=candidates[drama_id];slot=slots[key[1]]
         evidence=str(row.get('plot_evidence') or '').strip()
         if len(evidence)<4 or not any(evidence in (drama.get(k) or '') for k in PLOT_FIELDS):

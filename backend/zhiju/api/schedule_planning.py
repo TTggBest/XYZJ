@@ -14,6 +14,7 @@ class PlanCreate(BaseModel):
     start_date: date
     end_date: date
     daily_count: int = Field(ge=1,le=10)
+    slot_topics: dict[str, Literal["primary", "secondary"]] | None = None
 
 
 class Claim(BaseModel):
@@ -46,7 +47,7 @@ def listing(channel_id:str,s:Session=Depends(get_tenant_db)):
 
 @router.post('/channels/{channel_id}/schedule-plans')
 def create(channel_id:str,body:PlanCreate,s:Session=Depends(get_tenant_db),p=Depends(operator)):
-    return service.read(call(service.create_plan,s,channel_id,body.start_date,body.end_date,body.daily_count))
+    return service.read(call(service.create_plan,s,channel_id,body.start_date,body.end_date,body.daily_count,body.slot_topics))
 
 
 @router.get('/schedule-plans/{plan_id}')
@@ -59,7 +60,7 @@ def claim(body:Claim,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     bound_host(s,p,body.host_id)
     from zhiju.api.v14 import require_shared_queue_protocol
     require_shared_queue_protocol(body.executor_protocol)
-    result=call(service.claim_plan,s,body.host_id)
+    result=call(service.claim_plan,s,body.host_id,executor_protocol=body.executor_protocol)
     return result if result else Response(status_code=204)
 
 

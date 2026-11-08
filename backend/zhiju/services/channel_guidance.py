@@ -7,7 +7,7 @@ from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.identity import ConflictError
 
 
-def resolve(session, channel_id, dna_id=None):
+def resolve(session, channel_id, dna_id=None, *, use_plan_snapshot=True):
     dna = require_tenant_entity(session, ChannelDnaVersion, dna_id) if dna_id else session.scalar(
         select(ChannelDnaVersion).where(ChannelDnaVersion.channel_id==channel_id,
         ChannelDnaVersion.status=='active').order_by(ChannelDnaVersion.version_number.desc()).limit(1))
@@ -18,10 +18,11 @@ def resolve(session, channel_id, dna_id=None):
         channel=require_tenant_entity(session,Channel,channel_id)
         if dna.language and channel.default_language and dna.language!=channel.default_language:
             raise ConflictError('分析资料的语言与当前频道不一致，请重新分析并应用正确语言版本')
-        plan=session.scalar(select(ChannelSchedulePlan).where(ChannelSchedulePlan.dna_id==dna.id,
-            ChannelSchedulePlan.status=='applied'))
-        if plan:
-            return {**deepcopy(plan.input_snapshot['guidance']),'dna_id':dna.id,'source':'schedule_plan'}
+        if use_plan_snapshot:
+            plan=session.scalar(select(ChannelSchedulePlan).where(ChannelSchedulePlan.dna_id==dna.id,
+                ChannelSchedulePlan.status=='applied'))
+            if plan:
+                return {**deepcopy(plan.input_snapshot['guidance']),'dna_id':dna.id,'source':'schedule_plan'}
         run=session.scalar(select(ChannelAnalysisRun).where(ChannelAnalysisRun.dna_id==dna.id))
         report=require_tenant_entity(session,ChannelAnalysisReport,dna.analysis_report_id) if dna.analysis_report_id else None
         spec=dna.reference_summary or ''

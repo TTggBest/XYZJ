@@ -1,5 +1,6 @@
 from datetime import time
 import pytest
+from uuid import uuid4
 from dataclasses import replace
 from copy import deepcopy
 from sqlalchemy import select
@@ -107,3 +108,113 @@ def test_legacy_operating_reference_remains_usable_for_existing_work(client,stor
         s.add(dna);s.flush();s.get(WorkOrder,'work-a').channel_dna_version_id=dna.id;s.commit()
     response=client.post('/api/v3/work-orders/work-a/v14-runs')
     assert response.status_code==200,response.text
+
+
+def test_explicit_slot_topics_are_frozen_and_enforced_on_the_normal_queue(client, store):
+    seed(store, 2)
+    path = '/api/v3/channels/channel-a/schedule-plans'
+    body = {'start_date': '2026-11-03', 'end_date': '2026-11-03', 'daily_count': 2}
+    topics = {'slot-plan': 'secondary', 'slot-plan-secondary': 'primary'}
+    assert client.post(path, json={**body, 'slot_topics': {'slot-plan': 'secondary'}}).status_code == 409
+    response = client.post(path, json={**body, 'slot_topics': topics})
+    assert response.status_code == 200, response.text
+    plan_id = response.json()['id']
+    assert response.json()['input_snapshot']['slot_topics'] == topics
+
+    claim_body = {'host_id': 'device-a', 'executor_protocol': 8, 'claim_id': str(uuid4())}
+    assert client.post('/api/v3/executor/claims', json=claim_body).status_code == 204
+    assert client.post('/api/v3/schedule-planning/claims', json=claim_body).status_code == 204
+    claim_id = str(uuid4())
+    claim = client.post('/api/v3/executor/claims', json={**claim_body, 'executor_protocol': 9, 'claim_id': claim_id})
+    assert claim.status_code == 200, claim.text
+    assert claim.json()['run']['input_snapshot']['slot_topics'] == topics
+
+    row = {'publish_date': '2026-11-03', 'publish_slot_id': 'slot-plan', 'drama_id': 'drama-a',
+           'reason': '符合频道选题方向', 'plot_evidence': '女主遭到背叛后夺回公司。', 'pairing_reason': '按档位选题'}
+    aux = {**row, 'publish_slot_id': 'slot-plan-secondary', 'drama_id': None, 'reason': '缺少主题材候选'}
+    path = f'/api/v3/schedule-plans/{plan_id}/result'
+    submission = {'claim_id': claim_id, 'result': {'rows': [{**row, 'drama_theme': 'primary'}, aux]}}
+    rejected = client.put(path, json=submission)
+    assert rejected.status_code == 409 and '题材与档位要求不符' in rejected.text
+    submission['result']['rows'][0]['drama_theme'] = 'secondary'
+    accepted = client.put(path, json=submission)
+    assert accepted.status_code == 200, accepted.text
+    assert {r['status'] for r in accepted.json()['result']['rows']} == {'planned', 'blocked'}
+    assert client.get('/api/v3/schedules').json() == []
+    applied = client.post(f'/api/v3/schedule-plans/{plan_id}/apply')
+    assert applied.status_code == 200, applied.text
+    assert len(client.get('/api/v3/schedules').json()) == 1
+
+
+@pytest.mark.parametrize('mode', ['initial', 'periodic'])
+def test_v2_uses_applied_analysis_topics_and_allows_mixed_slots_on_first_day(client, store, mode):
+    from io import BytesIO
+    from zipfile import ZipFile
+    from zhiju.models import ChannelAnalysisReport, ChannelAnalysisRun, ChannelScheduleEntry
+    from zhiju.services import skill_catalog
+
+    seed(store, 2)
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        channel = s.get(Channel, 'channel-a')
+        s.get(Drama, 'drama-a').content_summary = '她决定解除婚约，重新选择伴侣。'
+        report = ChannelAnalysisReport(channel_id=channel.id, version_number=1,
+            report_type=mode, status='completed')
+        s.add(report)
+        s.flush()
+        dna = ChannelDnaVersion(channel_id=channel.id, version_number=1, language='en',
+            status='active', primary_genre='旧频道标签', analysis_report_id=report.id)
+        s.add(dna)
+        s.flush()
+        diagnosis = (
+            '~~~yaml\nchannel_strategy:\n'
+            f'  channel_id: "{channel.youtube_channel_id}"\n'
+            '  content_priority: ["夺回事业"]\n'
+            '  content_secondary: ["婚恋抉择"]\n~~~'
+        )
+        s.add(ChannelAnalysisRun(channel_id=channel.id, host_id='device-a', mode=mode,
+            status='applied', dna_id=dna.id, report_id=report.id, input_snapshot={},
+            result={'diagnosis': diagnosis}))
+        s.add(ChannelAnalysisRun(channel_id=channel.id, host_id='device-a', mode='periodic',
+            status='ready', input_snapshot={}, result={'diagnosis': '未应用，不得读取'}))
+        report_id = report.id
+        s.commit()
+        archive = BytesIO()
+        with ZipFile(archive, 'w') as z:
+            z.writestr('SKILL.md', '# channel-scheduling v2')
+        version = skill_catalog.upload(s, skill_catalog.SCHEDULING, 'channel-scheduling', '', archive.getvalue())
+        assert version['revision'] == 2
+        skill_catalog.publish(s, skill_catalog.SCHEDULING, version['id'])
+        skill_catalog.select_default(s, skill_catalog.SCHEDULING, version['id'])
+
+    path = '/api/v3/channels/channel-a/schedule-plans'
+    day = '2026-11-03'
+    body = {'start_date': day, 'end_date': day, 'daily_count': 2}
+    assert client.post(path, json=body).status_code == 409
+    response = client.post(path, json={**body,
+        'slot_topics': {'slot-plan': 'secondary', 'slot-plan-secondary': 'primary'}})
+    assert response.status_code == 200, response.text
+    plan = response.json()
+    assert plan['input_snapshot']['guidance']['report_id'] == report_id
+    assert plan['input_snapshot']['guidance']['mode'] == mode
+    assert plan['input_snapshot']['analysis_topics'] == {'primary': ['夺回事业'], 'secondary': ['婚恋抉择']}
+    claim = client.post('/api/v3/schedule-planning/claims', json={'host_id': 'device-a', 'executor_protocol': 9}).json()
+
+    base = {'publish_date': day, 'reason': '符合档期选择',
+            'plot_evidence': '女主遭到背叛后夺回公司。', 'pairing_reason': '按两档各自方向编排'}
+    rows = [{**base, 'publish_slot_id': 'slot-plan', 'drama_id': 'drama-a',
+             'drama_theme': 'secondary', 'theme_basis': '夺回事业',
+             'plot_evidence': '她决定解除婚约，重新选择伴侣。'},
+            {**base, 'publish_slot_id': 'slot-plan-secondary', 'drama_id': 'drama-second',
+             'drama_theme': 'primary', 'theme_basis': '夺回事业'}]
+    submit = f"/api/v3/schedule-plans/{plan['id']}/result"
+    body = {'claim_id': claim['claim_id'], 'result': {'rows': rows}}
+    assert client.put(submit, json=body).status_code == 409
+    rows[0]['theme_basis'] = '婚恋抉择'
+    accepted = client.put(submit, json=body)
+    assert accepted.status_code == 200, accepted.text
+    response = client.post(f"/api/v3/schedule-plans/{plan['id']}/apply")
+    assert response.status_code == 200, response.text
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        schedules = s.scalars(select(ChannelScheduleEntry)).all()
+        assert len(schedules) == 2
+        assert all(row.channel_dna_version_id == plan['input_snapshot']['guidance']['dna_id'] for row in schedules)

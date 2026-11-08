@@ -404,3 +404,55 @@ assert result['rows'][0]['drama_id']==drama['id']
 assert 'zhiju.database' not in sys.modules
 ''',str(payload)],env=env,cwd=tmp_path,capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stderr
+
+
+@pytest.mark.parametrize('theme', ['primary', 'secondary'])
+@pytest.mark.parametrize('uses_v2', [False, True])
+def test_executor_uses_plot_assessment_for_explicit_slot_topic(data, tmp_path, theme, uses_v2):
+    from zhiju.services import schedule_planning
+    from zhiju.v14_executor.schedule_planning import generate
+
+    configured(data)
+    session, channel, drama, slot, _ = data
+    day = date(2026, 11, 3)
+    schedule_planning.create_plan(session, channel.id, day, day, 1, {slot.id: 'secondary'})
+    claim = schedule_planning.claim_plan(session, 'host')
+    directions = {'primary': ['公开反击'], 'secondary': ['事业重建']}
+    if uses_v2:
+        claim['input_snapshot']['analysis_topics'] = directions
+
+    class Model:
+        calls = 0
+
+        def generate(self, stage, model):
+            self.calls += 1
+            if self.calls == 1:
+                assert '以用户逐档指定题材为准' in stage.prompt
+                judgment = {'drama_id': drama.id, 'eligible': True, 'theme': theme,
+                    'reason': '根据频道资料归类', 'plot_evidence': '女主遭到背叛后夺回公司。'}
+                if uses_v2:
+                    assert all(label in stage.prompt for values in directions.values() for label in values)
+                    assert 'theme_basis' in stage.schema['properties']['rows']['items']['required']
+                    judgment['theme_basis'] = directions[theme][0]
+                return {'rows': [judgment]}
+            row = {'publish_date': day.isoformat(), 'publish_slot_id': slot.id,
+                   'reason': '缺少辅题材', 'plot_evidence': '女主遭到背叛后夺回公司。', 'pairing_reason': '单更'}
+            if self.calls == 2:
+                assert slot.id in stage.prompt and '指定题材' in stage.prompt
+                assert '前14天' not in stage.prompt.split('依据以下已阅读剧情的判断', 1)[1]
+                return {'rows': [{**row, 'drama_id': drama.id}]}
+            return {'rows': [{**row, 'drama_id': None}]}
+
+    model = Model()
+    result = generate(model, claim, tmp_path)
+    row = result['rows'][0]
+    if theme == 'secondary':
+        assert model.calls == 2
+        assert row['drama_id'] == drama.id
+        assert row['drama_theme'] == 'secondary'
+        if uses_v2:
+            assert row['theme_basis'] == '事业重建'
+    else:
+        assert model.calls == 3
+        assert row['drama_id'] is None
+        assert row['reason'] == '缺少辅题材'
