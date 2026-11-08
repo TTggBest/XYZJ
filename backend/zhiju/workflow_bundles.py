@@ -94,6 +94,13 @@ def execution_nodes(rules_snapshot: dict) -> tuple[str, ...]:
     return tuple(inspect_bundle(archive_from_snapshot(bundle)).get('nodes', default))
 
 
+def is_v20_revision_6(bundle: dict | None) -> bool:
+    return bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision', 0) == 6)
+
+
 def executor_protocol(rules_snapshot: dict) -> int:
     bundle = rules_snapshot.get('skill_bundle')
-    return int(inspect_bundle(archive_from_snapshot(bundle)).get('executor_protocol', 2)) if bundle else 1
+    if not bundle:
+        return 1
+    archived = int(inspect_bundle(archive_from_snapshot(bundle)).get('executor_protocol', 2))
+    return max(10, archived) if is_v20_revision_6(bundle) else archived

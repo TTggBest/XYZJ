@@ -138,7 +138,7 @@ def test_cold_start_user_api_queues_without_material_form(client,store):
 def test_cloud_rejects_missing_market_instead_of_importing_local_facts(client,store):
     authorize_client(store)
     run=client.post('/api/v3/channels/channel-a/cold-start',json={}).json()
-    claim=client.post('/api/v3/channel-analysis/claims',json={'host_id':'device-a'}).json()
+    claim=client.post('/api/v3/channel-analysis/claims',json={'host_id':'device-a','executor_protocol':5}).raise_for_status().json()
     response=client.post(f"/api/v3/analysis-runs/{run['id']}/collect",json={
         'claim_id':claim['claim_id'],'initial_context':{'channel':{'country_name_zh':'美国','default_language':'en'}}})
     assert response.status_code==409

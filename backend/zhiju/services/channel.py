@@ -163,9 +163,11 @@ def get_channel_detail(session: Session, channel_id: str) -> dict[str, object]:
                 "version_status": current.status if current else None,
             }
         )
+    from zhiju.services.channel_guidance import applied_reference
     return {
         "channel": channel,
         "profile": profile,
+        "operating_reference": applied_reference(session, active_dna),
         "keywords": keywords,
         "active_dna": dna_payload,
         "recent_reports": reports,

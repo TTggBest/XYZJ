@@ -839,6 +839,9 @@ def change_community_slot_status(
 
 
 def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) -> ChannelScheduleEntry:
+    from zhiju.services import schedule_batch
+
+    schedule_batch.lock_confirmations(session)
     existing = session.scalar(
         select(ChannelScheduleEntry).where(ChannelScheduleEntry.idempotency_key == payload.idempotency_key)
     )
@@ -847,7 +850,7 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
         if existing.channel_id != channel_id:
             raise ConflictError("幂等键已被其他频道使用")
         return existing
-    _active_channel(session, channel_id, lock=True)
+    channel = _active_channel(session, channel_id, lock=True)
     require_tenant_entity(session, Drama, payload.drama_id)
     drama = _require_schedulable_drama(session, payload.drama_id)
     slot = require_tenant_entity(session, ChannelPublishSlot, payload.publish_slot_id)
@@ -861,6 +864,8 @@ def create_schedule(session: Session, channel_id: str, payload: ScheduleCreate) 
     local_aware = datetime.combine(payload.publish_date, slot.local_time, tzinfo=local_zone)
     utc_aware = local_aware.astimezone(timezone.utc)
     beijing_aware = utc_aware.astimezone(ZoneInfo("Asia/Shanghai"))
+    if schedule_batch.default_uses_batch(session):
+        schedule_batch.guard_manual(session, channel, payload.drama_id, beijing_aware)
     dna_version = session.scalar(
         select(ChannelDnaVersion)
         .where(
@@ -1218,6 +1223,9 @@ def select_schedule_candidate(
     candidate_id: str,
     reason: str,
 ) -> ChannelScheduleEntry:
+    from zhiju.services import schedule_batch
+
+    schedule_batch.lock_confirmations(session)
     schedule = _require_open_schedule(session, schedule_id)
     candidates = list(
         session.scalars(
@@ -1236,6 +1244,9 @@ def select_schedule_candidate(
         selected.drama_id,
         missing_message="候选剧目不存在",
     )
+    if schedule_batch.default_uses_batch(session):
+        channel = _active_channel(session, schedule.channel_id)
+        schedule_batch.guard_manual(session, channel, selected.drama_id, schedule.planned_beijing_time)
     now = datetime.now(timezone.utc)
     previous = next((item for item in candidates if item.status == "selected"), None)
     old_drama_id = schedule.drama_id

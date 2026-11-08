@@ -3,6 +3,7 @@ import copy
 import json
 import re
 from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
+from zhiju.channel_analysis_rules.operating_reference import is_reference_revision, validate_reference
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -172,7 +173,9 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         ChannelAnalysisRun.status == 'applied').order_by(ChannelAnalysisRun.created_at.desc()).limit(1))
     previous=session.get(ChannelAnalysisRun,previous_id) if previous_id else None
     from zhiju.services.skill_catalog import analysis_snapshot
-    skill_version = cold_start_skill(session) if cold_start else analysis_snapshot(session)
+    formal_skill = analysis_snapshot(session)
+    skill_version = cold_start_skill(session) if cold_start else formal_skill
+    reference_required = is_reference_revision(formal_skill)
     snapshot = {'mode':mode, 'positioning':positioning,
         'channel':{k:getattr(channel,k) for k in ('id','youtube_channel_id','original_name','default_language',
             'country_name_zh','default_genre','drama_type','timezone')},
@@ -184,6 +187,16 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         'model':setting.payload['default_model'],'account_profile':setting.payload['account_profile'],
         'skill_version':skill_version,
         'rules':{Path(name).name:body for name,body in skill_version['files'].items() if name.startswith('references/') and name.endswith('.md')}}
+    if reference_required:
+        snapshot['operating_reference_required'] = True
+        snapshot['operating_reference_skill'] = {key: formal_skill[key] for key in ('id', 'label', 'revision')}
+        if cold_start:
+            snapshot['rules']['output-contract.md'] = formal_skill['files']['references/output-contract.md']
+            snapshot['rules']['operating-reference-cold-start.md'] = (
+                '按冻结输出契约填写 channel_strategy.operating_reference 八栏。'
+                '八栏的 status 均为 cold_start_hypothesis，证据仅来自登记身份、用户确认定位和初始题材，'
+                '或写出待取得证据。保留三份文档和不可用的事实指标。'
+            )
     if mode=='periodic':
         from zhiju.services.channel_analysis_sources import verify_authorization
         _,identity,_=verify_authorization(session,snapshot['channel'])
@@ -389,6 +402,14 @@ def validate_result(run,result):
             raise ConflictError('正式分析尚未完成数据采集')
         validate_screenshot_checks(run,result.get('material_checks',{}))
     result=copy.deepcopy(result)
+    # The same validated YAML supplies every consumer. The caller cannot
+    # submit a separate payload that differs from the report.
+    result.pop('operating_reference', None)
+    if run.input_snapshot.get('operating_reference_required'):
+        try:
+            result['operating_reference'] = validate_reference(strategy, cold_start=run.mode == 'initial')
+        except ValueError as exc:
+            raise ConflictError(str(exc)) from exc
     if run.mode!='periodic':
         result['normalized_snapshot']['authoritative_sources']=run.input_snapshot.get('sources',{})
     return result
@@ -425,6 +446,7 @@ def submit_result(session,run_id,claim_id,*,result=None,error=None):
 
 
 def apply_result(session,run_id):
+    setting=session.scalar(select(V14Setting).with_for_update())
     run=get_run(session,run_id,True)
     if run.status=='applied':return run
     if run.status!='ready':raise ConflictError('分析结果尚未完成')
@@ -438,8 +460,9 @@ def apply_result(session,run_id):
     for previous in session.scalars(select(ChannelAnalysisRun).where(
         ChannelAnalysisRun.channel_id==channel.id,ChannelAnalysisRun.status=='applied')):
         previous.status='superseded'
-    setting=session.scalar(select(V14Setting).with_for_update());assert setting
+    assert setting
     result=validate_result(run,run.result)
+    run.result=result
     version=session.scalar(select(func.coalesce(func.max(ChannelAnalysisReport.version_number),0)).where(ChannelAnalysisReport.channel_id==channel.id))+1
     label='冷启动假设，未经数据验证' if run.mode=='initial' else '真实数据周期分析，见来源及样本范围'
     report=ChannelAnalysisReport(channel_id=channel.id,version_number=version,

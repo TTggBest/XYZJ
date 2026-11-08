@@ -473,6 +473,7 @@ class ChannelDetailRead(BaseModel):
     profile: ChannelProfileRead | None
     keywords: list[ChannelKeywordRead]
     active_dna: ChannelDnaVersionRead | None
+    operating_reference: dict | None = None
     recent_reports: list[ChannelAnalysisReportRead]
     pinned_comment_templates: list[ChannelPinnedCommentTemplateRead]
     playlists: list[PlaylistRead]

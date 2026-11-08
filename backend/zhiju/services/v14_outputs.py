@@ -12,7 +12,8 @@ from zhiju.v14_runtime.canonical import title_rows, cover_rows, first_result
 def apply_outputs(session, run, attempt, result):
     from zhiju.services.v14_runs import envelope
     try:
-        stage = build_stage_input(envelope(session, run), attempt.node_type)
+        data = envelope(session, run)
+        stage = build_stage_input(data, attempt.node_type)
         issues = validate_result(stage, result)
     except (ValueError, KeyError, TypeError) as exc:
         raise ConflictError(f"V14 结构或输入不完整: {exc}") from exc
@@ -39,9 +40,19 @@ def apply_outputs(session, run, attempt, result):
             for r in cover_rows(result) for ratio, key in (("4:5", "prompt_4_5"), ("16:9", "prompt_16_9"))]), commit=False)
     elif attempt.node_type == "description":
         r = first_result(result)
-        playlist = session.scalar(select(ChannelPlaylist).where(ChannelPlaylist.channel_id == run.input_snapshot["channel_id"], ChannelPlaylist.url == r["url"]))
+        assignment = run.input_snapshot.get('schedule_assignment')
+        if assignment:
+            selected = assignment['playlist']
+            playlist = session.get(ChannelPlaylist, selected['id'])
+            if (playlist is None or playlist.channel_id != run.input_snapshot['channel_id']
+                    or playlist.youtube_playlist_id != selected['youtube_playlist_id']):
+                raise ConflictError('排期指定的播放列表已变更，请核对频道列表后再继续')
+            playlist_id = playlist.id
+        else:
+            playlist_id = session.scalar(select(ChannelPlaylist.id).where(
+                ChannelPlaylist.channel_id == run.input_snapshot['channel_id'], ChannelPlaylist.url == r['url']))
         out.write_description(session, pid, DescriptionWrite(language=language, localized_text=r["description"],
-            chinese_translation=r["translation"], playlist_id=playlist.id if playlist else None), commit=False)
+            chinese_translation=r["translation"], playlist_id=playlist_id), commit=False)
     elif attempt.node_type == "community":
         out.write_community(session, pid, CommunityBatchWrite(posts=[{
             "sequence_number": r["plan_index"], "language": language, "localized_text": r["copy"],

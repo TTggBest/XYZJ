@@ -176,8 +176,12 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                         result = {"section": "community", "results": []}
                     elif node == "search":
                         if stage.skill_bundle and evidence_provider is collect_agent_reach_evidence:
-                            from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot
-                            evidence = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'evidence', {'item': stage.item})
+                            from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot, is_v20_revision_6
+                            if is_v20_revision_6(stage.skill_bundle):
+                                from zhiju.v14_runtime.market import collect_revision6_evidence
+                                evidence = collect_revision6_evidence(stage.item)
+                            else:
+                                evidence = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'evidence', {'item': stage.item})
                         else:
                             evidence = evidence_provider(stage.item)
                         # Keep failed retrieval evidence so Find can use its
@@ -205,7 +209,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                     body.update(outcome="system_error", error=str(exc)[:4000])
                 finally:
                     trace = getattr(model_client, 'phase_trace', None)
-                    if node in {"title", "cover"} and trace:
+                    if node in {"title", "cover", "community_scene"} and trace:
                         trace_path = root / envelope['run_id'] / (f"{attempt_id}.{node}_phases.json")
                         trace_path.parent.mkdir(parents=True, exist_ok=True)
                         trace_path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

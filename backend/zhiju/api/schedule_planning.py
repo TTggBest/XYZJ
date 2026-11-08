@@ -14,6 +14,7 @@ class PlanCreate(BaseModel):
     start_date: date
     end_date: date
     daily_count: int = Field(ge=1,le=10)
+    executor_protocol: int | None = None
     slot_topics: dict[str, Literal["primary", "secondary"]] | None = None
 
 
@@ -47,7 +48,7 @@ def listing(channel_id:str,s:Session=Depends(get_tenant_db)):
 
 @router.post('/channels/{channel_id}/schedule-plans')
 def create(channel_id:str,body:PlanCreate,s:Session=Depends(get_tenant_db),p=Depends(operator)):
-    return service.read(call(service.create_plan,s,channel_id,body.start_date,body.end_date,body.daily_count,body.slot_topics))
+    return service.read(call(service.create_plan,s,channel_id,body.start_date,body.end_date,body.daily_count,body.slot_topics,executor_protocol=body.executor_protocol))
 
 
 @router.get('/schedule-plans/{plan_id}')

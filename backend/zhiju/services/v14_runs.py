@@ -6,13 +6,14 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session, load_only
 
 from zhiju.models import (Channel, Drama, OperationPackage, PackageArtifact, PackageCommunityPost,
-                          PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language)
+                          PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language, ChannelProfile, ChannelSchedulePlan)
 from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
+from zhiju.services.channel_guidance import active_dna, applied_reference, resolve as resolve_guidance
 from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel, dispatch_task
 from zhiju.services.identity import ConflictError, channel_order_columns, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
-from zhiju.workflow_bundles import execution_nodes
+from zhiju.workflow_bundles import execution_nodes, is_v20_revision_6
 
 
 def get_settings(session: Session) -> V14Setting | None:
@@ -78,6 +79,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
         from zhiju.services.workflow_versions import resolve
         bundle = resolve(session, selected)
     task = require_tenant_entity(session, OperationTask, work.task_id)
+    schedule = None
     if task.schedule_id:
         from zhiju.models import ChannelScheduleEntry
         from zhiju.services.community_requirements import initialize_schedule_community
@@ -89,14 +91,31 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
     channel_input = config["channel_inputs"].get(channel.id)
     if not channel_input or (not bundle and not config["rules"]):
         raise ConflictError("缺少当前频道 V14 材料或固定规则")
-    if work.channel_dna_version_id:
-        from zhiju.services.channel_guidance import resolve as resolve_guidance
-        guidance = resolve_guidance(session, channel.id, work.channel_dna_version_id)
+    # Dispatch can precede the first run. Freeze production guidance when the run starts.
+    current_dna = active_dna(session, channel.id)
+    dna_version_id = current_dna.id if current_dna else work.channel_dna_version_id
+    if dna_version_id:
+        guidance = resolve_guidance(session, channel.id, dna_version_id, use_plan_snapshot=not current_dna)
         if guidance['source'] != 'legacy_reference' and not guidance['generation_spec']:
-            raise ConflictError('排期冻结的频道资料缺少生成规范，请补齐对应版本后再生产')
+            raise ConflictError('频道分析版本缺少生成规范，请补齐对应版本后再生产')
         if guidance['source'] != 'legacy_reference':
             channel_input = {**channel_input, 'generation_spec':guidance['generation_spec'],
                              'analysis_version':{**{k:guidance[k] for k in ('dna_id','run_id','report_id')},'report_type':guidance['mode']}}
+    if is_v20_revision_6(bundle):
+        if drama.source_language not in {'zh', 'en'}:
+            raise ConflictError('请先在剧库登记中文或英语原片语言，供封面正确选角')
+        profile = session.scalar(select(ChannelProfile).where(ChannelProfile.channel_id == channel.id))
+        if not profile or not profile.title_template:
+            raise ConflictError('请先在频道档案登记固定标题模板')
+        reference = applied_reference(session, current_dna) if current_dna else None
+        language = session.scalar(select(Language).where(Language.code == channel.default_language))
+        channel_input = {**channel_input, 'title_template': profile.title_template, 'operating_reference': reference,
+                         'market_language_name': (language.native_name or language.name_zh) if language else channel_input['language']}
+    assignment = _schedule_assignment(session, schedule) if schedule and schedule.playlist_id else None
+    if assignment:
+        chosen = assignment['playlist']
+        channel_input = {**channel_input, 'playlists': [chosen, *(
+            p for p in channel_input.get('playlists', []) if p.get('url') != chosen['url'])]}
     if channel.default_language:
         from zhiju.services.schedule_youtube import LANGUAGES
         aliases = {key.casefold(): value.casefold() for key, value in LANGUAGES.items()}
@@ -118,6 +137,8 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
             "target_publish_date": str(work.target_publish_date),
             "video_id": task.source_video_id or f"pending_{work.id}", "video_url": task.source_video_url,
         })
+    if assignment:
+        run.input_snapshot['schedule_assignment'] = assignment
     if bundle:
         run.input_snapshot['workflow_version'] = {k: bundle[k] for k in ('id', 'label', 'revision')}
     from zhiju.v14_runtime.contract import build_stage_input
@@ -142,12 +163,32 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
                 session.add(ProductionNodeRun(work_order_id=work.id, package_id=package.id,
                     node_type=name, sequence_number=number, attempt_number=1, status='pending',
                     idempotency_key=f'{work.id}:{name}:1'))
+    work.channel_dna_version_id = package.channel_dna_version_id = dna_version_id
     session.add(run)
     if commit:
         session.commit()
     else:
         session.flush()
     return run
+
+
+def _schedule_assignment(session, schedule):
+    from zhiju.services.schedule_planning import available_playlists
+
+    playlist = next((p for p in available_playlists(session, schedule.channel_id)
+                     if p['id'] == schedule.playlist_id), None)
+    if playlist is None:
+        raise ConflictError('排期指定的播放列表已失效或不属于当前频道，请修正排期后再启动')
+    assignment = {'schedule_id': schedule.id, 'playlist': playlist}
+    key = schedule.idempotency_key
+    if key.startswith('plan:'):
+        plan = session.get(ChannelSchedulePlan, key.split(':', 2)[1])
+        if plan and plan.channel_id == schedule.channel_id and schedule.id in (plan.result or {}).get('schedule_ids', []):
+            entry = next((row for row in plan.result['rows'] if row['drama_id'] == schedule.drama_id), {})
+            fields = ('operating_reference_version_id', 'target_theme', 'target_direction',
+                      'actual_theme', 'actual_direction', 'deviates_from_target', 'fallback_reason')
+            assignment.update({key: entry[key] for key in fields if key in entry})
+    return assignment
 
 
 def attempts(session, run):

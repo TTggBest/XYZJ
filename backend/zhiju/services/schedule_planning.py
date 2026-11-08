@@ -3,17 +3,18 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from urllib.parse import urlsplit
 import yaml
 from sqlalchemy import func, select, or_, case
 from zhiju.models import (Channel, ChannelSchedulePlan, ChannelScheduleEntry, ChannelPublishSlot,
-    Drama, DramaProductionState, ChannelDnaVersion, ScheduleCandidate, ScheduleChangeHistory, Language, PublishCadenceTemplateSlot)
+    Drama, DramaProductionState, ChannelDnaVersion, ChannelPlaylist, ScheduleCandidate, ScheduleChangeHistory, Language, PublishCadenceTemplateSlot)
 from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
 from zhiju.models.v14 import V14Setting
-from zhiju.services import channel_guidance, operations, skill_catalog
+from zhiju.services import channel_guidance, operations, schedule_batch, skill_catalog
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.schedule_youtube import LANGUAGES
-from zhiju.scheduling_rules.contract import SLOT_TOPICS_PROTOCOL
+from zhiju.scheduling_rules.contract import SLOT_TOPICS_PROTOCOL, REFERENCE_PROTOCOL
 
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
 
@@ -185,20 +186,39 @@ def analysis_topics(guidance, youtube_channel_id):
     return {kind: list(dict.fromkeys(item.strip() for item in items)) for kind, items in topics.items()}
 
 
-def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=None):
-    channel=operations._active_channel(session,channel_id,lock=True)
+def available_playlists(session, channel_id, *, lock=False):
+    query = select(ChannelPlaylist).where(ChannelPlaylist.channel_id == channel_id,
+        ChannelPlaylist.status == 'active', ChannelPlaylist.youtube_playlist_id.is_not(None),
+        ChannelPlaylist.url.is_not(None)).order_by(ChannelPlaylist.sort_order, ChannelPlaylist.id)
+    if lock:
+        query = query.with_for_update()
+    from zhiju.services.feishu_sync import youtube_playlist_id_from_url
+    return [
+        {'id': p.id, 'youtube_playlist_id': p.youtube_playlist_id, 'url': p.url,
+         'name': p.local_name, 'description': p.local_description or ''}
+        for p in session.scalars(query)
+        if p.youtube_playlist_id and urlsplit(p.url).scheme == 'https' and urlsplit(p.url).hostname in {'youtube.com', 'www.youtube.com', 'studio.youtube.com'}
+        and youtube_playlist_id_from_url(p.url) == p.youtube_playlist_id
+    ]
+
+
+def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=None,*,executor_protocol=None):
+    channel = operations._active_channel(session, channel_id, lock=True)
     if end_date<start_date or (end_date-start_date).days>=31 or not 1<=daily_count<=10:
         raise ConflictError('请选择 1～31 天的日期范围和有效每日更新数量')
+    skill_version = skill_catalog.scheduling_snapshot(session)
+    uses_v2 = skill_version['label'] == 'channel-scheduling' and skill_version['revision'] >= 2
+    uses_reference = uses_v2 and skill_version['revision'] >= 3
+    if uses_reference and executor_protocol is not None and executor_protocol < REFERENCE_PROTOCOL:
+        raise ConflictError('请先更新本机执行器至支持排期修订 3 的版本')
     if session.scalar(select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.channel_id==channel_id,
         ChannelSchedulePlan.status.in_(['queued','running'])).limit(1)):
         raise ConflictError('频道已有排期规划任务，请先完成或取消')
     setting=session.scalar(select(V14Setting))
     if not setting:raise ConflictError('请先配置 Codex 执行主机和模型')
-    skill_version = skill_catalog.scheduling_snapshot(session)
-    uses_v2 = skill_version['label'] == 'channel-scheduling' and skill_version['revision'] >= 2
     slots = cadence_slots(session, channel_id, daily_count)
     if uses_v2 and slot_topics is None:
-        raise ConflictError('排期 Skill v2 需要为每个档位选择主题材或辅题材')
+        raise ConflictError('AI 排期需要为每个档位选择主题材或辅题材')
     guidance = channel_guidance.resolve(session, channel_id, use_plan_snapshot=not uses_v2)
     if slot_topics is not None:
         if set(slot_topics) != {slot['id'] for slot in slots} or set(slot_topics.values()) - {'primary', 'secondary'}:
@@ -206,7 +226,16 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
         if guidance['dna_id'] and not uses_v2:
             dna = require_tenant_entity(session, ChannelDnaVersion, guidance['dna_id'])
             guidance['secondary_genre'] = dna.secondary_genre or guidance.get('secondary_genre')
-    topics = analysis_topics(guidance, channel.youtube_channel_id) if uses_v2 else None
+    if uses_reference:
+        reference = channel_guidance.applied_reference(session, channel_guidance.active_dna(session, channel_id))
+        if not reference:
+            raise ConflictError('请先应用包含八栏运营参考的频道分析；仍可手动排期')
+        playlists = available_playlists(session, channel_id)
+        if not playlists:
+            raise ConflictError('当前频道没有可用播放列表，请在频道运营配置中补齐')
+        topics = {kind: reference['sections']['topics'][kind] for kind in ('primary', 'secondary')}
+    else:
+        topics = analysis_topics(guidance, channel.youtube_channel_id) if uses_v2 else None
     pool,excluded=candidate_pool(session,channel)
     existing=list(session.scalars(select(ChannelScheduleEntry).where(ChannelScheduleEntry.channel_id==channel_id)))
     dates=[start_date+timedelta(days=offset) for offset in range((end_date-start_date).days+1)]
@@ -230,17 +259,26 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
         snapshot['slot_topics'] = slot_topics
     if topics is not None:
         snapshot['analysis_topics'] = topics
+    if uses_reference:
+        batch = schedule_batch.identity(language_code(language_aliases(session), channel.default_language),
+                                        channel, targets, slots)
+        first, last, blocked = schedule_batch.reservations(session, channel_id, batch)
+        snapshot.update(operating_reference=reference, playlists=playlists, batch=batch,
+                        batch_window={'first': first.isoformat(), 'last': last.isoformat()},
+                        batch_blocked=blocked)
     plan=ChannelSchedulePlan(channel_id=channel_id,host_id=setting.payload['host_id'],input_snapshot=snapshot)
     session.add(plan);session.commit();session.refresh(plan);return plan
 
 
 def claimable_plans(query, executor_protocol):
+    if executor_protocol < REFERENCE_PROTOCOL:
+        query = query.where(ChannelSchedulePlan.input_snapshot['batch']['registered_on'].as_string().is_(None))
     if executor_protocol < SLOT_TOPICS_PROTOCOL:
-        return query.where(ChannelSchedulePlan.input_snapshot['slot_topics'].as_string().is_(None))
+        query = query.where(ChannelSchedulePlan.input_snapshot['slot_topics'].as_string().is_(None))
     return query
 
 
-def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=SLOT_TOPICS_PROTOCOL):
+def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=REFERENCE_PROTOCOL):
     preferred_id=plan_id
     setting=session.scalar(select(V14Setting))
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
@@ -299,11 +337,13 @@ def resume_plan(session,plan_id,stopped_confirmed):
 
 
 def apply_plan(session,plan_id):
+    schedule_batch.lock_confirmations(session)
     row=get_plan(session,plan_id,True)
     if row.status=='applied':return row
     if row.status!='ready':raise ConflictError('规划尚未完成，不能保存')
     channel=operations._active_channel(session,row.channel_id,lock=True)
     snapshot=row.input_snapshot
+    batch = snapshot.get('batch')
     if channel.default_language!=snapshot['channel']['default_language']:
         raise ConflictError('频道语言已变化，请重新规划')
     if cadence_slots(session,channel.id,snapshot['daily_count'])!=snapshot['slots']:
@@ -311,6 +351,23 @@ def apply_plan(session,plan_id):
     result=validate_result(row,row.result)
     selected=[r for r in result['rows'] if r['drama_id']]
     if not selected:raise ConflictError('所有档位均缺少合格剧目，没有可保存的排期')
+    if batch:
+        current_batch = schedule_batch.identity(language_code(language_aliases(session), channel.default_language),
+                                                channel, snapshot['targets'], snapshot['slots'])
+        if current_batch != batch:
+            raise ConflictError('频道录入日期或同批身份已变化，请重新规划')
+        _, _, blocked = schedule_batch.reservations(session, channel.id, batch)
+        schedule_batch.check(selected, blocked)
+        available = {p['id']: p for p in available_playlists(session, channel.id, lock=True)}
+        frozen_playlists = {p['id']: p for p in snapshot['playlists']}
+        for entry in selected:
+            pid = entry['playlist_id']
+            if not available.get(pid) or available[pid] != frozen_playlists[pid]:
+                raise ConflictError('排期指定的播放列表已失效或变更，请重新预览')
+
+    elif schedule_batch.default_uses_batch(session):
+        schedule_batch.guard_confirmed_rows(session, channel, selected)
+
     current={d['id']:d for d in candidate_pool(session,channel)[0]}
     frozen={d['id']:d for d in snapshot['candidates']}
     for entry in selected:
@@ -338,6 +395,7 @@ def apply_plan(session,plan_id):
                 planned_local_time=datetime.fromisoformat(entry['planned_local_time']),
                 planned_utc_time=datetime.fromisoformat(entry['planned_utc_time']),
                 planned_beijing_time=datetime.fromisoformat(entry['planned_beijing_time']),
+                playlist_id=entry.get('playlist_id') if batch else None,
                 community_count=0,status='planned',priority=100,source_type='system',idempotency_key=f'plan:{row.id}:{entry["publish_date"]}:{entry["publish_slot_id"]}')
             session.add(schedule);session.flush();schedules.append(schedule)
             session.add(ScheduleCandidate(schedule_id=schedule.id,drama_id=schedule.drama_id,candidate_type='primary',rank_number=1,

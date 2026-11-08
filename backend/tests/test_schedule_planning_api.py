@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import datetime, time
 import pytest
 from uuid import uuid4
 from dataclasses import replace
@@ -8,7 +8,7 @@ from test_v14_api import client, PRINCIPAL
 from test_v14_runs import store
 from zhiju import auth_context
 from zhiju.database import TenantSession
-from zhiju.models import Channel, ChannelPublishSlot, Drama, DramaProductionState, ChannelDnaVersion, WorkOrder, PublishCadenceTemplateSlot
+from zhiju.models import Channel, ChannelPublishSlot, Drama, DramaProductionState, ChannelAnalysisReport, ChannelDnaVersion, ChannelScheduleEntry, OperationPackage, OperationTask, WorkOrder, PublishCadenceTemplateSlot
 from zhiju.models.v14 import V14Setting
 
 
@@ -82,23 +82,69 @@ def test_http_operator_and_tenant_boundaries(client,store):
         'start_date':'2026-11-03','end_date':'2026-11-03','daily_count':1}).status_code==403
 
 
-def test_production_uses_the_schedule_guidance_instead_of_new_current_spec(client,store):
-    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
-        setting=s.scalar(select(V14Setting));config=deepcopy(setting.payload)
-        original=config['channel_inputs']['channel-a']['generation_spec']
-        dna=ChannelDnaVersion(channel_id='channel-a',version_number=1,status='archived',language='ar',
-            primary_genre='频道方向',audience_summary='冷启动',reference_summary=original)
-        s.add(dna);s.flush()
-        s.get(WorkOrder,'work-a').channel_dna_version_id=dna.id
-        config['channel_inputs']['channel-a']['generation_spec']=original+'\n新版附加指导'
-        setting.payload=config;s.commit()
-    response=client.post('/api/v3/work-orders/work-a/v14-runs')
-    assert response.status_code==200,response.text
-    envelope=client.post('/api/v3/v14/claims',json={'host_id':'device-a','executor_protocol':5})
-    assert envelope.status_code==200,envelope.text
-    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
-        from zhiju.services.v14_runs import envelope as full_envelope,get_run
-        assert full_envelope(s,get_run(s,envelope.json()['run_id']))['input_snapshot']['channel']['generation_spec']==original
+@pytest.mark.parametrize('entry', ['start', 'dispatch', 'previously_dispatched'])
+def test_new_production_uses_current_guidance_over_archived_schedule(client, store, entry):
+    from zhiju.models.v14 import V14Run
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        config = s.scalar(select(V14Setting)).payload
+        original = config['channel_inputs']['channel-a']['generation_spec']
+        latest = original + '\n新版附加指导'
+        s.get(Channel, 'channel-a').default_language = 'ar'
+        old = ChannelDnaVersion(id='old-dna', channel_id='channel-a', version_number=1,
+            status='active', language='en', primary_genre='旧方向', reference_summary=original)
+        publish_at = datetime(2026, 11, 9, 19)
+        schedule = ChannelScheduleEntry(id='existing-schedule', channel_id='channel-a', drama_id='drama-a',
+            channel_dna_version_id=old.id, publish_slot_id='existing-slot', publish_date=publish_at.date(),
+            planned_local_time=publish_at, planned_beijing_time=publish_at, planned_utc_time=publish_at,
+            idempotency_key='existing-schedule')
+        s.add_all([old, schedule, OperationTask(id='pending-task', channel_id='channel-a', drama_id='drama-a',
+            batch_id='batch-a', schedule_id=schedule.id, task_date=publish_at.date(),
+            target_publish_date=publish_at.date(), source='schedule', idempotency_key='pending-task')])
+        s.commit()
+    if entry == 'previously_dispatched':
+        response = client.post('/api/v3/tasks/pending-task/dispatch')
+        assert response.status_code == 200, response.text
+        work_id = response.json()['work_order']['id']
+
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        s.get(ChannelDnaVersion, 'old-dna').status = 'archived'
+        s.add(ChannelAnalysisReport(id='new-report', channel_id='channel-a', version_number=2,
+            report_type='periodic', status='completed'))
+        s.add(ChannelDnaVersion(id='new-dna', channel_id='channel-a', version_number=2,
+            status='active', language='ar', primary_genre='新方向', reference_summary=latest,
+            analysis_report_id='new-report'))
+        s.commit()
+
+    if entry == 'dispatch':
+        response = client.post('/api/v3/tasks/pending-task/dispatch')
+        assert response.status_code == 200, response.text
+        work = response.json()['work_order']
+        work_id = work['id']
+        assert work['channel_dna_version_id'] == 'new-dna'
+    if entry == 'previously_dispatched':
+        response = client.post(f'/api/v3/work-orders/{work_id}/v14-runs')
+    else:
+        response = client.post('/api/v3/tasks/pending-task/start-v14')
+    assert response.status_code == 200, response.text
+    run_id = response.json()['run_id']
+    work_id = response.json()['work_order_id']
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        run = s.get(V14Run, run_id)
+        assert run.input_snapshot['channel']['generation_spec'] == latest
+        assert run.input_snapshot['channel']['analysis_version']['report_id'] == 'new-report'
+        assert s.get(WorkOrder, work_id).channel_dna_version_id == 'new-dna'
+        assert s.get(OperationPackage, run.package_id).channel_dna_version_id == 'new-dna'
+        assert s.get(ChannelScheduleEntry, 'existing-schedule').channel_dna_version_id == 'old-dna'
+        s.get(ChannelDnaVersion, 'new-dna').status = 'archived'
+        s.add(ChannelDnaVersion(id='later-dna', channel_id='channel-a', version_number=3,
+            status='active', language='ar', primary_genre='后续方向', reference_summary=latest+'\n后续指导'))
+        s.commit()
+    retry = client.post('/api/v3/tasks/pending-task/start-v14')
+    assert retry.status_code == 200, retry.text
+    assert retry.json()['run_id'] == run_id
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        assert s.get(V14Run, run_id).input_snapshot['channel']['analysis_version']['dna_id'] == 'new-dna'
+        assert s.get(WorkOrder, work_id).channel_dna_version_id == 'new-dna'
 
 
 def test_legacy_operating_reference_remains_usable_for_existing_work(client,store):

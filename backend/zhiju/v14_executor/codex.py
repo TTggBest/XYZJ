@@ -52,6 +52,8 @@ class CodexClient:
             if plan.get('native_plugin'):
                 return self._generate_native_cover(stage, plan, model)
             return self._generate_cover(stage, plan, model)
+        if stage.node_type == 'community_scene' and (inputs := stage.rules.get('native_community')):
+            return self._generate_native_community(stage, inputs, model)
         creation_plan = stage.rules.get('title_creation') if stage.node_type == 'title' else None
         if not creation_plan:
             return self._generate_once(stage, model)
@@ -229,6 +231,24 @@ class CodexClient:
                     return result
                 prompt = ('保留该回合的全部插件定稿，不重选标题、方案或核心词。仅修正双画幅提示词的验收项后，'
                           '重新返回完整结果：' + '; '.join(issues))
+
+    def _generate_native_community(self, stage, inputs, model):
+        from .thumbnail_creator import PLUGIN_ID, PLUGIN_VERSION, ThumbnailCreator
+
+        prompt = (
+            'Use the installed YouTube Thumbnail Creator. Plan the requested number of independent '
+            'community image themes. Each needs a different visible action and a real plot anchor. '
+            'Do not render an image. Return the existing scene plan JSON for downstream copy and prompts.\n\n'
+            + json.dumps(inputs, ensure_ascii=False) + '\n\n' + stage.prompt)
+        with ThumbnailCreator.open(self.binary, self._model_env(), self.cancelled,
+                                   self.process_changed, time.monotonic() + self.timeout) as creator:
+            trace = {'phase': 'community_thumbnail_creator', 'plugin': PLUGIN_ID,
+                     'plugin_version': PLUGIN_VERSION, 'skills': creator.skills,
+                     'prompt': prompt, 'schema': stage.schema, 'raw': None}
+            self.phase_trace.append(trace)
+            result = creator.run(creator.new_thread(model, use_plugin=True), prompt, stage.schema, use_plugin=True)
+            trace['raw'] = deepcopy(result)
+            return result
 
     def _model_env(self):
         env = os.environ.copy()

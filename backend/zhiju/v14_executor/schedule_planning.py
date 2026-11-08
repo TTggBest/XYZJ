@@ -36,8 +36,155 @@ def encode(value):
     return json.dumps(value,ensure_ascii=False,separators=(',',':'))
 
 
+REFERENCE_ASSESSMENT_SCHEMA = array_schema({
+    'drama_id': {'type': 'string'},
+    'actual_theme': {'type': 'string', 'enum': ['primary', 'secondary', 'neither']},
+    'actual_direction': {'type': 'string'},
+    'strong_directions': {'type': 'array', 'items': {'type': 'string'}},
+    'playlist_id': {'type': 'string'},
+    'reason': {'type': 'string'},
+    'plot_evidence': {'type': 'string'},
+})
+
+
+def reference_rows(snapshot, assessments):
+    """Reserve strong candidates first, then fill remaining slots from real stock."""
+    from datetime import datetime, time, timezone
+    from zoneinfo import ZoneInfo
+    from zhiju.scheduling_rules.contract import utc
+
+    candidates = {row['id']: row for row in snapshot['candidates']}
+    playlists = {row['id'] for row in snapshot['playlists']}
+    topics = snapshot['analysis_topics']
+    slots = {row['id']: row for row in snapshot['slots']}
+    blocked = {(r['drama_id'], r['beijing_date']) for r in snapshot['batch_blocked']}
+    reference_id = snapshot['operating_reference']['dna_id']
+    used = set()
+    rows = {}
+    targets = []
+    for target in snapshot['targets']:
+        slot = slots[target['publish_slot_id']]
+        zone = ZoneInfo(slot['timezone'])
+        local = datetime.combine(date.fromisoformat(target['publish_date']), time.fromisoformat(slot['local_time']), zone)
+        instant = local.astimezone(timezone.utc)
+        if instant.astimezone(zone).replace(tzinfo=None) != local.replace(tzinfo=None):
+            raise ValueError('档位落在夏令时跳过的当地时间，请调整档位后重新规划')
+        beijing_day = instant.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
+        targets.append((instant, beijing_day, target))
+    targets.sort(key=lambda row: (row[0], row[2]['publish_slot_id']))
+
+    def ranked(target, beijing_day, instant, *, strong_only):
+        category = snapshot['slot_topics'][target['publish_slot_id']]
+        choices = []
+        for assessment in assessments:
+            drama = candidates[assessment['drama_id']]
+            drama_id = drama['id']
+            duration = drama['duration_seconds']
+            if drama_id in used or (drama_id, beijing_day) in blocked:
+                continue
+            if duration is not None and duration < 1800:
+                continue
+            if drama['expires_at'] and utc(datetime.fromisoformat(drama['expires_at'])) <= instant:
+                continue
+            actual = assessment['actual_theme']
+            strong = actual == category and bool(assessment['strong_directions'])
+            if strong_only and not strong:
+                continue
+            preference = 2 if strong else 1 if actual == category else 0
+            choices.append((preference, duration if duration is not None else -1, drama_id, assessment))
+        return max(choices, key=lambda item: item[:3]) if choices else None
+
+    for strong_only in (True, False):
+        for instant, beijing_day, target in targets:
+            key = (target['publish_date'], target['publish_slot_id'])
+            if key in rows:
+                continue
+            category = snapshot['slot_topics'][key[1]]
+            pick = ranked(target, beijing_day, instant, strong_only=strong_only)
+            if not pick:
+                if not strong_only:
+                    rows[key] = {**target, 'drama_id': None, 'reason': '符合语种、有效期和同日去重的剩余库存已用尽'}
+                continue
+            _, _, drama_id, judgment = pick
+            used.add(drama_id)
+            actual = judgment['actual_theme']
+            basis = next(iter(judgment['strong_directions']), None)
+            strong = actual == category and bool(basis)
+            direction = basis if strong else next(iter(topics[category]), None)
+            if judgment['playlist_id'] not in playlists:
+                raise ValueError('剧情评估未选择当前频道的可用播放列表')
+            rows[key] = {**target, 'drama_id': drama_id, 'reason': judgment['reason'],
+                         'plot_evidence': judgment['plot_evidence'],
+                         'pairing_reason': f"按该档的目标与可用候选编排，实际主线为{judgment['actual_direction']}。",
+                         'target_theme': category, 'target_direction': direction, 'actual_theme': actual,
+                         'actual_direction': judgment['actual_direction'], 'theme_basis': basis,
+                         'match_level': 'strong' if strong else 'fallback', 'deviates_from_target': not strong,
+                         'fallback_reason': None if strong else '该档没有剩余的强匹配候选，按真实主线补位',
+                         'playlist_id': judgment['playlist_id'], 'operating_reference_version_id': reference_id}
+    return {'rows': list(rows.values())}
+
+
+def reference_assessment(model, run, root, progress):
+    from zhiju.scheduling_rules.contract import PLOT_FIELDS, validate_result
+    snapshot = run['input_snapshot']
+    sections = snapshot['operating_reference']['sections']
+    rules = '\n'.join(v for k, v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
+    context = {key: sections[key] for key in ('topics', 'empathy', 'scheduling_playlist')}
+    playlist_ids = {p['id'] for p in snapshot['playlists']}
+    prompt = (rules + '\n本阶段只判断每部候选的实际主线，排片由系统完成。'
+              '同批由系统按频道录入时间的北京时间日期和运营语言判定。'
+              'strong_directions 是实际核心冲突真正兑现的报告原文，可为空。包装监测、支线或偶然关键词不算。'
+              '不匹配的库存也要说明真实主线并选最贴近的现有列表 ID，供缺片时补位。每部恰好一行。'
+              '\n运营参考：' + encode(context) + '\n现有列表：' + encode(snapshot['playlists']))
+    judgments = []
+    for index, batch in enumerate(assessment_batches(snapshot['candidates'])):
+        if progress:
+            progress('assessing', len(judgments), len(snapshot['candidates']), f'评估第 {index + 1} 批剧情')
+        path = root / f'reference-assessment-{index}.json'
+        result = json.loads(path.read_text()) if path.exists() else model.generate(
+            stage(prompt + '\n候选：' + encode(batch), REFERENCE_ASSESSMENT_SCHEMA), snapshot['model'])
+        plots = {d['id']: d for d in batch}
+        rows = result['rows']
+        if len(rows) != len(plots) or {r['drama_id'] for r in rows} != set(plots):
+            raise ValueError('题材评估没有逐部覆盖候选')
+        for row in rows:
+            drama = plots[row['drama_id']]
+            evidence = row['plot_evidence'].strip()
+            if (len(evidence) < 4 or not any(evidence in (drama.get(key) or '') for key in PLOT_FIELDS)
+                    or not row['actual_direction'].strip() or not row['reason'].strip()):
+                raise ValueError('题材评估缺少真实剧情原文、实际主线或判断理由')
+            if any(direction not in snapshot['analysis_topics'].get(row['actual_theme'], [])
+                   for direction in row['strong_directions']):
+                raise ValueError('强匹配方向不属于实际题材的生效参考')
+            if row['playlist_id'] not in playlist_ids:
+                raise ValueError('剧情评估指定的播放列表无效')
+        path.write_text(encode(result))
+        judgments.extend(rows)
+    if progress:
+        progress('planning', len(judgments), len(snapshot['candidates']), '按匹配强度和时长编排并核对播放列表')
+    result = reference_rows(snapshot, judgments)
+    validate_result(snapshot, result)
+    return result
+
+
+def assessment_batches(candidates):
+    batch = []
+    size = 0
+    for drama in candidates:
+        count = len(encode(drama).encode('utf-8'))
+        if batch and size + count > 100_000:
+            yield batch
+            batch, size = [], 0
+        batch.append(drama)
+        size += count
+    if batch:
+        yield batch
+
+
 def generate(model,run,root,progress=None):
     snapshot=run['input_snapshot'];model_name=snapshot['model']
+    if snapshot.get('operating_reference'):
+        return reference_assessment(model, run, root, progress)
     rules='\n'.join(v for k,v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
     guidance={k:v for k,v in snapshot['guidance'].items() if k != 'normalized_snapshot'}
     context='按本次选定排期Skill执行：\n'+rules+'\n频道与生效资料：'+encode({'channel':snapshot['channel'],'guidance':guidance})
@@ -64,12 +211,7 @@ def generate(model,run,root,progress=None):
         )
 
     # Read every complete plot once; only compact, evidenced judgments enter final planning.
-    batches=[];batch=[];size=0
-    for drama in snapshot['candidates']:
-        count=len(encode(drama).encode('utf-8'))
-        if batch and size+count>100_000:batches.append(batch);batch=[];size=0
-        batch.append(drama);size+=count
-    if batch:batches.append(batch)
+    batches = list(assessment_batches(snapshot['candidates']))
     assessments=[];processed=0
     for index,batch in enumerate(batches):
         if progress:progress('assessing',processed,len(snapshot['candidates']),f'评估第 {index+1} / {len(batches)} 批剧情')

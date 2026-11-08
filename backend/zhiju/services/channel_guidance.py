@@ -7,10 +7,32 @@ from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.identity import ConflictError
 
 
+def active_dna(session, channel_id):
+    return session.scalar(select(ChannelDnaVersion).where(
+        ChannelDnaVersion.channel_id == channel_id,
+        ChannelDnaVersion.status == 'active',
+    ).order_by(ChannelDnaVersion.version_number.desc()).limit(1))
+
+
+def applied_reference(session, dna):
+    """Return only the applied analysis tied to this active DNA, without legacy inference."""
+    if not dna or dna.status != 'active' or not dna.analysis_report_id:
+        return None
+    run = session.scalar(select(ChannelAnalysisRun).where(
+        ChannelAnalysisRun.channel_id == dna.channel_id, ChannelAnalysisRun.dna_id == dna.id,
+        ChannelAnalysisRun.report_id == dna.analysis_report_id, ChannelAnalysisRun.status == 'applied'))
+    reference = (run.result or {}).get('operating_reference') if run else None
+    if not reference:
+        return None
+    report = require_tenant_entity(session, ChannelAnalysisReport, run.report_id)
+    return {'channel_id': dna.channel_id, 'run_id': run.id, 'report_id': report.id,
+            'dna_id': dna.id, 'version': report.version_number, 'mode': run.mode,
+            'skill_version': run.input_snapshot.get('operating_reference_skill'),
+            'sections': deepcopy(reference)}
+
+
 def resolve(session, channel_id, dna_id=None, *, use_plan_snapshot=True):
-    dna = require_tenant_entity(session, ChannelDnaVersion, dna_id) if dna_id else session.scalar(
-        select(ChannelDnaVersion).where(ChannelDnaVersion.channel_id==channel_id,
-        ChannelDnaVersion.status=='active').order_by(ChannelDnaVersion.version_number.desc()).limit(1))
+    dna = require_tenant_entity(session, ChannelDnaVersion, dna_id) if dna_id else active_dna(session, channel_id)
     setting=session.scalar(select(V14Setting))
     material=(setting.payload.get('channel_inputs',{}).get(channel_id,{}) if setting else {})
     if dna:

@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 
 SEARCH_STATUSES = {"completed", "partial", "failed"}
@@ -117,10 +118,10 @@ def search_dates(now: datetime | None = None) -> dict[str, str]:
     }
 
 
-def collect_agent_reach_evidence(item: dict[str, Any], binary_path: str | None = None) -> dict[str, Any]:
+def collect_agent_reach_evidence(item: dict[str, Any], binary_path: str | None = None, *, query: str | None = None) -> dict[str, Any]:
     """Use Agent-Reach's documented YouTube backend; never download media."""
     binary = Path(binary_path) if binary_path else Path(shutil.which('yt-dlp') or '/Users/ttggmac-mini/.agent-reach/venv/bin/yt-dlp')
-    query = str(item.get('drama_name') or '').strip()
+    query = query if query is not None else str(item.get('drama_name') or '').strip()
     evidence = {'provider': 'agent-reach', 'backend': 'yt-dlp', 'query': query,
                 'status': 'failed', 'videos': [], 'reason': ''}
     base = [str(binary), '--ignore-config', '--skip-download', '--dump-json',
@@ -180,6 +181,138 @@ def collect_agent_reach_evidence(item: dict[str, Any], binary_path: str | None =
         })
     evidence['status'] = 'completed' if all(v['published_at'] for v in evidence['videos']) else 'partial'
     return evidence
+
+
+def collect_revision6_evidence(item):
+    title = item['drama_name']
+    pattern = re.split(r'[、，,；;]', item.get('plot_pattern') or '')[0].strip()
+    language = item.get('market_language_name') or item['language']
+    routes = (
+        ('same_drama_target_language', f'{title} {language}'),
+        ('same_drama_other_languages', title),
+        ('comparable', ' '.join(part for part in (item['direction'], pattern, language) if part)),
+    )
+    searches, videos = [], {}
+    for route, query in routes:
+        collected = collect_agent_reach_evidence(item, query=query)
+        searches.append({'route': route, 'query': query, 'source': 'YouTube',
+                         'status': collected['status'], 'reason': collected['reason'],
+                         'results': [v['video_url'] for v in collected['videos']]})
+        for video in collected['videos']:
+            videos.setdefault(video['video_url'], video)
+    # Keep the mainland results separate from YouTube; only retrieved pages can be cited.
+    mainland_query = f'{title} {pattern} 短剧 site:douyin.com OR site:hongguo.com'
+    mainland, reason = _mainland_search(mainland_query)
+    searches.append({'route': 'mainland', 'query': mainland_query, 'source': 'Exa',
+                     'status': 'completed' if mainland else 'failed', 'reason': reason,
+                     'results': [row['video_url'] for row in mainland]})
+    videos.update((row['video_url'], row) for row in mainland)
+    status = 'failed' if not videos else ('completed' if all(x['status'] == 'completed' for x in searches) else 'partial')
+    return {'provider': 'agent-reach', 'status': status, 'searches': searches, 'videos': list(videos.values())}
+
+
+def _mainland_search(query):
+    command = shutil.which('mcporter')
+    if not command:
+        return [], '本机缺少 Agent-Reach 网页搜索入口 mcporter'
+    try:
+        result = subprocess.run([command, 'call', 'exa.web_search_exa', f'query={query}',
+                                 'numResults=8', '--output', 'json'],
+                                capture_output=True, text=True, timeout=30, check=True)
+        response = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return [], f'大陆页面检索失败：{type(exc).__name__}'
+    if isinstance(response, dict):
+        content = response.get('content', [])
+        rows = response.get('results', [])
+    elif isinstance(response, list):
+        content = response
+        rows = []
+    else:
+        content = [{'text': response}] if isinstance(response, str) else []
+        rows = []
+    for block in content:
+        if isinstance(block, dict):
+            rows += [{'title': title.strip(), 'url': url.strip()} for title, url in
+                     re.findall(r'(?m)^Title:[ \t]*(.+)\r?\nURL:[ \t]*(https?://\S+)', block.get('text', ''))]
+    pages = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        url, title = row.get('url', ''), row.get('title', '')
+        host = urlsplit(url).hostname or ''
+        site = next((domain for domain in ('douyin.com', 'hongguo.com')
+                     if host == domain or host.endswith('.' + domain)), '')
+        if site and title:
+            pages.append({'video_url': url, 'video_title': title, 'channel_name': site,
+                          'views': None, 'published_at': None})
+    return pages, '' if pages else '检索未返回可对账的抖音或红果页面'
+
+
+def _youtube_id(url):
+    match = YOUTUBE_URL.fullmatch(url)
+    if not match:
+        return ''
+    parsed = urlsplit(url)
+    return (parsed.path.strip('/') if parsed.hostname in ('youtu.be', 'www.youtu.be')
+            else (parse_qs(parsed.query).get('v') or [''])[0])
+
+
+def reconcile_revision6_evidence(result, plot):
+    """Discard unsupported citations before the archive's own content validation."""
+    evidence = result.get('external_evidence') or {}
+    market = result.get('market_payload')
+    if not isinstance(market, dict):
+        return ['缺少市场检索结果']
+    records = evidence.get('videos', [])
+    by_url_title = {(v['video_url'], v['video_title']): v for v in records}
+    by_video_id = {video_id: v for v in records if (video_id := _youtube_id(v['video_url']))}
+    videos, eligible, removed = [], {}, []
+    window = search_dates()
+    for row in market.get('market_videos', []):
+        url = row['video_url']
+        youtube_id = _youtube_id(url)
+        source = by_video_id.get(youtube_id) if youtube_id else by_url_title.get((url, row['video_title']))
+        if not source or not source['video_title']:
+            removed.append(row['market_video_id'])
+            continue
+        row.update({key: source.get(key) for key in ('video_url', 'video_title', 'views', 'published_at')})
+        if source.get('channel_name'):
+            row['channel_name'] = source['channel_name']
+        if not youtube_id:
+            row['source_type'] = 'external_mainland'
+        elif row['source_type'] == 'external_mainland':
+            row['source_type'] = 'external_youtube'
+        date = row['published_at']
+        row['evidence_freshness'] = ('none' if not date else 'recent_180d' if date >= window['recent_180d_start']
+                                     else 'extended_365d' if date >= window['extended_365d_start'] else 'historical')
+        videos.append(row)
+        if row['eligible_for_angles'] and row['fact_verification']['status'] == 'passed':
+            eligible[row['market_video_id']] = row['evidence_freshness']
+    market['market_videos'] = videos
+    plot_text = '\n'.join(str(value) for value in plot['results'][0]['plot_fields'].values())
+    issues = []
+    for field in ('angle_candidates', 'final_angles'):
+        for row in market.get(field, []):
+            refs = [ref for ref in row['market_evidence_refs'] if ref in eligible]
+            if row['source_type'] == 'story_derived':
+                refs = []
+            if not refs:
+                quote = row['plot_evidence'].strip().strip('"“”「」')
+                if len(quote) < 6 or quote not in plot_text:
+                    issues.append('缺少市场依据的角度必须提供剧库原文引句')
+                row.update(source_type='story_derived', market_confidence='story_only', evidence_freshness='none')
+            if refs:
+                freshness = ('none', 'historical', 'extended_365d', 'recent_180d')
+                row['evidence_freshness'] = max((eligible[ref] for ref in refs), key=freshness.index)
+            row['market_evidence_refs'] = refs
+    count = sum(bool(row['market_evidence_refs']) for row in market.get('angle_candidates', []))
+    market['verified_market_angle_count'] = count
+    market['search_status'] = evidence.get('status', 'failed') if records else 'failed'
+    if count < 3:
+        market['fallback'] = {'used': True, 'reason': '可对账市场角度不足，依据剧库剧情补足。'}
+    result['market_evidence_audit'] = {'discarded_market_video_ids': removed, 'verified_candidate_count': count}
+    return list(dict.fromkeys(issues))
 
 
 def build_market_packaging_prompt(item: dict[str, Any], plot_payload: dict[str, Any], rules: str,

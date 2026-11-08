@@ -1,14 +1,17 @@
 from copy import deepcopy
 from dataclasses import dataclass
 import json
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from . import canonical as c
 from .channel import channel_theme_contract, title_channel_context
-from .market import MARKET_PACKAGING_SCHEMA, build_market_packaging_prompt, market_context_for_title, validate_market_packaging_evidence
+from .market import MARKET_PACKAGING_SCHEMA, build_market_packaging_prompt, market_context_for_title, reconcile_revision6_evidence, validate_market_packaging_evidence
 from .prompts import build_prompt, STAGE_DIRECTIVES
 from .rules import using_rules
 from .preflight import stage_preflight_issues
+from zhiju.workflow_bundles import is_v20_revision_6
 
 STAGES = {"search": "xy-find", "title": "xy-title", "cover": "xy-cover", "description": "xy-place", "community": "xy-post"}
 PLOT_FIELDS = {"内容概述": "content_summary", "剧情档案": "plot_archive", "剧情套路": "plot_pattern", "核心人设": "core_personas"}
@@ -76,8 +79,13 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     if bundle:
         from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot
         clean = {k: v for k, v in envelope.items() if k != 'rules_snapshot'}
+        data = envelope['input_snapshot']
+        if node_type == 'description' and data.get('schedule_assignment'):
+            channel = data['channel']
+            playlists = [{**p, 'url': c.public_playlist_url(p['url'])} for p in channel['playlists']]
+            clean['input_snapshot'] = {**data, 'channel': {**channel, 'playlists': playlists}}
         prepared = invoke_bundle(archive_from_snapshot(bundle), 'prepare', {'envelope': clean, 'node': node_type})
-        return StageInput(**prepared, skill_bundle=bundle)
+        return _wire_stage(StageInput(**prepared, skill_bundle=bundle), data)
     data = deepcopy(envelope["input_snapshot"])
     rules = deepcopy(envelope["rules_snapshot"])
     channel = data["channel"]
@@ -137,7 +145,64 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
         with using_rules(rules):
             model_context = {**context, "visual_history": context["visual_history"][-32:]}
             prompt = build_prompt(STAGES[node_type], rules["prompts"][node_type], model_context, feedback, rules["directives"][STAGES[node_type]])
-    return StageInput(node_type, prompt, schema, item, context, rules)
+    return _wire_stage(StageInput(node_type, prompt, schema, item, context, rules), data)
+
+
+def _wire_stage(stage, data):
+    channel = data['channel']
+    assignment = data.get('schedule_assignment')
+    if stage.node_type == 'description' and assignment:
+        playlist = {**assignment['playlist'], 'url': c.public_playlist_url(assignment['playlist']['url'])}
+        stage.context['scheduled_playlist'] = playlist
+        stage.prompt += ('\n\nUse this schedule-selected playlist for the result playlist/name, URL, '
+                         'and as the first playlist link in the public description: '
+                         + json.dumps(playlist, ensure_ascii=False))
+    if not is_v20_revision_6(stage.skill_bundle):
+        return stage
+    if stage.node_type == 'search':
+        stage.item['market_language_name'] = channel.get('market_language_name') or channel['language']
+        stage.prompt += ('\nFor every market or story-derived angle, copy one verbatim library excerpt '
+                         'into plot_evidence. Treat the supplied retrieval log as the complete record. '
+                         'Never claim an additional external search or cite a missing result.')
+    reference = channel.get('operating_reference')
+    fields = {'title': ('empathy', 'reusable_patterns', 'title'), 'cover': ('cover',)}.get(stage.node_type)
+    if reference and fields:
+        parts = {key: reference['sections'][key] for key in fields}
+        guide = ('\n\nApplied channel guidance. Use only applicable advice, retain evidence status, '
+                 'and ground all story claims in the library: ' + json.dumps(parts, ensure_ascii=False))
+        stage.prompt += guide
+        if stage.node_type == 'title':
+            stage.rules['title_creation']['prompt'] += guide
+    if stage.node_type == 'community_scene' and data['community_count']:
+        options = channel.get('community_creative', {})
+        stage.rules['native_community'] = {
+            'drama_name': data['drama_name'], 'language': channel['language'],
+            'channel': data['channel_name'], 'platform': 'YouTube Community', 'aspect_ratio': '1:1',
+            'plot_summary': data['drama']['content_summary'], 'plot_points': data['drama']['plot_archive'],
+            'characters': data['drama']['core_personas'], 'emotion': options.get('emotion') or channel['direction'],
+            'requires_overlay': options.get('requires_overlay', True),
+            'overlay_word_limit': options.get('overlay_word_limit', 'short, mobile-readable'),
+            'requirements': options.get('requirements', ''), 'count': data['community_count'],
+        }
+    return stage
+
+
+def _scheduled_playlist_issues(stage, result):
+    playlist = stage.context.get('scheduled_playlist')
+    if not playlist:
+        return []
+    output = c.first_result(result)
+    links = re.findall(r"https?://[^\s<>)]+", c.public_playlist_urls_in_text(output.get('description', '')))
+    ids = []
+    for link in links:
+        url = urlsplit(link)
+        if url.hostname in {'youtube.com', 'www.youtube.com'}:
+            ids.extend(parse_qs(url.query).get('list', []))
+    if (output.get('playlist') != playlist['name']
+            or c.public_playlist_url(output.get('url')) != c.public_playlist_url(playlist['url'])
+            or not ids or ids[0] != playlist['youtube_playlist_id']):
+        return ['说明主播放列表必须沿用排期指定的列表']
+    return []
 
 
 def validate_result(stage: StageInput, result: dict, history: list[dict] | None = None) -> list[str]:
@@ -146,10 +211,21 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
         from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot
         data = asdict(stage)
         data.pop('skill_bundle')
+        issues = (reconcile_revision6_evidence(result, stage.context['plot_payload'])
+                  if stage.node_type == 'search' and is_v20_revision_6(stage.skill_bundle) else [])
+        if issues:
+            return issues
         checked = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'validate', {'stage': data, 'result': result})
         result.clear()
         result.update(checked['result'])
-        return checked['issues']
+        issues = checked['issues']
+        if issues:
+            return issues
+        if stage.node_type == 'community_scene' and is_v20_revision_6(stage.skill_bundle):
+            actions = [' '.join(row['main_action'].casefold().split()) for row in result['plans']]
+            if len(set(actions)) != len(actions):
+                return ['社群场景各组须使用不同的主要动作']
+        return _scheduled_playlist_issues(stage, result)
     with using_rules(stage.rules):
         if stage.node_type == "search":
             if result.get("plot_payload") != stage.context["plot_payload"]:
@@ -176,4 +252,4 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
             c.normalize_cover_prompt_contract(result, stage.context["cover_rule_contract"], stage.context)
         elif stage.node_type == "description":
             c.normalize_place_fixed_footer(result, stage.context, stage.item)
-        return c.validate_payload(STAGES[stage.node_type], result, stage.item, stage.context, validate_schema=False)
+        return c.validate_payload(STAGES[stage.node_type], result, stage.item, stage.context, validate_schema=False) + _scheduled_playlist_issues(stage, result)

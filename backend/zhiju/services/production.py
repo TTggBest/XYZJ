@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from zhiju.models import (
     Channel,
-    ChannelDnaVersion,
     ChannelPlaylist,
     ChannelPublishSlot,
     ChannelScheduleEntry,
@@ -22,6 +21,7 @@ from zhiju.models import (
 )
 from zhiju.schemas.production import TaskCreate
 from zhiju.services.channel import NotFoundError
+from zhiju.services.channel_guidance import active_dna
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
 
@@ -201,17 +201,8 @@ def dispatch_task(session: Session, task_id: str, *, commit: bool = True) -> dic
     if schedule and schedule.source_type == "system" and task.community_count == 0:
         from zhiju.services.community_requirements import initialize_schedule_community
         task.community_count = initialize_schedule_community(session, schedule)
-    dna_version_id = schedule.channel_dna_version_id if schedule else None
-    if dna_version_id is None:
-        active_dna = session.scalar(
-            select(ChannelDnaVersion)
-            .where(
-                ChannelDnaVersion.channel_id == task.channel_id,
-                ChannelDnaVersion.status == "active",
-            )
-            .order_by(ChannelDnaVersion.version_number.desc())
-        )
-        dna_version_id = active_dna.id if active_dna else None
+    current_dna = active_dna(session, task.channel_id)
+    dna_version_id = current_dna.id if current_dna else (schedule.channel_dna_version_id if schedule else None)
     work_order = WorkOrder(
         task_id=task.id,
         batch_id=task.batch_id,
