@@ -951,6 +951,7 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .skill-change-summary { max-width:400px; white-space:normal; line-height:1.6; }
 .skill-default-badge { display:inline-flex; align-items:center; gap:5px; color:#087d57; font-size:13px; white-space:nowrap; }
 .skill-default-badge svg { width:17px;height:17px; }
+.workflow-skill-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .skill-source-preview { max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; background:#f5f8f6; border-radius:8px; padding:18px; line-height:1.6; font-size:13px; }
 @media(max-width:900px) { .skill-catalog { grid-template-columns:1fr; } .skill-category-nav { display:flex; overflow:auto; gap:8px; border-right:0; border-bottom:1px solid #dce5e1; } .skill-category { min-width:180px; margin:0; } .skill-category-content {padding:16px;} .skill-category-head {flex-wrap:wrap;} }
 

@@ -2020,7 +2020,7 @@
     if (production) state.workflowRegistry = {versions: production.versions, default_id: production.default_id};
     const admin = auth.current()?.platform_role === 'super_admin';
     const sidebar = categories.map(c => `<button class="skill-category ${c.id === current?.id ? 'is-active' : ''}" data-action="skill-category" data-id="${esc(c.id)}">${icon(c.id === 'package-production' ? 'package' : c.id === 'channel-analysis' ? 'chart-no-axes-combined' : 'folder')}<span><strong>${esc(c.name)}</strong><small>${c.modules ? c.modules.length + " 项规则" : c.versions.length + " 个版本"}</small></span>${icon('chevron-right')}</button>`).join('');
-    const rows = (current?.versions || []).map(v => `<tr><td><strong>${esc(v.label)}</strong><span class="cell-sub">修订 ${v.revision}${v.id === current.default_id ? ' · 当前默认' : ''}</span></td><td>${tag(v.status)}</td><td class="skill-change-summary">${esc(v.change_summary || '—')}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="catalog-files" data-id="${esc(v.id)}">查看文件</button><a class="button button-secondary button-small" href="/api/v3/skill-categories/${encodeURIComponent(current.id)}/versions/${encodeURIComponent(v.id)}/download" download>下载</a>${v.status === 'published' ? v.id === current.default_id ? '<span class="skill-default-badge">'+icon('circle-check')+'当前默认</span>' : `<button class="button button-secondary button-small" data-action="catalog-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-primary button-small" data-action="catalog-publish" data-id="${esc(v.id)}">发布版本</button>` : ''}</div></td></tr>`);
+    const rows = (current?.versions || []).map(v => `<tr><td><strong>${esc(v.label)}</strong><span class="cell-sub">修订 ${v.revision}${v.id === current.default_id ? ' · 当前默认' : ''}</span></td><td>${tag(v.status)}</td><td class="skill-change-summary">${esc(v.change_summary || '—')}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="catalog-files" data-id="${esc(v.id)}">${current.id === 'package-production' ? '查看 Skills / 差异' : '查看文件'}</button><a class="button button-secondary button-small" href="/api/v3/skill-categories/${encodeURIComponent(current.id)}/versions/${encodeURIComponent(v.id)}/download" download>下载</a>${v.status === 'published' ? v.id === current.default_id ? '<span class="skill-default-badge">'+icon('circle-check')+'当前默认</span>' : `<button class="button button-secondary button-small" data-action="catalog-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-primary button-small" data-action="catalog-publish" data-id="${esc(v.id)}">发布版本</button>` : ''}</div></td></tr>`);
     let content = current ? `<header class="skill-category-head"><div><h3>${esc(current.name)}</h3><p>${esc(current.description)}${!current.execution ? ' · 尚未绑定业务执行入口' : ''}</p></div>${admin ? `<button class="button button-primary" data-action="catalog-add-version">${icon('plus')} 添加版本</button>` : ''}</header><p class="skill-version-hint">指定默认版本后，仅之后新建的任务使用该版本；已有任务与成品保留原版本。</p>${current.id === 'channel-analysis' ? '<p class="skill-version-hint">已收录完整 xy-yt-report-v2。频道分析执行链路仍待原流程一致性验收。</p>' : ''}${rows.length ? table(['版本', '状态', '变更说明', '操作'], rows, 780) : empty('尚无版本', '上传包含 SKILL.md 的完整 ZIP，发布后即可指定默认版本。')}` : '';
     if (current?.modules) {
       const moduleRows = current.modules.map(m => `<tr><td><strong>${esc(m.module_name)}</strong><span class="cell-sub mono">${esc(m.skill_code)}</span></td><td>${esc(m.output_description)}</td><td>${m.current_version_number ? 'v' + m.current_version_number : '—'}</td><td>${m.readiness === 'ready' ? tag('ready') : '<span class="tag">待配置</span>'}</td><td><button class="button button-secondary button-small" data-action="initialization-skill-detail" data-id="${esc(m.skill_code)}">管理规则 / 版本</button></td></tr>`);
@@ -2063,14 +2063,31 @@
     const registry = await api('/workflow-versions');
     state.workflowRegistry = registry;
     const admin = auth.current()?.platform_role === 'super_admin';
-    const rows = registry.versions.map(v => `<tr><td>${esc(workflowLabel(v))}${v.id === registry.default_id ? ' · 默认' : ''}</td><td>${tag(v.status)}</td><td>${esc(v.change_summary)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="workflow-files" data-id="${esc(v.id)}">查看文件 / 差异</button><a class="button button-secondary button-small" href="/api/v3/workflow-versions/${encodeURIComponent(v.id)}/download" download>下载整套 Skills</a>${v.status === 'published' ? `<button class="button button-secondary button-small" data-action="workflow-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-secondary button-small" data-action="workflow-replace" data-id="${esc(v.id)}">替换草稿 ZIP</button><button class="button button-primary button-small" data-action="workflow-publish" data-id="${esc(v.id)}">发布</button>` : ''}</div></td></tr>`);
+    const rows = registry.versions.map(v => `<tr><td>${esc(workflowLabel(v))}${v.id === registry.default_id ? ' · 默认' : ''}</td><td>${tag(v.status)}</td><td>${esc(v.change_summary)}</td><td><div class="row-actions"><button class="button button-secondary button-small" data-action="workflow-files" data-id="${esc(v.id)}">查看 Skills / 差异</button><a class="button button-secondary button-small" href="/api/v3/workflow-versions/${encodeURIComponent(v.id)}/download" download>下载整套 Skills</a>${v.status === 'published' ? `<button class="button button-secondary button-small" data-action="workflow-default" data-id="${esc(v.id)}">设为默认</button>` : admin ? `<button class="button button-secondary button-small" data-action="workflow-replace" data-id="${esc(v.id)}">替换草稿 ZIP</button><button class="button button-primary button-small" data-action="workflow-publish" data-id="${esc(v.id)}">发布</button>` : ''}</div></td></tr>`);
     return `<header class="settings-content-head"><div><h2>运营包流程版本</h2><p>每版是一整套 Skills 文件。发布不自动切换默认；已启动任务与已有成品不变。修复已发布版本请上传同名的新修订。</p></div></header>${table(['流程版本', '状态', '变更说明', '操作'], rows, 850)}${admin ? `<form class="form-grid section-body" id="workflowUploadForm"><div class="field"><label>版本名称（例如 V14 / V15）</label><input class="input" name="label" required maxlength="80"></div><div class="field"><label>完整 Skills ZIP</label><input class="input" type="file" name="file" accept=".zip" required></div><div class="field field-wide"><label>变更说明</label><textarea class="textarea" name="change_summary" required></textarea></div><p class="settings-muted field-wide">从现有版本下载整套文件，修改后整体上传。保留根目录 zhiju-workflow.json 及智矩接入入口；提示词、规则、校验脚本均从包内加载。</p><div class="form-actions"><button class="button button-primary" type="submit">上传为新草稿 / 修订</button></div></form>` : ''}`;
   }
-  async function workflowFiles(id, path = '') {
-    const compare = state.workflowCompareId || '';
-    const data = await api(`/workflow-versions/${encodeURIComponent(id)}${query({path: path || null, compare_to: compare || null})}`);
+  async function workflowSkills(id, skill = '', compare = '') {
+    const generation = ++drawerGeneration;
+    const base = `/skill-categories/package-production/versions/${encodeURIComponent(id)}`;
+    const review = await api(base + query({skill: skill || null, compare_to: compare || null}));
+    if (generation !== drawerGeneration) return;
     const versions = state.workflowRegistry?.versions || [];
-    openDrawer('完整 Skills 文件与版本差异', `<div class="field"><label>对照版本</label><select class="select" data-workflow-compare data-id="${esc(id)}"><option value="">不对照</option>${versions.filter(v => v.id !== id).map(v => `<option value="${esc(v.id)}" ${v.id === compare ? 'selected' : ''}>${esc(workflowLabel(v))}</option>`).join('')}</select></div><div class="field"><label>版本文件（${data.files.length}）</label><select class="select" data-workflow-file data-id="${esc(id)}"><option value="">选择文件</option>${data.files.map(f => `<option value="${esc(f)}" ${f === path ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></div>${path ? `<h3>${esc(path)}</h3><pre class="code-preview">${esc(compare ? data.diff || '该文件无差异' : data.content)}</pre>` : '<p>选择文件查看 Skill 正文、提示词、JSON 或脚本；下载可取得完整文件包。</p>'}`);
+    const selectedVersion = versions.find(v => v.id === id);
+    const options = versions.filter(v => v.id !== id).map(v =>
+      `<option value="${esc(v.id)}" ${v.id === compare ? 'selected' : ''}>${esc(workflowLabel(v))}</option>`).join('');
+    const buttons = review.skills.map(name => {
+      const selected = name === review.skill;
+      return `<button type="button" class="button ${selected ? 'button-primary' : 'button-secondary'} button-small" aria-pressed="${selected}" data-action="workflow-skill" data-id="${esc(id)}" data-skill="${esc(name)}" data-compare="${esc(compare)}">${esc(name)}</button>`;
+    }).join('');
+    const comparison = compare ? `<section class="detail-block"><h3>Skill 正文差异</h3>${review.compared_skill
+      ? `<p>对照 Skill：${esc(review.compared_skill)}</p>${review.diff ? `<pre class="skill-source-preview">${esc(review.diff)}</pre>` : '<p>两版正文相同。</p>'}`
+      : '<p>对照版本中没有对应的 Skill。</p>'}</section>` : '';
+    const comparisonOnly = review.comparison_only.length
+      ? `<p class="settings-muted">仅对照版本包含：${esc(review.comparison_only.join('、'))}</p>` : '';
+    openDrawer(selectedVersion ? `${workflowLabel(selectedVersion)} · Skills` : '运营包 Skills', `
+      <div class="field"><label for="workflowSkillCompare">对照版本</label><select id="workflowSkillCompare" class="select" data-workflow-compare data-id="${esc(id)}" data-skill="${esc(review.skill)}"><option value="">不对照</option>${options}</select></div>
+      <section class="detail-block"><h3>本版 Skills（${review.skills.length}）</h3><div class="workflow-skill-list">${buttons}</div>${comparisonOnly}</section>
+      <section class="detail-block"><h3>${esc(review.skill)} · 正文</h3><pre class="skill-source-preview">${esc(review.content)}</pre></section>${comparison}`);
   }
   function settingsLayout(body) {
     const tabs = SETTINGS_TABS.map(([key, name, iconName]) => `<button class="settings-tab ${state.settingsTab === key ? "is-active" : ""}" data-settings-tab="${key}">${icon(iconName)}<span>${name}</span></button>`).join("");
@@ -2744,7 +2761,8 @@
       }
       else if (action === "work-detail") await workDetail(id);
       else if (action === 'workflow-settings') { state.skillCategoryId = 'package-production'; await loadView('skills'); }
-      else if (action === 'workflow-files') await workflowFiles(id);
+      else if (action === 'workflow-files') await workflowSkills(id);
+      else if (action === 'workflow-skill') await workflowSkills(id, button.dataset.skill, button.dataset.compare);
       else if (action === 'workflow-default') {
         await api('/workflow-versions/default', {method: 'POST', body: JSON.stringify({workflow_version_id: id})});
         state.workflowVersionId = id; notify('默认生产版本已更新；已有任务不变'); await loadView('settings');
@@ -3080,7 +3098,7 @@
         if (module?.skill_id) await skillDetail(module.skill_id);
       }
       else if (action === 'skill-category') { state.skillCategoryId = id; await showSkills(); }
-      else if (action === 'catalog-files') { if (state.skillCategoryId === 'package-production') await workflowFiles(id); else await catalogFiles(id); }
+      else if (action === 'catalog-files') { if (state.skillCategoryId === 'package-production') await workflowSkills(id); else await catalogFiles(id); }
       else if (action === 'catalog-add-category') {
         openModal('新增 Skill 分类', `<form id="skillCategoryCreateForm" class="form-grid"><div class="field field-wide"><label>分类名称</label><input class="input" name="name" maxlength="80" required></div><div class="field field-wide"><label>用途说明</label><textarea class="textarea" name="description" maxlength="2000"></textarea></div><div class="form-actions"><button class="button button-primary" type="submit">创建分类</button></div></form>`);
       }
@@ -3304,8 +3322,11 @@
     }
     if (event.target.id === 'catalogFileSelect') { await catalogFiles(state.catalogFileVersionId, event.target.value); return; }
     if (event.target.matches('[data-workflow-selector]')) state.workflowVersionId = event.target.value;
-    if (event.target.matches('[data-workflow-file]')) await workflowFiles(event.target.dataset.id, event.target.value);
-    if (event.target.matches('[data-workflow-compare]')) { state.workflowCompareId = event.target.value; await workflowFiles(event.target.dataset.id); }
+    if (event.target.matches('[data-workflow-compare]')) {
+      try { await workflowSkills(event.target.dataset.id, event.target.dataset.skill, event.target.value); }
+      catch (error) { notify(error.message, true); }
+      return;
+    }
     if (event.target.id === "scheduleTaskSelectAll") {
       document.querySelectorAll(".schedule-task-check").forEach(item => { if (!item.disabled) item.checked = event.target.checked; });
       updateScheduleSelectionCount();

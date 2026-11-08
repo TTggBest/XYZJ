@@ -45,15 +45,11 @@ def download(category_id:str,version_id:str,s:Session=Depends(get_tenant_db),p=D
     return Response(invoke(service.archive,s,category_id,version_id),media_type='application/zip',headers={'Content-Disposition':'attachment; filename="skills.zip"'})
 
 @router.get('/{category_id}/versions/{version_id}')
-def detail(category_id:str,version_id:str,path:str|None=None,s:Session=Depends(get_tenant_db),p=Depends(operator)):
-    data=invoke(service.archive,s,category_id,version_id)
+def detail(category_id:str,version_id:str,path:str|None=None,skill:str|None=None,compare_to:str|None=None,
+           s:Session=Depends(get_tenant_db),p=Depends(operator)):
     if category_id==service.PRODUCTION:
-        from zhiju.workflow_bundles import inspect_bundle,read_file
-        result=inspect_bundle(data)
-        if path:
-            if path not in result['files']:raise HTTPException(422,'文件不在此版本中')
-            result['content']=invoke(read_file,data,path)
-        return result
+        return invoke(service.review_production_skills,s,version_id,skill,compare_to)
+    data=invoke(service.archive,s,category_id,version_id)
     content=invoke(service.files,data)
     if path and path not in content:raise HTTPException(422,'文件不在此版本中')
     return {'files':sorted(content),'content':content.get(path) if path else None}

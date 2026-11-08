@@ -164,3 +164,45 @@ def test_initialization_syncs_nine_modules_without_inventing_versions(client,sto
     assert len(group['modules'])==9
     assert group['versions']==[]
     assert client.post('/api/v3/skill-categories/channel-initialization/versions',data={'label':'bad'},files={'file':('skills.zip',skill_catalog.BUNDLE.read_bytes())}).status_code==409
+
+
+def test_production_review_lists_manifest_skills_and_compares_their_bodies(client):
+    import json
+    from test_workflow_bundles import archive
+
+    admin(client)
+    url = '/api/v3/skill-categories/package-production/versions'
+
+    def upload(label, bodies):
+        data = archive({
+            'zhiju-workflow.json': json.dumps({'label': label, 'entrypoint': 'bridge.py', 'skills': list(bodies)}),
+            'bridge.py': '# internal script',
+            'tests/test_bridge.py': '# internal test',
+            **{f'{name}/SKILL.md': body for name, body in bodies.items()},
+        })
+        response = client.post(url, data={'label': label}, files={'file': ('skills.zip', data)})
+        return response.raise_for_status().json()['id'], data
+
+    v19, _ = upload('V19', {'xy-cover-v19': 'cross-major rule\n', 'xy-cover-scene-v19': 'retired rule\n'})
+    previous, _ = upload('V20', {'xy-cover-v20': 'previous rule\n'})
+    current, current_zip = upload('V20', {'xy-title-v20': 'title rule\n', 'xy-cover-v20': 'current rule\n'})
+    detail = client.get(f'{url}/{current}').raise_for_status().json()
+    assert detail['skills'] == ['xy-title-v20', 'xy-cover-v20']
+    assert detail['skill'] == 'xy-title-v20' and detail['content'] == 'title rule\n'
+    assert 'files' not in detail
+    assert client.get(f'{url}/{current}', params={'skill': 'bridge.py'}).status_code == 422
+    assert client.get(f'{url}/{current}/download').content == current_zip
+
+    for other, name, before, only in (
+        (previous, 'xy-cover-v20', 'previous rule', []),
+        (v19, 'xy-cover-v19', 'cross-major rule', ['xy-cover-scene-v19']),
+    ):
+        review = client.get(f'{url}/{current}', params={'skill': 'xy-cover-v20', 'compare_to': other}).raise_for_status().json()
+        assert review['skills'] == detail['skills']
+        assert review['content'] == 'current rule\n'
+        assert review['compared_skill'] == name
+        assert review['comparison_only'] == only
+        assert f'-{before}\n+current rule' in review['diff']
+    missing = client.get(f'{url}/{current}', params={'skill': 'xy-title-v20', 'compare_to': v19}).raise_for_status().json()
+    assert missing['compared_skill'] is None and missing['diff'] is None
+    assert missing['content'] == 'title rule\n'

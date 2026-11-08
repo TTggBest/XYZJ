@@ -1,6 +1,8 @@
 """One catalog; production versions retain their existing IDs and storage."""
+from difflib import unified_diff
 from io import BytesIO
 from pathlib import Path, PurePosixPath
+import re
 from zipfile import ZipFile, BadZipFile
 from sqlalchemy import select, func
 from zhiju.models import SkillCategory, SkillBundleVersion
@@ -8,6 +10,7 @@ from zhiju.models.v14 import V14Setting
 from zhiju.services import workflow_versions
 from zhiju.services.identity import ConflictError
 from zhiju.tenant_repository import require_tenant_entity
+from zhiju.workflow_bundles import inspect_bundle, read_file
 
 ANALYSIS = 'channel-analysis'
 PRODUCTION = 'package-production'
@@ -136,6 +139,36 @@ def archive(s,key,version_id):
     row=require_tenant_entity(s,SkillBundleVersion,version_id)
     if row.category_id!=key:raise ConflictError('版本不属于此分类')
     return row.archive
+
+
+def review_production_skills(session, version_id, skill=None, compare_to=None):
+    data = archive(session, PRODUCTION, version_id)
+    skills = inspect_bundle(data)['skills']
+    selected = skill if skill is not None else skills[0]
+    if selected not in skills:
+        raise ValueError('Skill 不在所选运营包版本中')
+    content = read_file(data, f'{selected}/SKILL.md')
+    result = {'skills': skills, 'skill': selected, 'content': content,
+              'compared_skill': None, 'diff': None, 'comparison_only': []}
+    if not compare_to:
+        return result
+
+    previous = archive(session, PRODUCTION, compare_to)
+    previous_skills = inspect_bundle(previous)['skills']
+
+    def skill_key(name):
+        return re.sub(r'-v[0-9]+$', '', name)
+
+    current_keys = {skill_key(name) for name in skills}
+    result['comparison_only'] = [name for name in previous_skills if skill_key(name) not in current_keys]
+    compared = selected if selected in previous_skills else next(
+        (name for name in previous_skills if skill_key(name) == skill_key(selected)), None)
+    if compared is not None:
+        before = read_file(previous, f'{compared}/SKILL.md')
+        result['compared_skill'] = compared
+        result['diff'] = '\n'.join(unified_diff(before.splitlines(), content.splitlines(),
+                                               fromfile=compared, tofile=selected, lineterm=''))
+    return result
 
 
 def upload(s,key,label,summary,data):
