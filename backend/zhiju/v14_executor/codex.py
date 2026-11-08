@@ -7,11 +7,21 @@ import subprocess
 import tempfile
 import time
 from copy import copy, deepcopy
+import unicodedata
+
+from zhiju.v14_runtime.contract import StageInput
 
 
 class TitleContentError(RuntimeError):
     """Return title content failures through the existing retry protocol."""
     def __init__(self, message, result):
+        super().__init__(message)
+        self.result = result
+
+
+class CoverContentError(RuntimeError):
+    """The existing cover attempt cannot hand off a final concept."""
+    def __init__(self, message, result=None):
         super().__init__(message)
         self.result = result
 
@@ -38,6 +48,8 @@ class CodexClient:
 
     def generate(self, stage, model):
         self.phase_trace = []
+        if stage.node_type == 'cover' and (plan := stage.rules.get('cover_concepts')):
+            return self._generate_cover(stage, plan, model)
         creation_plan = stage.rules.get('title_creation') if stage.node_type == 'title' else None
         if not creation_plan:
             return self._generate_once(stage, model)
@@ -84,6 +96,47 @@ class CodexClient:
             public = locked[row['selected_candidate_id']]
             row.update(title=public['title'], translation=public['translation'], char_count=len(public['title']))
         output['direct_titles'] = [row['title'] for row in directions]
+        return result
+
+    def _generate_cover(self, stage, plan, model):
+        concepts = []
+        seen_words = set()
+        for index, title in enumerate(plan['titles'], 1):
+            inputs = {'title': title, 'language': plan['language']}
+            # The Creator gets an isolated request and no archive, source files,
+            # plot, previous titles or generation history.
+            creator = StageInput('cover', plan['instructions'] + '\n\n' +
+                json.dumps(inputs, ensure_ascii=False), plan['schema'],
+                {}, {}, {'execution': plan['execution']})
+            trace = {'phase': 'thumbnail_creator', 'title_index': index,
+                     'prompt': creator.prompt, 'schema': creator.schema, 'raw': None}
+            self.phase_trace.append(trace)
+            concept = self._generate_once(creator, model)
+            trace['raw'] = deepcopy(concept)
+            words = concept['core_words']
+            key = ' '.join(unicodedata.normalize('NFKC', words).casefold().split())
+            if not 9.5 <= concept['score'] <= 10 or not concept['concept'].strip():
+                raise CoverContentError(f'第{index}组 Thumbnail Creator 未交付达到 9.5 的方案')
+            if words != words.strip() or not 1 <= len(words.split()) <= 2 or key in seen_words:
+                raise CoverContentError(f'第{index}组 Thumbnail Creator 核心词必须是不同的 1–2 个词')
+            seen_words.add(key)
+            concepts.append({'title_index': index, **inputs, **concept})
+
+        render = copy(stage)
+        render.prompt += ('\n\n以下为 Thumbnail Creator 已定稿的方案。按每条标题的方案制作双画幅描述词，'
+                          '逐字复制 core_words，禁止替换核心词或重选核心冲突。\n' +
+                          json.dumps(concepts, ensure_ascii=False))
+        trace = {'phase': 'cover_descriptions', 'prompt': self.prompt_for(render),
+                 'schema': render.schema, 'raw': None}
+        self.phase_trace.append(trace)
+        result = self._generate_once(render, model)
+        trace['raw'] = deepcopy(result)
+        rows = result['results'][0]['titles']
+        if len(rows) != len(concepts) or any(
+                row['title_index'] != concept['title_index'] or row['title'] != concept['title']
+                or row['core_words'] != concept['core_words']
+                for row, concept in zip(rows, concepts)):
+            raise CoverContentError('封面描述词未逐组保留定稿标题和 Thumbnail Creator 核心词', result)
         return result
 
     def _generate_once(self, stage, model):

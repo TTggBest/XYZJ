@@ -7,7 +7,7 @@ import time
 from zhiju.v14_runtime.contract import StageInput, build_stage_input, validate_result
 from zhiju.v14_runtime.market import collect_agent_reach_evidence, build_market_packaging_prompt
 from .client import CloudConflict, CloudNotFound
-from .codex import TitleContentError
+from .codex import CoverContentError, TitleContentError
 from .execution_state import ExecutionState
 
 NODES = ("search", "title", "cover", "description", "community", "merge")
@@ -197,14 +197,14 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                         body.update(outcome="content_error", result=result, error="; ".join(issues)[:4000])
                     else:
                         body["result"] = result
-                except TitleContentError as exc:
+                except (CoverContentError, TitleContentError) as exc:
                     body.update(outcome="content_error", result=exc.result, error=str(exc)[:4000])
                 except (RuntimeError, ValueError, KeyError, OSError) as exc:
                     body.update(outcome="system_error", error=str(exc)[:4000])
                 finally:
                     trace = getattr(model_client, 'phase_trace', None)
-                    if node == 'title' and trace:
-                        trace_path = root / envelope['run_id'] / (str(attempt_id) + '.title_phases.json')
+                    if node in {"title", "cover"} and trace:
+                        trace_path = root / envelope['run_id'] / (f"{attempt_id}.{node}_phases.json")
                         trace_path.parent.mkdir(parents=True, exist_ok=True)
                         trace_path.write_text(json.dumps(trace, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
                 try:
