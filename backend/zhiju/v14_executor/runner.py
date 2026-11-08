@@ -61,6 +61,8 @@ def replay_pending(client, root, retry_delay=2):
 
 
 def apply_content_recovery(stage, envelope, node):
+    if node == 'cover' and stage.rules.get('cover_concepts', {}).get('native_plugin'):
+        return  # Each native cover turn receives only its approved inputs.
     failures = [row for row in envelope.get("retry_state", [])
                 if row["node_type"] == node and row.get("outcome") == "content_error"]
     if not failures:
