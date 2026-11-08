@@ -3,14 +3,17 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+import yaml
 from sqlalchemy import func, select, or_, case
 from zhiju.models import (Channel, ChannelSchedulePlan, ChannelScheduleEntry, ChannelPublishSlot,
     Drama, DramaProductionState, ChannelDnaVersion, ScheduleCandidate, ScheduleChangeHistory, Language, PublishCadenceTemplateSlot)
+from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
 from zhiju.models.v14 import V14Setting
 from zhiju.services import channel_guidance, operations, skill_catalog
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.schedule_youtube import LANGUAGES
+from zhiju.scheduling_rules.contract import SLOT_TOPICS_PROTOCOL
 
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
 
@@ -160,7 +163,29 @@ def stored_slot(session,channel_id,template_slot):
     return slot
 
 
-def create_plan(session,channel_id,start_date,end_date,daily_count):
+def analysis_topics(guidance, youtube_channel_id):
+    if not guidance['report_id']:
+        raise ConflictError('排期 Skill v2 需要先应用当前频道的初步分析或正式分析')
+    block = strategy_yaml_block(guidance['diagnosis'])
+    if not block:
+        raise ConflictError('已生效分析缺少题材策略，请补齐并应用新版分析')
+    try:
+        strategy = yaml.safe_load(block['body'])['channel_strategy']
+        if strategy['channel_id'] != youtube_channel_id:
+            raise ValueError('频道不一致')
+        topics = {
+            'primary': strategy['content_priority'],
+            'secondary': strategy['content_secondary'],
+        }
+        if any(not isinstance(items, list) or any(not isinstance(item, str) or not item.strip()
+               for item in items) for items in topics.values()):
+            raise ValueError('题材应为非空文字条目组成的列表')
+    except (yaml.YAMLError, TypeError, KeyError, ValueError) as exc:
+        raise ConflictError('已生效分析的频道或题材策略无效，请补齐并应用新版分析') from exc
+    return {kind: list(dict.fromkeys(item.strip() for item in items)) for kind, items in topics.items()}
+
+
+def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=None):
     channel=operations._active_channel(session,channel_id,lock=True)
     if end_date<start_date or (end_date-start_date).days>=31 or not 1<=daily_count<=10:
         raise ConflictError('请选择 1～31 天的日期范围和有效每日更新数量')
@@ -169,8 +194,19 @@ def create_plan(session,channel_id,start_date,end_date,daily_count):
         raise ConflictError('频道已有排期规划任务，请先完成或取消')
     setting=session.scalar(select(V14Setting))
     if not setting:raise ConflictError('请先配置 Codex 执行主机和模型')
-    guidance=channel_guidance.resolve(session,channel_id)
-    slots=cadence_slots(session,channel_id,daily_count)
+    skill_version = skill_catalog.scheduling_snapshot(session)
+    uses_v2 = skill_version['label'] == 'channel-scheduling' and skill_version['revision'] >= 2
+    slots = cadence_slots(session, channel_id, daily_count)
+    if uses_v2 and slot_topics is None:
+        raise ConflictError('排期 Skill v2 需要为每个档位选择主题材或辅题材')
+    guidance = channel_guidance.resolve(session, channel_id, use_plan_snapshot=not uses_v2)
+    if slot_topics is not None:
+        if set(slot_topics) != {slot['id'] for slot in slots} or set(slot_topics.values()) - {'primary', 'secondary'}:
+            raise ConflictError('请为当前每日更新模板的每个档位选择主题材或辅题材；若档期已变化，请重新打开规划')
+        if guidance['dna_id'] and not uses_v2:
+            dna = require_tenant_entity(session, ChannelDnaVersion, guidance['dna_id'])
+            guidance['secondary_genre'] = dna.secondary_genre or guidance.get('secondary_genre')
+    topics = analysis_topics(guidance, channel.youtube_channel_id) if uses_v2 else None
     pool,excluded=candidate_pool(session,channel)
     existing=list(session.scalars(select(ChannelScheduleEntry).where(ChannelScheduleEntry.channel_id==channel_id)))
     dates=[start_date+timedelta(days=offset) for offset in range((end_date-start_date).days+1)]
@@ -188,21 +224,34 @@ def create_plan(session,channel_id,start_date,end_date,daily_count):
         'first_scheduled_date':min([start_date]+[r.publish_date for r in existing if r.status not in {'cancelled','replaced'}]).isoformat(),
         'guidance':guidance,'slots':slots,'targets':targets,'candidates':pool,'excluded':excluded,
         'history':[{'drama_id':r.drama_id,'publish_date':r.publish_date.isoformat(),'status':r.status} for r in existing],
-        'skill_version':skill_catalog.scheduling_snapshot(session),
+        'skill_version':skill_version,
         'model':setting.payload['default_model'],'account_profile':setting.payload['account_profile']}
+    if slot_topics is not None:
+        snapshot['slot_topics'] = slot_topics
+    if topics is not None:
+        snapshot['analysis_topics'] = topics
     plan=ChannelSchedulePlan(channel_id=channel_id,host_id=setting.payload['host_id'],input_snapshot=snapshot)
     session.add(plan);session.commit();session.refresh(plan);return plan
 
 
-def claim_plan(session,host_id,*,claim_id=None,plan_id=None):
+def claimable_plans(query, executor_protocol):
+    if executor_protocol < SLOT_TOPICS_PROTOCOL:
+        return query.where(ChannelSchedulePlan.input_snapshot['slot_topics'].as_string().is_(None))
+    return query
+
+
+def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=SLOT_TOPICS_PROTOCOL):
     preferred_id=plan_id
     setting=session.scalar(select(V14Setting))
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
     from zhiju.services.executor_queue import admission
     if not admission(session):return None
-    plan_id=session.scalar(select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.host_id==host_id,
-        ChannelSchedulePlan.status=='queued',*([ChannelSchedulePlan.id==preferred_id] if preferred_id else [])).order_by(ChannelSchedulePlan.created_at)
-        .with_for_update(skip_locked=True).limit(1))
+    queued = select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.host_id==host_id,
+        ChannelSchedulePlan.status=='queued')
+    if preferred_id:
+        queued = queued.where(ChannelSchedulePlan.id==preferred_id)
+    plan_id=session.scalar(claimable_plans(queued, executor_protocol)
+        .order_by(ChannelSchedulePlan.created_at).with_for_update(skip_locked=True).limit(1))
     if plan_id is None:return None
     row=get_plan(session,plan_id,True)
     row.status='running';row.claim_id=claim_id or str(uuid4());row.progress=None;row.heartbeat_at=datetime.now(timezone.utc)

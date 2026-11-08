@@ -5,7 +5,7 @@ from pathlib import Path
 from threading import Event, Thread, Lock
 from time import monotonic
 from types import SimpleNamespace
-from .client import CloudConflict
+from .client import CloudConflict, EXECUTOR_PROTOCOL
 
 
 def array_schema(properties):
@@ -15,6 +15,11 @@ def array_schema(properties):
 
 ASSESSMENT_SCHEMA=array_schema({'drama_id':{'type':'string'},'eligible':{'type':'boolean'},
     'main_theme':{'type':'boolean'},'reason':{'type':'string'},'plot_evidence':{'type':'string'}})
+TOPIC_ASSESSMENT_FIELDS = {'drama_id': {'type': 'string'}, 'eligible': {'type': 'boolean'},
+    'theme': {'type': 'string', 'enum': ['primary', 'secondary', 'neither']},
+    'reason': {'type': 'string'}, 'plot_evidence': {'type': 'string'}}
+TOPIC_ASSESSMENT_SCHEMA = array_schema(TOPIC_ASSESSMENT_FIELDS)
+ANALYSIS_TOPIC_ASSESSMENT_SCHEMA = array_schema({**TOPIC_ASSESSMENT_FIELDS, 'theme_basis': {'type': 'string'}})
 PLAN_SCHEMA=array_schema({'publish_date':{'type':'string'},'publish_slot_id':{'type':'string'},
     'drama_id':{'type':['string','null']},'reason':{'type':'string'},'plot_evidence':{'type':'string'},
     'pairing_reason':{'type':'string'}})
@@ -36,6 +41,28 @@ def generate(model,run,root,progress=None):
     rules='\n'.join(v for k,v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
     guidance={k:v for k,v in snapshot['guidance'].items() if k != 'normalized_snapshot'}
     context='按本次选定排期Skill执行：\n'+rules+'\n频道与生效资料：'+encode({'channel':snapshot['channel'],'guidance':guidance})
+    slot_topics=snapshot.get('slot_topics')
+    analysis_topics = snapshot.get('analysis_topics')
+    assessment_schema=ASSESSMENT_SCHEMA
+    assessment_instruction='逐部判断候选是否适配频道、是否主主题并解释。'
+    if slot_topics:
+        context += (
+            '\n以用户逐档指定题材为准。'
+            '主题材（primary）是频道资料明确的核心方向；辅题材（secondary）是资料明确支持的辅助方向。'
+            '题材以核心剧情为准，同时适配时按最主要的剧情归类；都不符合或频道资料缺少依据时选neither。'
+            '辅题材不能用仅仅非主题材或同样适配频道的其他剧替代。'
+        )
+        assessment_schema=TOPIC_ASSESSMENT_SCHEMA
+        assessment_instruction='逐部判断候选是否适配频道、属于primary、secondary还是neither，并根据频道方向和剧的核心剧情解释。'
+    if analysis_topics is not None:
+        context += '\n本次生效分析题材（primary=主题材，secondary=辅题材）：' + encode(analysis_topics)
+        assessment_schema = ANALYSIS_TOPIC_ASSESSMENT_SCHEMA
+        assessment_instruction += (
+            'theme_basis 必须逐字使用对应题材清单中的一条。'
+            '只用于跟踪数据或解释包装的条目不能单独作为选剧依据。'
+            '无合格方向则标为neither、eligible=false、theme_basis为空。'
+        )
+
     # Read every complete plot once; only compact, evidenced judgments enter final planning.
     batches=[];batch=[];size=0
     for drama in snapshot['candidates']:
@@ -49,25 +76,39 @@ def generate(model,run,root,progress=None):
         path=root/f'assessment-{index}.json'
         if path.exists():result=json.loads(path.read_text())
         else:
-            result=model.generate(stage(context+'\n逐部判断候选是否适配频道、是否主主题并解释；plot_evidence必须逐字引用该剧四个剧情字段中的一段连续原文。每个候选恰好一行，包含不适配者。\n候选：'+encode(batch),ASSESSMENT_SCHEMA),model_name)
+            result=model.generate(stage(context+'\n'+assessment_instruction+
+                'plot_evidence必须逐字引用该剧四个剧情字段中的一段连续原文。每个候选恰好一行，包含不适配者。\n候选：'+encode(batch),
+                assessment_schema),model_name)
             ids={d['id'] for d in batch};rows=result.get('rows',[])
             if len(rows)!=len(ids) or {r['drama_id'] for r in rows}!=ids:raise ValueError('候选剧情评估未完整覆盖本批剧目')
             plots={d['id']:d for d in batch}
             for row in rows:
+                if analysis_topics is not None and row['eligible']:
+                    if row.get('theme_basis') not in analysis_topics.get(row['theme'], []):
+                        raise ValueError('候选评估缺少生效分析中对应的题材方向')
                 if row['eligible'] and (len(row['plot_evidence'].strip())<4 or not any(row['plot_evidence'] in (plots[row['drama_id']].get(k) or '') for k in ('content_summary','plot_archive','plot_pattern','core_personas'))):
                     raise ValueError('候选评估缺少可核对的剧情原文')
             path.write_text(encode(result))
         processed+=len(batch)
         if progress:progress('assessing',processed,len(snapshot['candidates']),'本批剧情评估完成')
-        assessments.extend(r for r in result['rows'] if r['eligible'])
+        assessments.extend(r for r in result['rows'] if r['eligible']
+                           and (not slot_topics or r['theme'] in slot_topics.values()))
     candidates={d['id']:d for d in snapshot['candidates']}
     compact=[{**r,'chinese_title':candidates[r['drama_id']]['chinese_title'],
         'duration_seconds':candidates[r['drama_id']]['duration_seconds'],'expires_at':candidates[r['drama_id']]['expires_at']}
         for r in assessments]
+    if slot_topics:
+        topic_rule=('候选theme必须与该publish_slot_id的指定题材相同。主档优先较长且不少于100分钟。'
+                    '没有符合指定题材和时长的剧时，将该档drama_id设为null并说明缺口。不同档位可按各自题材编排。'
+                    '\n按档位ID指定题材：'+encode(slot_topics))
+    else:
+        topic_rule=('main_theme=false不能进入主档；本系统首个排期日起14天内辅档也须主主题，此后可选其他适配方向。'
+                    '主档在适配主主题中优先较长且不少于100分钟。时长或库存不足则drama_id=null，并说明缺口。')
     prompt=(context+'\n依据以下已阅读剧情的判断为每个空档位选择剧目，同频道去重，逐日说明配对和多日变化。'
-        'main_theme=false不能进入主档；本系统首个排期日起14天内辅档也须主主题，此后可选其他适配方向。主档在适配主主题中优先较长且不少于100分钟。时长或库存不足则drama_id=null，并说明缺口。'
-        'plot_evidence复制该候选的原文引用。空档位必须全部覆盖。\n档位：'+encode(snapshot['slots'])+
-        '\n本系统首个排期日：'+snapshot['first_scheduled_date']+'\n空档位：'+encode(snapshot['targets'])+'\n候选判断：'+encode(compact))
+        'plot_evidence复制该候选的原文引用。空档位必须全部覆盖。'+topic_rule+
+        '\n档位：'+encode(snapshot['slots'])+
+        ('\n本系统首个排期日：'+snapshot['first_scheduled_date'] if not slot_topics else '')+
+        '\n空档位：'+encode(snapshot['targets'])+'\n候选判断：'+encode(compact))
     # Validate before upload and use concrete failure feedback to replan only this stage.
     from zhiju.scheduling_rules.contract import validate_result
     previous=None;error=''
@@ -86,9 +127,17 @@ def generate(model,run,root,progress=None):
             for row in result['rows']:
                 if row['drama_id']:
                     judgment=judgments.get(row['drama_id'])
-                    first_fortnight=date.fromisoformat(row['publish_date']) < date.fromisoformat(snapshot['first_scheduled_date'])+timedelta(days=14)
-                    if not judgment or ((slots[row['publish_slot_id']]['slot_type']=='main' or first_fortnight) and not judgment['main_theme']):
-                        raise ValueError('选剧不符合前序剧情评估或主档主主题要求')
+                    if not judgment:
+                        raise ValueError('选剧不在符合频道方向的候选剧情评估中')
+                    if slot_topics:
+                        row['drama_theme'] = judgment['theme']
+                        if analysis_topics is not None:
+                            row['theme_basis'] = judgment['theme_basis']
+                            row['plot_evidence'] = judgment['plot_evidence']
+                    else:
+                        first_fortnight=date.fromisoformat(row['publish_date']) < date.fromisoformat(snapshot['first_scheduled_date'])+timedelta(days=14)
+                        if (slots[row['publish_slot_id']]['slot_type']=='main' or first_fortnight) and not judgment['main_theme']:
+                            raise ValueError('选剧不符合主档或前14天的主主题要求')
             validate_result(snapshot,result)
             return result
         except (ValueError,RuntimeError,KeyError) as exc:
@@ -154,7 +203,7 @@ def process_claimed(client,model,config,cache_root,run,stop_event=None):
 def drain(client,model,config,cache_root,once=False):
     recover_cached(client,cache_root)
     while True:
-        run=client.request('POST','/schedule-planning/claims',{'host_id':client.host_id,'executor_protocol':5})
+        run=client.request('POST','/schedule-planning/claims',{'host_id':client.host_id,'executor_protocol':EXECUTOR_PROTOCOL})
         if not run:return
         if run['tenant_id']!=client.tenant_id:raise PermissionError('排期任务公司不匹配')
         process_claimed(client,model,config,cache_root,run)

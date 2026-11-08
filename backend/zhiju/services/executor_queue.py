@@ -58,7 +58,11 @@ def claim_next(session,host_id,claim_id,executor_protocol):
         if old:
             run=v14_runs.claim_read(session,old) if kind=='operation_package' else {**(channel_analysis.run_read(old) if kind=='channel_analysis' else schedule_planning.read(old)),'tenant_id':old.tenant_id}
             return {'task_type':kind,'run':run}
-    own_queued=sum(session.scalar(select(func.count()).select_from(m).where(m.host_id==host_id,m.status=='queued')) for m in MODELS.values())
+    def queued_for_host(model, query):
+        query = query.where(model.host_id==host_id, model.status=='queued')
+        return schedule_planning.claimable_plans(query, executor_protocol) if model is ChannelSchedulePlan else query
+
+    own_queued=sum(session.scalar(queued_for_host(m, select(func.count()).select_from(m))) for m in MODELS.values())
     if not own_queued:return None
     if not available:return {'waiting_for_capacity':True,'worker_limit':WORKER_LIMIT}
     from sqlalchemy.orm import aliased
@@ -66,7 +70,7 @@ def claim_next(session,host_id,claim_id,executor_protocol):
     busy=select(other.id).where(other.channel_id==ChannelAnalysisRun.channel_id,other.tenant_id==ChannelAnalysisRun.tenant_id,other.status=='running').exists()
     queries=[]
     for kind,m in MODELS.items():
-        q=select(m.id,m.updated_at.label('queued_at'),literal(kind).label('task_type')).where(m.host_id==host_id,m.status=='queued')
+        q=queued_for_host(m, select(m.id,m.updated_at.label('queued_at'),literal(kind).label('task_type')))
         if kind=='channel_analysis':q=q.where(~busy)
         queries.append(q)
     queue=union_all(*queries).subquery()
@@ -76,5 +80,5 @@ def claim_next(session,host_id,claim_id,executor_protocol):
     if kind=='operation_package':
         run=v14_runs.claim_run(session,host_id,executor_protocol=executor_protocol,claim_id=claim_id,run_id=id)
     elif kind=='channel_analysis':run=channel_analysis.claim_run(session,host_id,claim_id=claim_id,run_id=id)
-    else:run=schedule_planning.claim_plan(session,host_id,claim_id=claim_id,plan_id=id)
+    else:run=schedule_planning.claim_plan(session,host_id,claim_id=claim_id,plan_id=id,executor_protocol=executor_protocol)
     return {'task_type':kind,'run':run} if run else {'waiting_for_capacity':True,'worker_limit':WORKER_LIMIT}
