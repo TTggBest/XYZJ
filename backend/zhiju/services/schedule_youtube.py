@@ -14,6 +14,7 @@ from zhiju.tenant_repository import require_tenant_entity
 LANGUAGES = {
     "阿拉伯语": "ar", "阿拉伯": "ar", "arabic": "ar", "ar": "ar",
     "英语": "en", "英文": "en", "english": "en", "en": "en",
+    "菲律宾语": "fil", "filipino": "fil", "fil": "fil",
     "法语": "fr", "french": "fr", "fr": "fr",
     "巴葡": "pt-BR", "巴葡语": "pt-BR", "巴西葡萄牙语": "pt-BR", "葡萄牙语": "pt", "pt-br": "pt-BR",
     "印尼": "id", "印尼语": "id", "印度尼西亚语": "id", "indonesian": "id", "id": "id",
@@ -23,7 +24,7 @@ LANGUAGES = {
     "俄语": "ru", "ru": "ru", "意大利语": "it", "it": "it", "印地": "hi", "印地语": "hi", "hindi": "hi", "hi": "hi",
     "孟加拉语": "bn", "孟加拉": "bn", "bengali": "bn", "bangla": "bn", "bn": "bn",
 }
-LANGUAGE_LABELS = {"ar": "阿拉伯语", "en": "英语", "fr": "法语", "pt": "葡萄牙语", "pt-BR": "巴葡", "id": "印尼语"}
+LANGUAGE_LABELS = {"ar": "阿拉伯语", "en": "英语", "fr": "法语", "pt": "葡萄牙语", "pt-BR": "巴葡", "id": "印尼语", "fil": "菲律宾语"}
 
 
 def utc(value):

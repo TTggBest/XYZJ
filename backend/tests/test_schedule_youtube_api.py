@@ -46,8 +46,11 @@ def api_context(monkeypatch):
     engine.dispose()
 
 
-def test_cloud_sync_reads_owner_filename_and_exposes_matching_status_to_schedule_api(api_context, monkeypatch):
+@pytest.mark.parametrize("language,label", [("ar", "阿拉伯语"), ("fil", "菲律宾语")])
+def test_cloud_sync_reads_owner_filename_and_exposes_matching_status_to_schedule_api(api_context, monkeypatch, language, label):
     client, session, schedule, title = api_context
+    session.get(Channel, schedule.channel_id).default_language = language
+    session.commit()
     calls = []
     def google_get(url, token):
         assert token == "test-access"
@@ -56,22 +59,22 @@ def test_cloud_sync_reads_owner_filename_and_exposes_matching_status_to_schedule
         if path.endswith("/channels"):
             return {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU-owner"}}}]}
         if path.endswith("/playlistItems"):
-            return {"items": [{"snippet": {"publishedAt": "2026-10-15T12:00:00Z"}, "contentDetails": {"videoId": "arabic-one1"}}]}
+            return {"items": [{"snippet": {"publishedAt": "2026-10-15T12:00:00Z"}, "contentDetails": {"videoId": "owner-video"}}]}
         assert "fileDetails" in query["part"][0]
-        return {"items": [{"id": "arabic-one1", "snippet": {"title": "阿拉伯语运营标题", "publishedAt": "2026-10-15T12:00:00Z"},
-            "status": {"privacyStatus": "unlisted", "uploadStatus": "processed"}, "fileDetails": {"fileName": f"{title}_阿拉伯语.mp4"}, "contentDetails": {"duration": "PT1H"}}]}
+        return {"items": [{"id": "owner-video", "snippet": {"title": "运营标题", "publishedAt": "2026-10-15T12:00:00Z"},
+            "status": {"privacyStatus": "unlisted", "uploadStatus": "processed"}, "fileDetails": {"fileName": f"{title}_{label}.mp4"}, "contentDetails": {"duration": "PT1H"}}]}
     monkeypatch.setattr("zhiju.services.youtube_channel_sync._youtube_request_json", google_get)
     response = client.post(f"/api/v3/channels/{schedule.channel_id}/youtube-videos/sync")
     assert response.status_code == 200, response.text
     assert response.json()["fetched"] == 1
     page = client.get("/api/v3/schedules/channel-view", params={"channel_id": schedule.channel_id}).json()
     row = page["items"][0]
-    assert row["source_video_id"] == "arabic-one1"
+    assert row["source_video_id"] == "owner-video"
     assert row["is_uploaded"] is True and row["is_published"] is False
     assert row["video_sync"]["selected"]["state"] == "unlisted"
-    assert row["video_sync"]["selected"]["file_name"] == f"{title}_阿拉伯语.mp4"
+    assert row["video_sync"]["selected"]["file_name"] == f"{title}_{label}.mp4"
     assert len(calls) == 3
-    response = client.post(f"/api/v3/schedules/{schedule.id}/youtube-selection", json={"video_id": "arabic-one1"})
+    response = client.post(f"/api/v3/schedules/{schedule.id}/youtube-selection", json={"video_id": "owner-video"})
     assert response.status_code == 200
     assert session.get(type(schedule), schedule.id).source_video_overridden is True
 
