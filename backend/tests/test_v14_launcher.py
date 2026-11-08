@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from zhiju.v14_executor.client import EXECUTOR_PROTOCOL
 from zhiju.v14_executor.launcher import WorkerManager, make_server
 
 
@@ -151,7 +152,7 @@ def test_local_http_origin_and_private_network_preflight(manager):
         with urlopen(request) as response:
             health = json.load(response)
             assert health["host_id"] == "host-a"
-            assert health["executor_protocol"] == 6
+            assert health["executor_protocol"] == EXECUTOR_PROTOCOL
             assert response.headers["Access-Control-Allow-Origin"] == "https://fixture.example"
         request = Request(url + "/start", method="OPTIONS", headers={"Origin": "https://fixture.example",
             "Access-Control-Request-Private-Network": "true"})

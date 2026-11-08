@@ -80,7 +80,7 @@ def test_stage_delivery_keeps_exact_model_request_but_not_validator_history(clie
 
 
 def test_claim_network_retry_has_stable_identity(monkeypatch):
-    from zhiju.v14_executor.client import CloudClient
+    from zhiju.v14_executor.client import EXECUTOR_PROTOCOL, CloudClient
     cloud = CloudClient('http://localhost', 'test', 'device', 'tenant')
     sent = []
     def request(method, path, body=None, **kwargs):
@@ -94,7 +94,7 @@ def test_claim_network_retry_has_stable_identity(monkeypatch):
     monkeypatch.setattr('zhiju.v14_executor.client.time.sleep', lambda *_: None, raising=False)
     assert cloud.claim()['run_id'] == 'run'
     assert len(sent) == 2 and sent[0] == sent[1]
-    assert sent[0]['claim_id'] and sent[0]['executor_protocol'] == 6
+    assert sent[0]['claim_id'] and sent[0]['executor_protocol'] == EXECUTOR_PROTOCOL
 
 
 def test_staged_runner_uses_cloud_requests_and_preserves_server_rejection(tmp_path):

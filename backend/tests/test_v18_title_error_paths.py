@@ -89,14 +89,16 @@ def test_worker_reports_content_failure_instead_of_interrupting_as_system_error(
 
 def test_two_phase_client_advertises_required_protocol():
     from zhiju.v14_executor.client import EXECUTOR_PROTOCOL
-    assert EXECUTOR_PROTOCOL == 6
+    assert EXECUTOR_PROTOCOL >= 6
 
 
-def test_existing_claim_gate_blocks_old_executor_and_accepts_updated_executor(store):
+@pytest.mark.parametrize('required_protocol', [6, 7])
+def test_existing_claim_gate_blocks_old_executor_and_accepts_updated_executor(store, required_protocol):
     from test_v14_runs import configure
     from zhiju.database import TenantSession
     from zhiju.services import v14_runs
     from zhiju.services.identity import ConflictError
+    from zhiju.v14_executor.client import EXECUTOR_PROTOCOL
     from zhiju.workflow_bundles import BASELINE, snapshot
     # Use the existing local DB fixture; no real work order or production claim.
     with TenantSession(store, info={'tenant_id': 'tenant-a'}) as session:
@@ -108,13 +110,13 @@ def test_existing_claim_gate_blocks_old_executor_and_accepts_updated_executor(st
                 content = source.read(name)
                 if name == 'zhiju-workflow.json':
                     manifest = json.loads(content)
-                    manifest['executor_protocol'] = 6
+                    manifest['executor_protocol'] = required_protocol
                     content = json.dumps(manifest).encode()
                 target.writestr(name, content)
         run.rules_snapshot = {'skill_bundle': snapshot(data.getvalue(), version_id='local-test', label='test', revision=1)}
         session.commit()
         with pytest.raises(ConflictError, match='更新本机执行器'):
-            v14_runs.claim_run(session, 'device-a', executor_protocol=5, claim_id='old')
+            v14_runs.claim_run(session, 'device-a', executor_protocol=required_protocol - 1, claim_id='old')
         assert run.status == 'queued'
-        claimed = v14_runs.claim_run(session, 'device-a', executor_protocol=6, claim_id='new')
+        claimed = v14_runs.claim_run(session, 'device-a', executor_protocol=EXECUTOR_PROTOCOL, claim_id='new')
         assert claimed['run_id'] == run.id
