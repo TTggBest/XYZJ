@@ -374,7 +374,7 @@ def test_concurrent_confirmations_against_mysql():
     engine.dispose()
 
 
-@pytest.mark.parametrize('scenario', ['fresh', 'cached', 'date-limited'])
+@pytest.mark.parametrize('scenario', ['fresh', 'cached', 'date-limited', 'invalid-evidence', 'invalid-playlist'])
 def test_r3_uses_compliant_stock_when_direction_is_invalid_or_dates_limit_stock(tmp_path, scenario):
     from zhiju.scheduling_rules.contract import validate_result
 
@@ -414,6 +414,12 @@ def test_r3_uses_compliant_stock_when_direction_is_invalid_or_dates_limit_stock(
         rows[0]['strong_direction_ids'] = ['secondary:1', 'primary:1']
         rows[1]['strong_direction_ids'] = ['secondary:1', 'primary:99']
         rows[2]['strong_direction_ids'] = []
+        if scenario in ('invalid-evidence', 'invalid-playlist'):
+            rows[1].update(plot_evidence='这一段在剧库里不存在', actual_direction='', reason='',
+                           strong_direction_ids=['primary:1'])
+            rows[2]['actual_theme'] = 'neither'
+            if scenario == 'invalid-playlist':
+                rows[1]['playlist_id'] = 'foreign-playlist'
         if scenario == 'date-limited':
             rows[1]['strong_direction_ids'] = ['primary:1']
             candidates[0]['expires_at'] = '2026-11-10T12:00:00+00:00'
@@ -425,8 +431,14 @@ def test_r3_uses_compliant_stock_when_direction_is_invalid_or_dates_limit_stock(
         assert 'strong_direction_ids' in stage.schema['properties']['rows']['items']['properties']
         return {'rows': rows}
 
+    if scenario == 'invalid-playlist':
+        with pytest.raises(ValueError, match='播放列表无效'):
+            generate(SimpleNamespace(generate=judge), {'input_snapshot': snapshot}, tmp_path)
+        return
     result = generate(SimpleNamespace(generate=judge), {'input_snapshot': snapshot}, tmp_path)
     planned = validate_result(snapshot, result)['rows']
+    if scenario == 'invalid-evidence':
+        assert planned[1]['actual_theme'] == 'neither'
     expected_level = 'strong' if scenario == 'date-limited' else 'fallback'
     assert [(row['drama_id'], row['match_level']) for row in planned] == [
         ('strong', 'strong'), ('long_fallback', expected_level),

@@ -163,7 +163,8 @@ def reference_assessment(model, run, root, progress):
               '同批由系统按频道录入时间的北京时间日期和运营语言判定。'
               'strong_direction_ids 只返回下方 actual_theme 对应方向的编号。实际核心冲突必须兑现该方向。'
               '没有充分依据填空数组。包装监测、支线或偶然关键词不算。编号由系统换回报告原文。'
-              '不匹配的库存也要说明真实主线并选最贴近的现有列表 ID，供缺片时补位。每部恰好一行。'
+              'plot_evidence 必须逐字引用该剧剧情字段中的一段连续原文，说明实际主线和理由。'
+              '不匹配的库存也要选最贴近的现有列表 ID，供缺片时补位。每部恰好一行。'
               '\n运营参考：' + encode(context) + '\n方向编号：' + encode(directions) +
               '\n现有列表：' + encode(snapshot['playlists']))
     judgments = []
@@ -179,12 +180,19 @@ def reference_assessment(model, run, root, progress):
             raise ValueError('题材评估没有逐部覆盖候选')
         for row in rows:
             drama = plots[row['drama_id']]
-            evidence = row['plot_evidence'].strip()
-            if (len(evidence) < 4 or not any(evidence in (drama.get(key) or '') for key in PLOT_FIELDS)
-                    or not row['actual_direction'].strip() or not row['reason'].strip()):
-                raise ValueError('题材评估缺少真实剧情原文、实际主线或判断理由')
             if row['playlist_id'] not in playlist_ids:
                 raise ValueError('剧情评估指定的播放列表无效')
+            evidence = row['plot_evidence'].strip()
+            plots_text = [(drama.get(key) or '').strip() for key in PLOT_FIELDS]
+            if (len(evidence) < 4 or not any(evidence in text for text in plots_text)
+                    or not row['actual_direction'].strip() or not row['reason'].strip()):
+                # Unverified judgments can only compete for fallback slots.
+                quote = next((text[:160].rstrip() for text in plots_text if len(text) >= 4), '')
+                if len(quote) < 4:
+                    continue
+                row = {**row, 'plot_evidence': quote, 'actual_theme': 'neither', 'strong_direction_ids': [],
+                       'actual_direction': '实际主线待核对，见剧情原文',
+                       'reason': '原评估缺少可核实的剧情依据或主线，依据库内原文保留为补位候选'}
             options = directions.get(row['actual_theme'], {})
             if 'strong_direction_ids' in row:
                 strong = [options[code] for code in row['strong_direction_ids'] if code in options]
