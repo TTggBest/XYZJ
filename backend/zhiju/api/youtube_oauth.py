@@ -17,6 +17,7 @@ from zhiju.schemas.operations import PlaylistRead
 from zhiju.schemas.youtube_oauth import (
     CountryOptionRead,
     YouTubeAuthorizationStart,
+    YouTubeAvatarSyncResult,
 
     YouTubeChannelImportCommit,
     YouTubeChannelImportCommitResult,
@@ -29,9 +30,11 @@ from zhiju.services.identity import ConflictError
 from zhiju.services.youtube_channel_sync import (
     create_authorized_channel_playlist,
     sync_authorized_channel_videos,
+    sync_channel_avatars,
 )
 from zhiju.services.youtube_oauth import (
     MacOSGrantTokenStore,
+    YouTubeAuthorizationRequired,
     MacOSKeychainSecretStore,
     OAuthCallbackRelay,
     YOUTUBE_OAUTH_SCOPES,
@@ -259,6 +262,24 @@ def post_start_youtube_authorization(
         authorization_url=build_authorization_url(config, state),
         expires_in_seconds=OAUTH_STATE_TTL_SECONDS,
     )
+
+
+@router.post("/channels/youtube-avatars/sync", response_model=YouTubeAvatarSyncResult)
+def post_sync_youtube_avatars(
+    principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_tenant_db),
+) -> YouTubeAvatarSyncResult:
+    if "channel.manage" not in principal.permissions and principal.platform_role != "super_admin":
+        raise HTTPException(status_code=403, detail="没有同步频道头像的权限")
+    settings = get_settings()
+    if settings.deployment != "cloud" and settings.device_role != "builder":
+        raise HTTPException(status_code=403, detail="仅代码机可以执行 YouTube 头像同步")
+    try:
+        store = (EncryptedDatabaseSecretStore(session, settings.oauth_encryption_key)
+                 if settings.deployment == "cloud" else MacOSKeychainSecretStore())
+        return YouTubeAvatarSyncResult.model_validate(sync_channel_avatars(session, store))
+    except (YouTubeAuthorizationRequired, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post(
