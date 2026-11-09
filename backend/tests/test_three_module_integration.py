@@ -58,6 +58,9 @@ def applied_sample(session, *, handoff=None):
     else:
         sections = {key: {'conclusion': '女主反击', 'evidence': ['定位确认'], 'status': 'retest'} for key in SECTIONS}
         sections['topics'].update(primary=['关系背叛'], secondary=['职场反击'], boundary='女主主动改变处境', counterexamples=['甜宠'])
+        sections['scheduling_playlist'] = {
+            **sections.pop('selection_guidance'), 'playlist_reference': ['legacy playlist suggestion'],
+        }
     # Replay the editorial reference as an explicit cold-start hypothesis.
     for section in sections.values():
         section['status'] = 'cold_start_hypothesis'
@@ -76,7 +79,15 @@ def applied_sample(session, *, handoff=None):
     ready = channel_analysis.submit_result(session, run.id, claim['claim_id'], result=sample)
     assert ready.status == 'ready'
     applied = channel_analysis.apply_result(session, run.id)
-    return applied.dna_id, applied.report_id, sections
+    assert applied.result['diagnosis'] == sample['diagnosis']
+    assert 'scheduling_playlist' in sections
+    expected = {key: value for key, value in sections.items() if key != 'scheduling_playlist'}
+    topics = sections['topics']
+    expected['selection_guidance'] = {
+        'status': topics['status'], 'evidence': topics['evidence'],
+        'conclusion': topics['boundary'], 'boundary_only': True,
+    }
+    return applied.dna_id, applied.report_id, expected
 
 
 @pytest.mark.parametrize('real_archives', [False, True])
@@ -135,6 +146,8 @@ def test_analysis_to_schedule_to_new_work_order(client, store, monkeypatch, tmp_
 
     def judge(stage, model):
         assert sections['topics']['boundary'] in stage.prompt
+        assert 'legacy playlist suggestion' not in stage.prompt
+        assert 'selection_guidance' in stage.prompt
         return {'rows': [
             {'drama_id': row['id'], 'actual_theme': kind,
              'strong_directions': sections['topics'][kind][:1] if kind != 'neither' else [],

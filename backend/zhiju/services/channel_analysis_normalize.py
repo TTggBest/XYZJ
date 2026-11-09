@@ -51,6 +51,15 @@ def studio_period(files):
         'complete_days':len(set(dates)), 'span_days':(max(dates)-min(dates)).days+1} if dates else None
 
 
+def studio_screenshot_window(sources):
+    # A formal task has one Studio ZIP. Older snapshots without its window
+    # use their existing analysis window.
+    return (next(iter(sources.get('studio_windows', {}).values()), None)
+        or sources.get('windows', {}).get('28')
+        or sources.get('fact_snapshot', {}).get('data_windows', {}).get('recent_28d')
+        or {})
+
+
 def studio_content_type(row,identity):
     value=str(row.get('内容类型') or row.get('Content type') or '').strip().lower()
     if value in {'帖子','社区帖子','post','posts','community post','community posts'} or (not value and str(identity).startswith('Ug') and len(str(identity))>11):
@@ -163,11 +172,12 @@ def formal_snapshot(sources, channel):
         return {'status': value.get('status', 'unavailable'), 'source': 'api/' + key,
                 'window': value.get('window'), 'reason':value.get('reason'), 'rows': value.get('rows', []), 'coverage':value.get('coverage')}
     api_videos = dataset('28:videos')
+    studio_window = studio_screenshot_window(sources)
     studio_rows=[{'video':row['video_id'],**row['metrics'],'source':row['source'],
         'scope':row['scope'],'published_at':row['values'].get('视频发布时间',row['values'].get('Video publish time'))}
         for row in normalized['studio_content'] if row.get('content_type','video')=='video' and number(row['metrics']['views']) is not None]
     videos={'status':'available','source':'studio/content_table','scope':'exported_video_rows',
-        'window':sources['windows']['28'],'rows':studio_rows} if studio_rows else api_videos
+        'window':studio_window,'rows':studio_rows} if studio_rows else api_videos
     for row in videos['rows']:annotate_video_comparability(row,sources['windows']['28'].get('end'))
     ranked=sorted([row for row in videos['rows'] if number(row.get('views')) is not None],key=lambda row:number(row['views']),reverse=True)
     total=sum(number(row['views']) for row in ranked) if ranked and videos['status']=='available' else None
@@ -185,7 +195,7 @@ def formal_snapshot(sources, channel):
     screenshots = sources.get('screenshots', [])
     def screenshot_domain(kind,retention_only=False):
         ids = [m['id'] for m in screenshots if m['kind'] == kind]
-        observations=[{**item,'source':'screenshot/'+material['id'],'extraction':'visual_transcription',**observation_window_coverage(item['window'],sources['windows']['28'])}
+        observations=[{**item,'source':'screenshot/'+material['id'],'extraction':'visual_transcription',**observation_window_coverage(item['window'],studio_window)}
             for material in screenshots if material['kind']==kind
             for item in sources.get('screenshot_checks',{}).get(material['id'],{}).get('observations',[]) if not retention_only or item['metric'].startswith('retention')]
         if observations:return {'status':'available','source':'Studio screenshot','scope':'per-card scopes retained below','observations':observations,'screenshot_ids':ids}

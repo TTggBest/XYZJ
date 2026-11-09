@@ -127,9 +127,10 @@ def reference_rows(snapshot, assessments):
 def reference_assessment(model, run, root, progress):
     from zhiju.scheduling_rules.contract import PLOT_FIELDS, validate_result
     snapshot = run['input_snapshot']
-    sections = snapshot['operating_reference']['sections']
+    from zhiju.channel_analysis_rules.operating_reference import selection_reference
+    sections = selection_reference(snapshot['operating_reference']['sections'])
     rules = '\n'.join(v for k, v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
-    context = {key: sections[key] for key in ('topics', 'empathy', 'scheduling_playlist')}
+    context = {key: sections[key] for key in ('topics', 'empathy', 'selection_guidance')}
     playlist_ids = {p['id'] for p in snapshot['playlists']}
     prompt = (rules + '\n本阶段只判断每部候选的实际主线，排片由系统完成。'
               '同批由系统按频道录入时间的北京时间日期和运营语言判定。'

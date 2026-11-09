@@ -1,5 +1,6 @@
 """Resolve the applied channel documents; generation does not change this selection."""
 from copy import deepcopy
+from zhiju.channel_analysis_rules.operating_reference import selection_reference
 from sqlalchemy import select
 from zhiju.models import Channel, ChannelDnaVersion, ChannelAnalysisReport, ChannelAnalysisRun, ChannelProfile, ChannelSchedulePlan
 from zhiju.models.v14 import V14Setting
@@ -28,7 +29,7 @@ def applied_reference(session, dna):
     return {'channel_id': dna.channel_id, 'run_id': run.id, 'report_id': report.id,
             'dna_id': dna.id, 'version': report.version_number, 'mode': run.mode,
             'skill_version': run.input_snapshot.get('operating_reference_skill'),
-            'sections': deepcopy(reference)}
+            'sections': deepcopy(selection_reference(reference))}
 
 
 def resolve(session, channel_id, dna_id=None, *, use_plan_snapshot=True):

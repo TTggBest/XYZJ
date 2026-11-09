@@ -293,3 +293,87 @@ def test_each_screenshot_card_keeps_its_own_window(window,same,within):
     from zhiju.services.channel_analysis_normalize import observation_window_coverage
     actual=observation_window_coverage(window,{'start':'2026-10-04','end':'2026-10-31'})
     assert actual=={'matches_formal_window':same,'within_formal_window':within}
+
+
+def test_resume_revalidates_complete_legacy_analysis_without_an_executor(session):
+    from copy import deepcopy
+    from zhiju.models import ChannelAnalysisRun
+    from zhiju.channel_analysis_rules.operating_reference import SECTIONS
+
+    s, channel = session
+    run = service.create_run(s, channel.id, mode='initial', positioning='女主反击')
+    facts = valid_result(run)['normalized_snapshot']
+    facts['data_windows'] = {'recent_28d': {'start': '2026-10-11', 'end': '2026-11-07'}}
+    run.mode = 'periodic'
+    run.status = 'failed'
+    run.phase = 'analysis'
+    run.claim_id = 'legacy-claim'
+    run.input_snapshot = {
+        **run.input_snapshot, 'sources_complete': True, 'sources': {'fact_snapshot': facts},
+        'operating_reference_required': True,
+        'operating_reference_skill': {'label': 'xy-yt-report-v2', 'revision': 3},
+    }
+    raw = formal_result(run)
+    head, _, yaml_body = raw['diagnosis'].partition('```yaml\n')
+    strategy = yaml.safe_load(yaml_body.split('```')[0])['channel_strategy']
+    sections = {key: {'status': 'retest', 'evidence': ['证据'], 'conclusion': '结论'} for key in SECTIONS}
+    sections['topics'].update(primary=[], secondary=[], boundary='主线边界', counterexamples=[])
+    sections['scheduling_playlist'] = {
+        **sections.pop('selection_guidance'),
+        'conclusion': '旧的列表归属建议',
+        'playlist_reference': ['列表一', '列表二'],
+    }
+    strategy['operating_reference'] = sections
+    raw['diagnosis'] = head + '```yaml\n' + yaml.safe_dump({'channel_strategy': strategy}, allow_unicode=True) + '```'
+    raw['executor_checkpoints'] = {'analysis-profile.json': {'result': {'profile': raw['profile']}}}
+    run.error = '运营参考播放列表建议必须为文字'
+    run.attempts = [{'raw_result': deepcopy(raw), 'error': run.error, 'outcome': 'failed'}]
+    snapshot = deepcopy(run.input_snapshot)
+    s.commit()
+    recovered = service.resume_run(s, run.id, stopped_confirmed=True)
+    assert recovered.status == 'ready' and recovered.claim_id is None
+    assert recovered.report_id is None and recovered.dna_id is None
+    assert recovered.input_snapshot == snapshot
+    assert recovered.attempts[-1]['raw_result'] == raw
+    for key in ('profile', 'diagnosis', 'generation_spec', 'normalized_snapshot'):
+        assert recovered.result[key] == raw[key]
+    view = recovered.result['operating_reference']
+    assert 'scheduling_playlist' not in view
+    assert view['selection_guidance'] == {
+        'status': 'retest', 'evidence': ['证据'], 'conclusion': '主线边界', 'boundary_only': True,
+    }
+    assert s.get(ChannelAnalysisRun, run.id).status == 'ready'
+
+
+def test_screenshot_compares_studio_period_separately_from_clipped_api(tmp_path):
+    from zhiju.services.channel_analysis_normalize import normalize_sources, formal_snapshot
+    from zhiju.v14_executor.channel_analysis import screenshot_stage
+
+    api_window = {'start': '2026-10-27', 'end': '2026-11-07', 'complete_days': 12}
+    studio_window = {'start': '2026-10-11', 'end': '2026-11-07', 'complete_days': 28}
+    materials = [{'id': 'audience', 'kind': 'audience', 'name': 'Audience.png', 'suffix': '.png'}]
+    channel = {'youtube_channel_id': 'UCtest'}
+    source = {'windows': {'28': api_window, '90': {}}, 'studio_windows': {'zip': studio_window},
+              'screenshots': materials}
+    source['normalized'] = normalize_sources(source, channel, 'periodic')
+    source['fact_snapshot'] = formal_snapshot(source, channel)
+    prompt = screenshot_stage({'materials': materials, 'input_snapshot': {'channel': channel, 'sources': source}}, tmp_path).prompt
+    assert json.loads(next(line.partition('：')[2] for line in prompt.splitlines()
+                           if line.startswith('Studio 截图核对窗口：'))) == studio_window
+    assert json.loads(next(line.partition('：')[2] for line in prompt.splitlines()
+                           if line.startswith('API 指标窗口：')))['recent_28d'] == api_window
+
+    check = {'identity_matches': True, 'page_matches': True, 'window_matches': True,
+             'evidence': 'UCtest Audience Oct 11 – Nov 7'}
+    for rejected in ('identity_matches', 'page_matches', 'window_matches'):
+        with pytest.raises(ConflictError, match='未核实'):
+            service.validate_screenshot_checks(SimpleNamespace(materials=materials), {
+                'audience': {**check, rejected: False},
+            })
+    service.validate_screenshot_checks(SimpleNamespace(materials=materials), {'audience': check})
+    source['screenshot_checks'] = {'audience': {**check, 'observations': [
+        {'metric': 'monthly_audience', 'window': '2026-10-11 – 2026-11-07'},
+    ]}}
+    facts = formal_snapshot(source, channel)
+    assert facts['data_windows']['recent_28d'] == api_window
+    assert facts['audience_28d']['studio_segments']['observations'][0]['matches_formal_window'] is True

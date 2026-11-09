@@ -210,3 +210,47 @@ def test_cold_start_api_rejects_unlinked_channel(client):
     response=client.post('/api/v3/channels/channel-a/cold-start',json={})
     assert response.status_code==409,response.text
     assert '授权' in response.text
+
+
+def test_cold_start_freezes_r4_selection_guidance_from_the_release_archive(session, tmp_path):
+    from zhiju.channel_analysis_rules.operating_reference import SECTIONS
+    from zhiju.services import skill_catalog
+    from zhiju.v14_executor.channel_analysis import generation_spec_stage, stage_for
+
+    s, channel = session
+    archive = skill_catalog.BUNDLE.with_name('xy-yt-report-v2-r4.zip').read_bytes()
+    for _ in range(3):
+        version = skill_catalog.upload(s, skill_catalog.ANALYSIS, 'xy-yt-report-v2', 'test', archive)
+    assert version['revision'] == 4
+    skill_catalog.publish(s, skill_catalog.ANALYSIS, version['id'])
+    skill_catalog.select_default(s, skill_catalog.ANALYSIS, version['id'])
+
+    run = create(s, channel)
+    data = service.run_read(run)
+    assert run.input_snapshot['operating_reference_skill']['id'] == version['id']
+    assert 'playlists' not in run.input_snapshot
+    assert 'selection_guidance' in run.input_snapshot['skill_version']['files']['SKILL.md']
+    assert 'selection_guidance' in stage_for(data, tmp_path).prompt
+    assert 'use the confirmed workflow input' in generation_spec_stage(data, result_for(run)).prompt
+
+    raw = result_for(run)
+    head, _, body = raw['diagnosis'].partition('```yaml\n')
+    strategy = yaml.safe_load(body.split('```')[0])['channel_strategy']
+    reference = {key: {'status': 'cold_start_hypothesis', 'evidence': ['用户确认定位'],
+                       'conclusion': '选择真正推动主线的剧'} for key in SECTIONS}
+    reference['topics'].update(primary=[], secondary=[], boundary='剧情驱动', counterexamples=[])
+    strategy['operating_reference'] = reference
+
+    def report():
+        return {**raw, 'diagnosis': head + '```yaml\n' + yaml.safe_dump(
+            {'channel_strategy': strategy}, allow_unicode=True) + '```'}
+
+    service.start_run(s, run.id)
+    claim = service.claim_run(s, 'host')
+    reference['scheduling_playlist'] = reference.pop('selection_guidance')
+    with pytest.raises(ConflictError, match='约定的八栏'):
+        service.submit_result(s, run.id, claim['claim_id'], result=report())
+    reference['selection_guidance'] = reference.pop('scheduling_playlist')
+    ready = service.submit_result(s, run.id, claim['claim_id'], result=report())
+    assert ready.status == 'ready'
+    assert ready.result['operating_reference'] == reference

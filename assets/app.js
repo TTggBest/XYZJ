@@ -735,14 +735,15 @@
     const cards = versions.map(dna => `<article class="hub-report"><header><div><strong>运营参考 v${dna.version_number}</strong><span class="cell-sub">${esc(languageLabel(dna.language))} · ${fmtUtc(dna.created_at)}</span></div>${tag(dna.status)}</header><div class="detail-grid">${settingValue("主题材", dna.primary_genre)}${settingValue("辅题材", dna.secondary_genre || "—")}${settingValue("年龄倾向", dna.age_tendency || "—")}${settingValue("性别倾向", dna.gender_tendency || "—")}</div>${[["运营包参考", dna.reference_summary], ["用户画像", dna.audience_summary], ["情绪偏好", dna.emotion_preference], ["剧情偏好", dna.plot_preference], ["角色偏好", dna.character_preference], ["冲突偏好", dna.conflict_preference], ["标题风格", dna.title_style], ["封面风格", dna.cover_style], ["社群风格", dna.community_style], ["内容节奏", dna.content_pace]].map(([title, value]) => value ? `<div class="detail-block"><h3>${title}</h3><p>${esc(value)}</p></div>` : "").join("")}${(dna.signals || []).length ? `<div class="detail-block"><h3>高低表现信号</h3>${reportList(dna.signals, "")}</div>` : ""}</article>`).join("");
     const active = detail.operating_reference;
     const titles = {positioning:"频道定位",topics:"主辅题材与边界",empathy:"观众共情点",reusable_patterns:"可复用模式",
-      title:"目标语标题方案",cover:"封面方案",scheduling_playlist:"排期与播放列表参考",validation:"待验证方向"};
+      title:"目标语标题方案",cover:"封面方案",selection_guidance:"选剧指导",validation:"待验证方向"};
     const states = {data_supported:"本期数据支持",retest:"待复验",cold_start_hypothesis:"冷启动假设"};
     const sections = active ? Object.entries(titles).map(([key, label]) => {
       const item = active.sections[key];
+      if (!item) return "";
       const lines = key === "topics"
         ? ["主题材 · "+item.primary.join(" / "), "辅题材 · "+item.secondary.join(" / "),
            item.boundary, "反例 · "+item.counterexamples.join(" / ")]
-        : [item.conclusion, ...(item.examples || []), item.playlist_reference].filter(Boolean);
+        : [item.conclusion, ...(item.examples || []), item.boundary_only ? "旧版仅提供题材边界，缺少选剧理由及试验方向。" : ""].filter(Boolean);
       return `<article class="hub-record"><h4>${esc(label)} · ${esc(states[item.status])}</h4>${lines.map(line => `<p>${esc(line)}</p>`).join("")}<p class="cell-sub">${esc(item.evidence.join(" / "))}</p></article>`;
     }).join("") : "";
     const current = active ? `<section class="detail-block"><h3>当前已应用运营参考 · 报告 v${esc(active.version)}</h3>${sections}</section>`
@@ -3075,15 +3076,20 @@
         if (action === "resume-channel-analysis" && !window.confirm("请确认上次本机分析已停止，再继续。已保存的数据会保留。")) return;
         analysisActionPending.add(id);
         const label=button.textContent;
-        button.disabled=true;button.textContent="正在唤起…";
-        notify("正在连接本机执行器，请稍候…");
+        button.disabled=true;button.textContent="正在处理…";
         try {
-          const config={...await prepareV14Executor(auth.capture()),task_type:"channel_analysis"};
+          const revision = auth.capture();
           if (action === "resume-channel-analysis") {
-            const restored=await api(`/analysis-runs/${id}/resume`,{method:"POST",body:JSON.stringify({stopped_confirmed:true})});
+            const restored=await api(`/analysis-runs/${id}/resume`,{method:"POST",expectedRevision:revision,body:JSON.stringify({stopped_confirmed:true})});
             state.analysisHistoryPage=1;
             if (restored.status === "draft") {openModal("分析材料",analysisMaterialsForm(restored));return;}
+            if (restored.status === "ready") {
+              notify("已恢复原分析结果，可查看报告");
+              await showChannelDetail(state.channelDetailId,"analysis");
+              return;
+            }
           }
+          const config={...await prepareV14Executor(revision),task_type:"channel_analysis"};
           await localV14Request("/start",config);
           const current=await api(`/analysis-runs/${id}`);
           notify(current.status === "running" ? "分析已在执行，可点击刷新进度查看" : "已唤起本机执行器，等待领取任务；无需重复点击");

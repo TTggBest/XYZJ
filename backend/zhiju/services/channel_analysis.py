@@ -3,7 +3,9 @@ import copy
 import json
 import re
 from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
-from zhiju.channel_analysis_rules.operating_reference import is_reference_revision, validate_reference
+from zhiju.channel_analysis_rules.operating_reference import (
+    LEGACY_PLAYLIST_ERROR, is_reference_revision, selection_reference, uses_selection_guidance, validate_reference,
+)
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -176,6 +178,16 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
     formal_skill = analysis_snapshot(session)
     skill_version = cold_start_skill(session) if cold_start else formal_skill
     reference_required = is_reference_revision(formal_skill)
+    selection_guidance = uses_selection_guidance(formal_skill)
+    if cold_start and selection_guidance:
+        skill_version['files']['SKILL.md'] += (
+            '\n\n使用当前冻结输出契约的八栏运营参考。第七栏 selection_guidance 只写题材边界、选择理由和试验方向。'
+            '八栏均为 cold_start_hypothesis，证据来自已登记身份、已确认定位和初始题材，或标明待取证据。'
+            'PLAYLIST 段仅声明使用工作流确认的归属，禁止生成播放列表建议。'
+        )
+        for filename in ('references/output-contract.md', 'references/generation-spec-contract.md',
+                         'assets/generation-spec-template.md'):
+            skill_version['files'][filename] = formal_skill['files'][filename]
     snapshot = {'mode':mode, 'positioning':positioning,
         'channel':{k:getattr(channel,k) for k in ('id','youtube_channel_id','original_name','default_language',
             'country_name_zh','default_genre','drama_type','timezone')},
@@ -187,6 +199,8 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         'model':setting.payload['default_model'],'account_profile':setting.payload['account_profile'],
         'skill_version':skill_version,
         'rules':{Path(name).name:body for name,body in skill_version['files'].items() if name.startswith('references/') and name.endswith('.md')}}
+    if selection_guidance:
+        snapshot.pop('playlists')
     if reference_required:
         snapshot['operating_reference_required'] = True
         snapshot['operating_reference_skill'] = {key: formal_skill[key] for key in ('id', 'label', 'revision')}
@@ -325,6 +339,21 @@ def resume_run(session,run_id,stopped_confirmed=False):
     if existing:raise ConflictError('频道已有未结束的分析任务，请先完成或取消该任务')
     from zhiju.services.executor_queue import release_stopped_run
     release_stopped_run(session,'channel_analysis',run.id)
+    if run.status=='failed' and run.mode=='periodic' and run.error==LEGACY_PLAYLIST_ERROR and run.attempts:
+        raw = (run.attempts[-1].get('raw_result') or {}).copy()
+        raw.pop('executor_checkpoints', None)
+        try:
+            recovered = validate_result(run, raw)
+        except ConflictError:
+            pass  # Any other validation error still follows normal checkpoint recovery.
+        else:
+            previous_claim = run.claim_id
+            run.claim_id = None
+            run.error = None
+            _accept_result(session, run, recovered)
+            _audit(session,'channel_analysis.recovered_result','channel_analysis_run',run.id,previous_claim)
+            session.commit()
+            return run
     run.claim_id=None;run.error=None
     run.status='draft' if run.phase=='materials' else 'queued'
     session.commit();return run
@@ -407,12 +436,25 @@ def validate_result(run,result):
     result.pop('operating_reference', None)
     if run.input_snapshot.get('operating_reference_required'):
         try:
-            result['operating_reference'] = validate_reference(strategy, cold_start=run.mode == 'initial')
+            result['operating_reference'] = validate_reference(
+                strategy, cold_start=run.mode == 'initial',
+                skill=run.input_snapshot.get('operating_reference_skill') or {},
+            )
         except ValueError as exc:
             raise ConflictError(str(exc)) from exc
     if run.mode!='periodic':
         result['normalized_snapshot']['authoritative_sources']=run.input_snapshot.get('sources',{})
     return result
+
+
+def _accept_result(session, run, result):
+    run.result = result
+    run.status = run.phase = 'ready'
+    # A failed older delivery must not overwrite a later completed report on retry.
+    for older in session.scalars(select(ChannelAnalysisRun).where(
+        ChannelAnalysisRun.channel_id==run.channel_id,ChannelAnalysisRun.id!=run.id,
+        ChannelAnalysisRun.status=='ready',ChannelAnalysisRun.created_at<run.created_at)):
+        if older.mirror_status!='completed':older.mirror_status='superseded'
 
 
 def submit_result(session,run_id,claim_id,*,result=None,error=None):
@@ -426,7 +468,10 @@ def submit_result(session,run_id,claim_id,*,result=None,error=None):
             run.attempts=attempts;session.commit()
         return run
     if run.status in {'ready','applied','superseded'} and run.claim_id==claim_id and result is not None:
-        if run.result==validate_result(run,result):return run
+        stored = run.result
+        if stored and stored.get('operating_reference'):
+            stored = {**stored, 'operating_reference': selection_reference(stored['operating_reference'])}
+        if stored==validate_result(run,result):return run
     run=claimed(session,run_id,claim_id)
     if run.input_snapshot.get('cold_start') and not error:
         verify_cold_start_authorization(session,run.channel_id,run.input_snapshot['channel']['youtube_channel_id'])
@@ -434,12 +479,7 @@ def submit_result(session,run_id,claim_id,*,result=None,error=None):
     if error:
         run.status='failed';run.error=error[:4000]
     else:
-        run.result=validate_result(run,result or {});run.status='ready';run.phase='ready'
-        # A failed older delivery must not overwrite a later completed report on retry.
-        for older in session.scalars(select(ChannelAnalysisRun).where(
-            ChannelAnalysisRun.channel_id==run.channel_id,ChannelAnalysisRun.id!=run.id,
-            ChannelAnalysisRun.status=='ready',ChannelAnalysisRun.created_at<run.created_at)):
-            if older.mirror_status!='completed':older.mirror_status='superseded'
+        _accept_result(session, run, validate_result(run, result or {}))
     run.attempts=list(run.attempts or [])+[{'claim_id':claim_id,'outcome':run.status,
         'error':run.error,'raw_result':result,'at':datetime.now(timezone.utc).isoformat()}]
     session.commit();return run

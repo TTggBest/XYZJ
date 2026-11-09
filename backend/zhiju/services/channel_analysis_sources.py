@@ -108,7 +108,7 @@ def collect(session,run_id,claim_id,fetcher=_youtube_request_json):
             raise ConflictError('Studio 导出周期不是近期完整28天，请上传近期导出')
         if not sources.get('windows'):
             end=studio_end
-            # Studio and API use the same completed period.
+            # Keep the Studio end date and clip the API start to channel creation.
             windows={}
             for days in (28,90):
                 start=max(created,end-timedelta(days=days-1))
