@@ -1,14 +1,13 @@
 """First 20 Beijing days of a same-language channel registration batch."""
-from datetime import date, datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import exists, select
 
 from zhiju.models import Channel, ChannelScheduleEntry
 from zhiju.models.v14 import V14Setting
+from zhiju.scheduling_rules.contract import BEIJING, slot_local_datetime
 from zhiju.services.identity import ConflictError
 
-BEIJING = ZoneInfo('Asia/Shanghai')
 CANCELLED = ('cancelled', 'replaced')
 
 
@@ -30,16 +29,12 @@ def registration_day(channel):
     return stamp.astimezone(BEIJING).date().isoformat()
 
 
-def identity(language, channel, targets, slots):
+def identity(language, channel, targets, slots, *, date_basis=None):
     by_id = {slot['id']: slot for slot in slots}
     starts = []
     for target in targets:
         slot = by_id[target['publish_slot_id']]
-        local = datetime.combine(
-            date.fromisoformat(target['publish_date']),
-            time.fromisoformat(slot['local_time']),
-            ZoneInfo(slot['timezone']),
-        )
+        local = slot_local_datetime(date.fromisoformat(target['publish_date']), slot, date_basis)
         starts.append(local.astimezone(BEIJING).date())
     return {'language': language, 'registered_on': registration_day(channel), 'first_publish_on': min(starts).isoformat()}
 

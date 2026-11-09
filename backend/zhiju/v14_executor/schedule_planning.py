@@ -49,9 +49,8 @@ REFERENCE_ASSESSMENT_SCHEMA = array_schema({
 
 def reference_rows(snapshot, assessments):
     """Reserve strong candidates first, then fill remaining slots from real stock."""
-    from datetime import datetime, time, timezone
-    from zoneinfo import ZoneInfo
-    from zhiju.scheduling_rules.contract import utc
+    from datetime import datetime, timezone
+    from zhiju.scheduling_rules.contract import BEIJING, slot_local_datetime, utc
 
     candidates = {row['id']: row for row in snapshot['candidates']}
     playlists = {row['id'] for row in snapshot['playlists']}
@@ -64,12 +63,9 @@ def reference_rows(snapshot, assessments):
     targets = []
     for target in snapshot['targets']:
         slot = slots[target['publish_slot_id']]
-        zone = ZoneInfo(slot['timezone'])
-        local = datetime.combine(date.fromisoformat(target['publish_date']), time.fromisoformat(slot['local_time']), zone)
+        local = slot_local_datetime(date.fromisoformat(target['publish_date']), slot, snapshot.get('date_basis'))
         instant = local.astimezone(timezone.utc)
-        if instant.astimezone(zone).replace(tzinfo=None) != local.replace(tzinfo=None):
-            raise ValueError('档位落在夏令时跳过的当地时间，请调整档位后重新规划')
-        beijing_day = instant.astimezone(ZoneInfo('Asia/Shanghai')).date().isoformat()
+        beijing_day = instant.astimezone(BEIJING).date().isoformat()
         targets.append((instant, beijing_day, target))
     targets.sort(key=lambda row: (row[0], row[2]['publish_slot_id']))
 
@@ -251,6 +247,7 @@ def generate(model,run,root,progress=None):
         'plot_evidence复制该候选的原文引用。空档位必须全部覆盖。'+topic_rule+
         '\n档位：'+encode(snapshot['slots'])+
         ('\n本系统首个排期日：'+snapshot['first_scheduled_date'] if not slot_topics else '')+
+        ('\n空档位的 publish_date 是北京时间日期，按原值返回。' if snapshot.get('date_basis') == 'beijing' else '')+
         '\n空档位：'+encode(snapshot['targets'])+'\n候选判断：'+encode(compact))
     # Validate before upload and use concrete failure feedback to replan only this stage.
     from zhiju.scheduling_rules.contract import validate_result

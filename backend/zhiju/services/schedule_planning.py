@@ -5,7 +5,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 import yaml
-from sqlalchemy import func, select, or_, case
+from sqlalchemy import and_, func, select, or_, case
 from zhiju.models import (Channel, ChannelSchedulePlan, ChannelScheduleEntry, ChannelPublishSlot,
     Drama, DramaProductionState, ChannelDnaVersion, ChannelPlaylist, ScheduleCandidate, ScheduleChangeHistory, Language, PublishCadenceTemplateSlot)
 from zhiju.channel_analysis_rules.strategy import strategy_yaml_block
@@ -121,29 +121,39 @@ def cadence_slots(session,channel_id,daily_count):
              'local_time':r.local_video_time.isoformat(),'timezone':channel.timezone} for r in slots]
 
 
-def occupied_targets(session,channel_id,slots,dates):
+def occupied_targets(session,channel_id,slots,dates,*,date_basis=None):
     """Match saved schedule definitions to template slots, including historical archived slots."""
-    rows=session.execute(select(ChannelScheduleEntry,ChannelPublishSlot).outerjoin(
+    if not dates:return set()
+    if date_basis == 'beijing':
+        start = datetime.combine(min(dates), datetime.min.time())
+        end = datetime.combine(max(dates) + timedelta(days=1), datetime.min.time())
+        condition = and_(ChannelScheduleEntry.planned_beijing_time >= start,
+                         ChannelScheduleEntry.planned_beijing_time < end)
+        day = lambda row: row.planned_beijing_time.date()
+    else:
+        condition = ChannelScheduleEntry.publish_date.in_(dates)
+        day = lambda row: row.publish_date
+    rows=[(day(row), stored) for row,stored in session.execute(select(ChannelScheduleEntry,ChannelPublishSlot).outerjoin(
         ChannelPublishSlot,ChannelPublishSlot.id==ChannelScheduleEntry.publish_slot_id).where(
-        ChannelScheduleEntry.channel_id==channel_id,ChannelScheduleEntry.publish_date.in_(dates))).all()
+        ChannelScheduleEntry.channel_id==channel_id,condition)) if day(row) in dates]
     occupied=set()
     counts={}
-    for schedule,_ in rows:
-        counts[schedule.publish_date]=counts.get(schedule.publish_date,0)+1
-    for schedule,stored in rows:
-        if counts[schedule.publish_date]>=len(slots):
-            occupied.update((schedule.publish_date.isoformat(),slot['id']) for slot in slots)
+    for scheduled_day,_ in rows:
+        counts[scheduled_day]=counts.get(scheduled_day,0)+1
+    for scheduled_day,stored in rows:
+        if counts[scheduled_day]>=len(slots):
+            occupied.update((scheduled_day.isoformat(),slot['id']) for slot in slots)
             continue
         if stored is None:raise ConflictError('已有排期缺少档位记录，请先核对该日期的排期')
         same_type=[slot for slot in slots if slot['slot_type']==stored.slot_type]
         if len(same_type)==1:
-            occupied.add((schedule.publish_date.isoformat(),same_type[0]['id']))
+            occupied.add((scheduled_day.isoformat(),same_type[0]['id']))
         elif same_type:
             matches=[slot for slot in same_type if slot['local_time']==stored.local_time.isoformat()
                      and slot['timezone']==stored.timezone]
             if len(matches)!=1:
                 raise ConflictError('所选日期已有辅档排期与当前统一模板不一致，请先核对已有排期')
-            occupied.add((schedule.publish_date.isoformat(),matches[0]['id']))
+            occupied.add((scheduled_day.isoformat(),matches[0]['id']))
     return occupied
 
 
@@ -239,7 +249,7 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
     pool,excluded=candidate_pool(session,channel)
     existing=list(session.scalars(select(ChannelScheduleEntry).where(ChannelScheduleEntry.channel_id==channel_id)))
     dates=[start_date+timedelta(days=offset) for offset in range((end_date-start_date).days+1)]
-    occupied=occupied_targets(session,channel_id,slots,dates)
+    occupied=occupied_targets(session,channel_id,slots,set(dates),date_basis='beijing')
     targets=[]
     for offset in range((end_date-start_date).days+1):
         day=(start_date+timedelta(days=offset)).isoformat()
@@ -249,10 +259,10 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
     if not targets:raise ConflictError('所选日期的档位已有排期，没有可新增的空档位')
     if not pool:raise ConflictError('没有可用候选剧：请核对最终合成、频道语言成片清单、历史排期与剧情资料')
     snapshot={'channel':{k:getattr(channel,k) for k in ('id','youtube_channel_id','original_name','default_language','timezone','default_genre')},
-        'start_date':start_date.isoformat(),'end_date':end_date.isoformat(),'daily_count':daily_count,
-        'first_scheduled_date':min([start_date]+[r.publish_date for r in existing if r.status not in {'cancelled','replaced'}]).isoformat(),
+        'start_date':start_date.isoformat(),'end_date':end_date.isoformat(),'daily_count':daily_count,'date_basis':'beijing',
+        'first_scheduled_date':min([start_date]+[r.planned_beijing_time.date() for r in existing if r.status not in {'cancelled','replaced'}]).isoformat(),
         'guidance':guidance,'slots':slots,'targets':targets,'candidates':pool,'excluded':excluded,
-        'history':[{'drama_id':r.drama_id,'publish_date':r.publish_date.isoformat(),'status':r.status} for r in existing],
+        'history':[{'drama_id':r.drama_id,'publish_date':r.planned_beijing_time.date().isoformat(),'status':r.status} for r in existing],
         'skill_version':skill_version,
         'model':setting.payload['default_model'],'account_profile':setting.payload['account_profile']}
     if slot_topics is not None:
@@ -261,7 +271,7 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
         snapshot['analysis_topics'] = topics
     if uses_reference:
         batch = schedule_batch.identity(language_code(language_aliases(session), channel.default_language),
-                                        channel, targets, slots)
+                                        channel, targets, slots, date_basis='beijing')
         first, last, blocked = schedule_batch.reservations(session, channel_id, batch)
         snapshot.update(operating_reference=reference, playlists=playlists, batch=batch,
                         batch_window={'first': first.isoformat(), 'last': last.isoformat()},
@@ -353,7 +363,7 @@ def apply_plan(session,plan_id):
     if not selected:raise ConflictError('所有档位均缺少合格剧目，没有可保存的排期')
     if batch:
         current_batch = schedule_batch.identity(language_code(language_aliases(session), channel.default_language),
-                                                channel, snapshot['targets'], snapshot['slots'])
+                                                channel, snapshot['targets'], snapshot['slots'], date_basis=snapshot.get('date_basis'))
         if current_batch != batch:
             raise ConflictError('频道录入日期或同批身份已变化，请重新规划')
         _, _, blocked = schedule_batch.reservations(session, channel.id, batch)
@@ -374,7 +384,7 @@ def apply_plan(session,plan_id):
         if entry['drama_id'] not in current:raise ConflictError('候选剧已失效或已排入本频道，请重新规划')
         if current[entry['drama_id']]!=frozen[entry['drama_id']]:raise ConflictError('候选剧资料已变化，请重新规划')
     existing=occupied_targets(session,channel.id,snapshot['slots'],
-        {date.fromisoformat(r['publish_date']) for r in selected})
+        {date.fromisoformat(r['publish_date']) for r in selected},date_basis=snapshot.get('date_basis'))
     if any((r['publish_date'],r['publish_slot_id']) in existing for r in selected):
         raise ConflictError('预览后的档位已被占用，请重新规划；未保存任何新排期')
     guidance=snapshot['guidance'];dna_id=guidance['dna_id']
@@ -391,7 +401,8 @@ def apply_plan(session,plan_id):
         schedules=[]
         for entry in selected:
             schedule=ChannelScheduleEntry(channel_id=channel.id,drama_id=entry['drama_id'],channel_dna_version_id=dna_id,
-                publish_slot_id=saved_slots[entry['publish_slot_id']].id,publish_date=date.fromisoformat(entry['publish_date']),
+                publish_slot_id=saved_slots[entry['publish_slot_id']].id,
+                publish_date=datetime.fromisoformat(entry['planned_local_time']).date(),
                 planned_local_time=datetime.fromisoformat(entry['planned_local_time']),
                 planned_utc_time=datetime.fromisoformat(entry['planned_utc_time']),
                 planned_beijing_time=datetime.fromisoformat(entry['planned_beijing_time']),

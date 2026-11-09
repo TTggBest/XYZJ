@@ -93,7 +93,7 @@ def test_preview_is_read_only_and_apply_is_atomic_idempotent_with_frozen_guidanc
     service.submit_result(s,run.id,claim['claim_id'],result=result)
     assert run.status=='ready'
     assert list(s.scalars(select(ChannelScheduleEntry)))==[]
-    assert run.result['rows'][0]['planned_beijing_time']=='2026-11-04T09:00:00'
+    assert run.result['rows'][0]['planned_beijing_time']=='2026-11-03T09:00:00'
     service.apply_plan(s,run.id)
     rows=list(s.scalars(select(ChannelScheduleEntry)))
     assert len(rows)==1

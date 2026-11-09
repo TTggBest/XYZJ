@@ -1,19 +1,32 @@
 """Pure scheduling result contract shared by cloud and database-free executors."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 SLOT_TOPICS_PROTOCOL = 9
 REFERENCE_PROTOCOL = 10
 
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
+BEIJING = ZoneInfo('Asia/Shanghai')
 
 
 def utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
+def slot_local_datetime(day, slot, date_basis):
+    zone = ZoneInfo(slot['timezone'])
+    clock = time.fromisoformat(slot['local_time'])
+    local = datetime.combine(day, clock, zone)
+    if date_basis == 'beijing':
+        local += timedelta(days=(day - local.astimezone(BEIJING).date()).days)
+        if local.astimezone(BEIJING).date() != day:
+            raise ValueError('该当地档位无法落在所选北京时间日期，请调整档位')
+    if local.astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None) != local.replace(tzinfo=None):
+        raise ValueError('档位落在夏令时跳过的当地时间，请调整档位后重新规划')
+    return local
+
+
 def validate_result(snapshot,result):
-    from datetime import time
     if not isinstance(result,dict) or not isinstance(result.get('rows'),list):raise ValueError('排期输出缺少 rows')
     targets={(r['publish_date'],r['publish_slot_id']) for r in snapshot['targets']}
     candidates={d['id']:d for d in snapshot['candidates']}
@@ -75,14 +88,11 @@ def validate_result(snapshot,result):
         duration=drama['duration_seconds']
         if not reference and slot['slot_type']=='main' and (duration is None or duration<6000):
             raise ValueError('主档不足100分钟或时长未知，请标记缺口而非静默替代')
-        local=datetime.combine(date.fromisoformat(key[0]),time.fromisoformat(slot['local_time']),ZoneInfo(slot['timezone']))
+        local=slot_local_datetime(date.fromisoformat(key[0]),slot,snapshot.get('date_basis'))
         instant=local.astimezone(timezone.utc)
-        # A nonexistent DST clock time has no matching round trip.
-        if instant.astimezone(ZoneInfo(slot['timezone'])).replace(tzinfo=None)!=local.replace(tzinfo=None):
-            raise ValueError('档位落在夏令时跳过的当地时间，请调整档位后重新规划')
         if drama['expires_at'] and utc(datetime.fromisoformat(drama['expires_at']))<=instant:
             raise ValueError('剧目在计划发布时间已到期')
-        beijing = instant.astimezone(ZoneInfo('Asia/Shanghai'))
+        beijing = instant.astimezone(BEIJING)
         if (drama_id, beijing.date().isoformat()) in blocked:
             raise ValueError('同批同语频道已在同一北京时间日期使用该剧')
         if reference and duration is not None and duration < 1800:
@@ -94,6 +104,12 @@ def validate_result(snapshot,result):
             'planned_beijing_time':beijing.replace(tzinfo=None).isoformat(),
             'warnings':['时长未验证' if reference else '辅档时长未验证'] if duration is None else []})
     if seen!=targets:raise ValueError('输出没有覆盖所有空档位；无合格剧目时也须逐档说明缺口')
-    return {'rows':sorted(rows,key=lambda r:(r['publish_date'],slots[r['publish_slot_id']]['local_time'])),
+    def order(row):
+        slot = slots[row['publish_slot_id']]
+        if snapshot.get('date_basis') == 'beijing':
+            return slot_local_datetime(date.fromisoformat(row['publish_date']), slot, 'beijing').astimezone(BEIJING)
+        return row['publish_date'], slot['local_time']
+
+    return {'rows':sorted(rows,key=order),
             'schedule_ids':[]}
 

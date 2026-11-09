@@ -59,11 +59,11 @@ def test_http_preview_confirm_and_readback(client,store,daily_count,expected):
     assert [row['community_count'] for row in rows] == [expected] * daily_count
     rows.sort(key=lambda row: row['drama_id'] != 'drama-a')
     assert rows[0]['drama_id']=='drama-a'
-    assert rows[0]['planned_beijing_time'].startswith('2026-11-04T09:00:00')
+    assert rows[0]['planned_beijing_time'].startswith('2026-11-03T09:00:00')
     assert client.post(f'/api/v3/schedule-plans/{pid}/apply').json()['status']=='applied'
     assert len(client.get('/api/v3/schedules').json())==daily_count
     overview=client.get('/api/v3/schedules/overview',params={
-        'channel_id':'channel-a','date_from':'2026-11-04','date_to':'2026-11-04'})
+        'channel_id':'channel-a','date_from':'2026-11-03','date_to':'2026-11-03'})
     assert overview.status_code==200,overview.text
     main = next(row for row in overview.json() if row['slot_type']=='main')
     assert main['slot_local_time']=='20:00:00'

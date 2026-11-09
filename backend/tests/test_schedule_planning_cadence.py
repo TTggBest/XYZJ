@@ -1,9 +1,39 @@
 from datetime import date, time
+import pytest
 from sqlalchemy import select
 from test_schedule_planning import data, configured
 from zhiju.models import (ChannelPublishSlot, PublishCadenceTemplateSlot, Drama, DramaProductionState,
                           ChannelScheduleEntry)
 from zhiju.services import schedule_planning as service
+
+
+@pytest.mark.parametrize('timezone,beijing_hour', [('America/Sao_Paulo', 5), ('Europe/Paris', 1)])
+def test_single_release_range_starts_and_ends_on_selected_beijing_days(data, timezone, beijing_hour):
+    configured(data)
+    s, channel, main, template, _ = data
+    channel.timezone = timezone
+    template.local_video_time = time(18)
+    extra = Drama(drama_number=2, drama_code='D2', chinese_title='夺回家产', normalized_title='夺回家产',
+                  status='active', content_summary='女主揭穿骗局，夺回家产。')
+    s.add(extra)
+    s.flush()
+    s.add(DramaProductionState(drama_id=extra.id, production_completion_status='completed',
+                               finished_languages=['en'], total_duration_seconds=7200))
+    s.commit()
+    plan = service.create_plan(s, channel.id, date(2026, 11, 10), date(2026, 11, 16), 1)
+    claim = service.claim_plan(s, 'host')
+    dramas = {'2026-11-10': main, '2026-11-16': extra}
+    rows = []
+    for target in plan.input_snapshot['targets']:
+        drama = dramas.get(target['publish_date'])
+        rows.append({**target, 'drama_id': drama.id if drama else None, 'reason': '按北京时间排期',
+                     'plot_evidence': drama.content_summary if drama else '', 'pairing_reason': '单更'})
+    service.submit_result(s, plan.id, claim['claim_id'], result={'rows': rows})
+    service.apply_plan(s, plan.id)
+    saved = s.scalars(select(ChannelScheduleEntry).order_by(ChannelScheduleEntry.planned_beijing_time)).all()
+    assert [(item.planned_beijing_time.day, item.planned_beijing_time.hour) for item in saved] == [
+        (10, beijing_hour), (16, beijing_hour)]
+    assert [(item.publish_date.day, item.planned_local_time.hour) for item in saved] == [(9, 18), (15, 18)]
 
 
 def test_ai_double_release_uses_the_same_templates_as_cadence_table_with_archived_slots(data):
@@ -35,10 +65,10 @@ def test_ai_double_release_uses_the_same_templates_as_cadence_table_with_archive
          'reason':'女主夺回权利','plot_evidence':'女主揭穿骗局，夺回家产。','pairing_reason':'同日以反击串联'},
         {'publish_date':'2026-11-10','publish_slot_id':main_template.id,'drama_id':main_drama.id,
          'reason':'女主主动反击','plot_evidence':'女主遭到背叛后夺回公司。','pairing_reason':'主档呈现较长完整故事'}]})
-    assert [r['planned_beijing_time'] for r in plan.result['rows']]==['2026-11-10T21:00:00','2026-11-11T05:00:00']
+    assert [r['planned_beijing_time'] for r in plan.result['rows']]==['2026-11-10T05:00:00','2026-11-10T21:00:00']
     service.apply_plan(s,plan.id)
     rows=list(s.scalars(select(ChannelScheduleEntry).order_by(ChannelScheduleEntry.planned_utc_time)))
-    assert [r.publish_slot_id for r in rows]==[old_aux.id,old_main.id]
+    assert [r.publish_slot_id for r in rows]==[old_main.id,old_aux.id]
     assert old_main.status==old_aux.status=='archived'
     assert len(list(s.scalars(select(ChannelPublishSlot))))==2
 
@@ -70,7 +100,7 @@ def test_existing_historical_main_blocks_the_same_template_slot_even_if_clock_ti
         planned_beijing_time=datetime(2026,11,11,7),planned_utc_time=datetime(2026,11,10,23),
         status='published',source_type='feishu',idempotency_key='old-feishu-row')
     s.add(existing);s.commit()
-    with pytest.raises(ConflictError,match='没有可新增'):service.create_plan(s,c.id,date(2026,11,10),date(2026,11,10),1)
+    with pytest.raises(ConflictError,match='没有可新增'):service.create_plan(s,c.id,date(2026,11,11),date(2026,11,11),1)
     assert list(s.scalars(select(ChannelScheduleEntry)))==[existing]
     assert existing.publish_slot_id==historical.id
 
