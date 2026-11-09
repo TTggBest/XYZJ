@@ -282,10 +282,16 @@ def attempt_input(session, run, attempt_id, claim_id, external_evidence=None):
     stage = build_stage_input(data, attempt.node_type)
     from zhiju.v14_executor.runner import apply_content_recovery
     apply_content_recovery(stage, data, attempt.node_type)
-    # The server still validates against the full, unchanged context on submission.
-    # Only search needs its frozen plot locally to attach retrieval evidence.
+    # Keep the full validation context on the server. Send only the fields
+    # the executor needs to assemble Find or validate native cover prompts.
+    context = {}
+    if attempt.node_type == 'search':
+        context['plot_payload'] = stage.context['plot_payload']
+    elif attempt.node_type == 'cover' and stage.rules.get('cover_concepts', {}).get('native_plugin'):
+        context = {key: stage.context[key] for key in ('casting', 'exclusion_sentence')
+                   if key in stage.context}
     return {key: getattr(stage, key) for key in ('node_type', 'prompt', 'schema', 'item', 'rules')} | {
-        'context': {'plot_payload': stage.context['plot_payload']} if attempt.node_type == 'search' else {}}
+        'context': context}
 
 
 def claim_run(session, host_id: str, *, executor_protocol: int = 2, claim_id: str | None = None, run_id: str | None = None):

@@ -167,6 +167,11 @@ def test_work_order_accepts_find_and_persists_fixed_titles(client, store, reques
     assert rejected.status_code == 409 and 'opening_repeats_title_1' in rejected.json()['detail']
     response = client.put(path, json={**claim_body, 'outcome': 'accepted', 'result': result})
     assert response.status_code == 200, response.text
+    if revision == 8:
+        _, cover = begin('cover')
+        assert set(cover['context']) == {'casting', 'exclusion_sentence'}
+        assert cover['context']['casting'] in cover['prompt']
+        assert cover['context']['exclusion_sentence'] in cover['prompt']
     with TenantSession(store, info={'tenant_id': 'tenant-a'}) as session:
         saved = session.scalars(select(PackageTitle).where(PackageTitle.package_id == claim['package_id'])
                                 .order_by(PackageTitle.variant_number)).all()
