@@ -98,6 +98,10 @@ def is_v20_revision_6(bundle: dict | None) -> bool:
     return bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision', 0) == 6)
 
 
+def is_v20_revision_7(bundle: dict | None) -> bool:
+    return bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision', 0) == 7)
+
+
 def executor_protocol(rules_snapshot: dict) -> int:
     bundle = rules_snapshot.get('skill_bundle')
     if not bundle:

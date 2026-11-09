@@ -118,7 +118,8 @@ def search_dates(now: datetime | None = None) -> dict[str, str]:
     }
 
 
-def collect_agent_reach_evidence(item: dict[str, Any], binary_path: str | None = None, *, query: str | None = None) -> dict[str, Any]:
+def collect_agent_reach_evidence(item: dict[str, Any], binary_path: str | None = None, *,
+                                 query: str | None = None, include_details: bool = True) -> dict[str, Any]:
     """Use Agent-Reach's documented YouTube backend; never download media."""
     binary = Path(binary_path) if binary_path else Path(shutil.which('yt-dlp') or '/Users/ttggmac-mini/.agent-reach/venv/bin/yt-dlp')
     query = query if query is not None else str(item.get('drama_name') or '').strip()
@@ -159,8 +160,10 @@ def collect_agent_reach_evidence(item: dict[str, Any], binary_path: str | None =
         except (OSError, ValueError, subprocess.TimeoutExpired):
             return row
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        enriched = list(pool.map(details, ranked[:3])) + ranked[3:]
+    enriched = ranked
+    if include_details:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            enriched = list(pool.map(details, ranked[:3])) + ranked[3:]
     for row in enriched:
         date = str(row.get('upload_date') or '')
         published_at = None
@@ -209,6 +212,23 @@ def collect_revision6_evidence(item):
     videos.update((row['video_url'], row) for row in mainland)
     status = 'failed' if not videos else ('completed' if all(x['status'] == 'completed' for x in searches) else 'partial')
     return {'provider': 'agent-reach', 'status': status, 'searches': searches, 'videos': list(videos.values())}
+
+
+def collect_revision7_titles(item):
+    name = item['drama_name']
+    language = item.get('market_language_name') or item['language']
+    pattern = re.split(r'[、，,；;]', item.get('plot_pattern') or '')[0].strip()
+    names = list(dict.fromkeys([name, *item.get('drama_aliases', [])]))
+    comparable = ' '.join(part for part in (item['direction'], pattern, language) if part)
+    queries = dict.fromkeys([*(f'{title} {language}' for title in names), *names, comparable])
+    titles = []
+    for query in queries:
+        result = collect_agent_reach_evidence(item, query=query, include_details=False)
+        titles.extend(row['video_title'] for row in result['videos'] if row.get('video_title'))
+    if not titles:
+        pages, _ = _mainland_search(f'{name} {pattern} 短剧 site:douyin.com OR site:hongguo.com')
+        titles.extend(page['video_title'] for page in pages)
+    return {'titles': list(dict.fromkeys(titles))}
 
 
 def _mainland_search(query):

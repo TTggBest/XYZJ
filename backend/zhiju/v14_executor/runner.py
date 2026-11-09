@@ -6,6 +6,7 @@ import time
 
 from zhiju.v14_runtime.contract import StageInput, build_stage_input, validate_result
 from zhiju.v14_runtime.market import collect_agent_reach_evidence, build_market_packaging_prompt
+from zhiju.workflow_bundles import is_v20_revision_7
 from .client import CloudConflict, CloudNotFound
 from .codex import CoverContentError, TitleContentError
 from .execution_state import ExecutionState
@@ -68,6 +69,9 @@ def apply_content_recovery(stage, envelope, node):
     if not failures:
         return
     feedback = "\n".join(str(row.get("error") or "") for row in failures[-3:])
+    if node == 'search' and is_v20_revision_7(stage.skill_bundle):
+        stage.prompt += "\n\n请核对剧库原文，修正上次校验指出的内部剧情记录问题。\n" + feedback
+        return
     if node in {"title", "cover_scene", "cover"}:
         feedback = str(failures[-1].get("error") or "")
         previous = failures[-1].get("result")
@@ -177,18 +181,20 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                     elif node == "search":
                         if stage.skill_bundle and evidence_provider is collect_agent_reach_evidence:
                             from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot, is_v20_revision_6
-                            if is_v20_revision_6(stage.skill_bundle):
+                            if is_v20_revision_7(stage.skill_bundle):
+                                from zhiju.v14_runtime.market import collect_revision7_titles
+                                evidence = collect_revision7_titles(stage.item)
+                            elif is_v20_revision_6(stage.skill_bundle):
                                 from zhiju.v14_runtime.market import collect_revision6_evidence
                                 evidence = collect_revision6_evidence(stage.item)
                             else:
                                 evidence = invoke_bundle(archive_from_snapshot(stage.skill_bundle), 'evidence', {'item': stage.item})
                         else:
                             evidence = evidence_provider(stage.item)
-                        # Keep failed retrieval evidence so Find can use its
-                        # existing plot-only fallback instead of stopping the run.
-                        if stage.skill_bundle:
+                        # R7 runs internal Find on the frozen plot alone.
+                        if stage.skill_bundle and not is_v20_revision_7(stage.skill_bundle):
                             stage = prepare(attempt_id, node, evidence)
-                        else:
+                        elif not stage.skill_bundle:
                             stage.prompt = build_market_packaging_prompt(stage.item, stage.context["plot_payload"], stage.rules["prompts"]["search"], evidence)
                         if not staged:
                             apply_content_recovery(stage, envelope, node)

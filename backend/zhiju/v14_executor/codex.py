@@ -10,6 +10,7 @@ from copy import copy, deepcopy
 import unicodedata
 
 from zhiju.v14_runtime.contract import StageInput, validate_result
+from zhiju.workflow_bundles import is_v20_revision_7
 
 
 class TitleContentError(RuntimeError):
@@ -57,6 +58,7 @@ class CodexClient:
         creation_plan = stage.rules.get('title_creation') if stage.node_type == 'title' else None
         if not creation_plan:
             return self._generate_once(stage, model)
+        fixed_slots = is_v20_revision_7(stage.skill_bundle)
         creation = copy(stage)
         creation.prompt = creation_plan['prompt']
         creation.schema = creation_plan['schema']
@@ -81,6 +83,9 @@ class CodexClient:
             '结果状态或语言错误，在现有title字段提出最小纠正，并在该组selection_reason说明错误与依据；'
             '执行器会作为内容错误交回创作阶段确认，不会在回填阶段自动接受或无声覆盖。'
             '不为润色或吸引力改写，不因中文参考措辞差异重做目标语标题；不添加字段。')
+        if fixed_slots:
+            fill.prompt += ('\n若发现两条标题使用同一事件、开场钩子或核心卖点重复，或偏离固定的 A/B/C 写法，'
+                '也在对应组提出纠正并说明原因，保留当前候选编号；由创作阶段在原方向重写或换用独立的有据事件。')
         metadata_trace = {'phase': 'title_metadata', 'model_call': True,
             'prompt': self.prompt_for(fill), 'schema': fill.schema, 'raw': None}
         self.phase_trace.append(metadata_trace)
@@ -96,6 +101,12 @@ class CodexClient:
                        for row in directions if row['title'] != locked[row['selected_candidate_id']]['title']]
         if corrections:
             raise TitleContentError('v18_title_public_correction: ' + json.dumps(corrections, ensure_ascii=False), baseline)
+        if fixed_slots:
+            filled_by_id = {row['selected_candidate_id']: row for row in directions}
+            directions = [filled_by_id[row['selected_candidate_id']] for row in rows]
+            for index, row in enumerate(directions, 1):
+                row.update(index=index, recommendation_score=4 - index)
+            output['directions'] = directions
         for row in directions:
             public = locked[row['selected_candidate_id']]
             row.update(title=public['title'], translation=public['translation'], char_count=len(public['title']))
@@ -275,7 +286,10 @@ class CodexClient:
                 "--model", model, "-c", "model_reasoning_effort=" + json.dumps(stage.rules.get("execution", {}).get("reasoning_effort", "medium")),
                 "--output-schema", str(schema), "--output-last-message", str(output)]
             if stage.node_type == "search":
-                args += ["--enable", "standalone_web_search"]
+                if is_v20_revision_7(stage.skill_bundle):
+                    args += ["--disable", "standalone_web_search", "-c", 'web_search="disabled"']
+                else:
+                    args += ["--enable", "standalone_web_search"]
             for attachment in getattr(stage, 'images', ()):
                 args += ['--image', str(attachment)]
             args += ["-"]
