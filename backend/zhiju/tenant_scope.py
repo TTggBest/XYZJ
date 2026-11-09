@@ -250,6 +250,7 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ("POST", "/api/v3/channels/{channel_id}/schedules"),
     ("POST", "/api/v3/channels/{channel_id}/youtube-authorization/start"),
     ("POST", "/api/v3/channels/{channel_id}/youtube-videos/sync"),
+    ("POST", "/api/v3/channels/youtube-avatars/sync"),
     ("POST", "/api/v3/schedules/{schedule_id}/youtube-selection"),
     ("POST", "/api/v3/dramas"),
     ("POST", "/api/v3/dramas/{drama_id}/production-state/cloud-download/complete"),

@@ -33,6 +33,7 @@ from zhiju.services.youtube_oauth import (
     load_oauth_token,
     refresh_oauth_access_token,
     save_oauth_token,
+    youtube_channel_identity,
 )
 
 
@@ -164,6 +165,57 @@ def _youtube_post_json(
 
 def _api_url(path: str, **params: object) -> str:
     return f"{YOUTUBE_API_ROOT}/{path}?{urlencode(params)}"
+
+
+def sync_channel_avatars(session: Session, store: object) -> dict:
+    """Refresh the tenant's channel-list avatars from public YouTube snippets."""
+    channels = select(Channel).where(Channel.deleted_at.is_(None)).order_by(Channel.id)
+    ids = list(session.scalars(channels.with_only_columns(Channel.youtube_channel_id)))
+    if not ids:
+        return {"updated": 0, "unchanged": 0, "missing": []}
+
+    grants = list(session.scalars(select(OAuthGrant)
+        .join(AccountChannelAuthorization, AccountChannelAuthorization.oauth_grant_id == OAuthGrant.id)
+        .join(Channel, Channel.id == AccountChannelAuthorization.channel_id)
+        .where(OAuthGrant.status == "active", AccountChannelAuthorization.status == "active",
+               AccountChannelAuthorization.verified_youtube_channel_id == Channel.youtube_channel_id,
+               Channel.deleted_at.is_(None))
+        .order_by(AccountChannelAuthorization.verified_at.desc())).unique())
+    for grant in grants:
+        try:
+            token = ensure_grant_access_token(session, store, grant)
+            avatars = {}
+            for offset in range(0, len(ids), 50):
+                chunk = ids[offset:offset + 50]
+                result = _youtube_request_json(_api_url(
+                    "channels", part="snippet", id=",".join(chunk), maxResults=50,
+                    fields="items(id,snippet(thumbnails))",
+                ), token)
+                for item in result.get("items", []):
+                    channel_id = item.get("id")
+                    _, avatar = youtube_channel_identity(item)
+                    if channel_id in chunk and avatar:
+                        avatars[channel_id] = avatar
+        except YouTubeAuthorizationRequired:
+            continue
+        break
+    else:
+        raise YouTubeAuthorizationRequired("没有可用的 YouTube 授权，请先授权一个频道后再同步头像")
+
+    updated = unchanged = 0
+    missing = []
+    current = channels.where(Channel.youtube_channel_id.in_(ids)).with_for_update()
+    for channel in session.scalars(current.execution_options(populate_existing=True)):
+        avatar = avatars.get(channel.youtube_channel_id)
+        if not avatar:
+            missing.append(channel.operational_name or channel.original_name)
+        elif channel.youtube_avatar_url == avatar:
+            unchanged += 1
+        else:
+            channel.youtube_avatar_url = avatar
+            updated += 1
+    session.commit()
+    return {"updated": updated, "unchanged": unchanged, "missing": missing}
 
 
 def create_remote_youtube_playlist(

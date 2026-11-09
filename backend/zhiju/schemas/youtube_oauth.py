@@ -17,6 +17,12 @@ class YouTubeOAuthClientStatus(BaseModel):
     legacy_file_available: bool = False
 
 
+class YouTubeAvatarSyncResult(BaseModel):
+    updated: int
+    unchanged: int
+    missing: list[str]
+
+
 class YouTubeAuthorizationStart(BaseModel):
     authorization_url: str
     expires_in_seconds: int

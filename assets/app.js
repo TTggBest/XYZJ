@@ -44,6 +44,7 @@
   Object.assign(state, {packageCopyConfirmations:new Map(), packageSelectedIds:new Set(), packageSelectionScope:"", packageViewMode:"date", packageHistoryChannel:""});
   const emptyPageState = structuredClone(state);
   const youtubeReauthorizationChannels = new Set();
+  let channelAvatarSyncRevision = null;
   let realtimeRetryTimer = null;
   let realtimeGeneration = 0;
   let workProgressTimer = null, workProgressBusy = false, drawerGeneration = 0;
@@ -375,11 +376,14 @@
       </tr>`;
     });
     const filtersActive = Boolean(state.channelAudience || state.channelLanguage);
+    const canSyncAvatars = (auth.can("channel.manage") || auth.current()?.platform_role === "super_admin") && oauthStatus.can_manage;
+    const syncingAvatars = channelAvatarSyncRevision === auth.capture();
     const actions = `<div class="toolbar channel-list-toolbar">
       <label class="field channel-list-control"><span>频类</span><select class="select" id="channelAudienceFilter"><option value="">全部频类</option><option value="female" ${state.channelAudience === "female" ? "selected" : ""}>女频</option><option value="male" ${state.channelAudience === "male" ? "selected" : ""}>男频</option></select></label>
       <label class="field channel-list-control"><span>语言</span><select class="select" id="channelLanguageFilter"><option value="">全部语言</option>${languageOptions.map(code => `<option value="${esc(code)}" ${state.channelLanguage === code ? "selected" : ""}>${esc(languageLabel(code))}</option>`).join("")}</select></label>
       <button class="button button-secondary" data-action="apply-channel-list-filters">${icon("list-filter")} 筛选</button>
       ${filtersActive ? `<button class="button button-secondary" data-action="reset-channel-list-filters">重置</button>` : ""}
+      ${canSyncAvatars ? `<button class="button button-secondary" data-action="sync-channel-avatars" title="从 YouTube 同步当前公司所有频道的头像" ${!channels.length || !oauthStatus.configured || syncingAvatars ? "disabled" : ""}>${icon("refresh-cw")} ${syncingAvatars ? "同步中…" : "同步头像"}</button>` : ""}
       <button class="button button-primary" data-action="start-youtube-channel-import" ${oauthStatus.configured ? "" : "disabled"}>${icon("key-round")} 新增频道</button>
     </div>`;
     const body = rows.length
@@ -2543,6 +2547,26 @@
     const action = button.dataset.action, id = button.dataset.id;
     try {
       if (action === "add-channel") openModal("新增频道", channelForm());
+      else if (action === "sync-channel-avatars") {
+        const revision = auth.capture();
+        if (channelAvatarSyncRevision === revision) return;
+        channelAvatarSyncRevision = revision;
+        renderChannels(); renderIcons();
+        try {
+          const result = await api("/channels/youtube-avatars/sync", {method: "POST", expectedRevision: revision});
+          const summary = `头像同步完成，更新 ${result.updated} 个，已是最新 ${result.unchanged} 个`;
+          notify(result.missing.length ? `${summary}，${result.missing.length} 个未返回头像` : summary);
+          if (state.view === "channels") {
+            state.channels = await api("/channels/overview", {expectedRevision: revision});
+            if (state.view === "channels" && result.missing.length) {
+              openModal("头像同步结果", `<p>${esc(summary)}。</p><p>以下频道未取得新头像，已保留原显示。</p><ul>${result.missing.map(name => `<li>${esc(name)}</li>`).join("")}</ul>`);
+            }
+          }
+        } finally {
+          if (channelAvatarSyncRevision === revision) channelAvatarSyncRevision = null;
+          if (auth.isCurrent(revision) && state.view === "channels") { renderChannels(); renderIcons(); }
+        }
+      }
       else if (action === "start-youtube-channel-import") {
         if (!state.oauthStatus?.configured) throw new Error("YouTube OAuth 尚未配置，请联系超级管理员");
         button.disabled = true;
