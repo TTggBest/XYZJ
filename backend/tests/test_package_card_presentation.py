@@ -484,3 +484,53 @@ def test_progress_inspection_scrolls_and_highlights_without_writing_data() -> No
     assert "listPackageInspectionTargets" in app_source
     assert "scrollIntoView({ behavior: \"smooth\", block: \"center\" })" in app_source
     assert ".is-inspection-target" in styles
+
+
+def test_real_package_views_follow_the_prompt_on_each_title():
+    from test_auth_frontend_contract import run_node
+
+    run_node(r'''
+const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
+const presentation=require(process.argv[1]+'/assets/package-presentation.js');
+const item=(id,label,portraitPrompt)=>{
+ const titles=[1,2,3].map(variant_number=>({id:id+'-title-'+variant_number,variant_number,localized_title:'标题'}));
+ const covers=titles.map(title=>({id:title.id+'-wide',title_id:title.id,aspect_ratio:'16:9',creative_prompt:'横版提示词',asset_id:title.id+'-asset'}));
+ covers.push({id:id+'-portrait',title_id:titles[0].id,aspect_ratio:'4:5',creative_prompt:portraitPrompt});
+ return {package_id:id,channel_id:'c1',channel_name:'频道',chinese_title:id,source_complete:true,
+  workflow_version:{label,revision:1},titles,covers,
+  media_assets:titles.map(title=>({id:title.id+'-asset',asset_role:'thumbnail',status:'ready'})),
+  copied_keys:covers.slice(0,3).map(cover=>'cover:'+cover.id),copy_status:'completed',community_count:0};
+};
+const wide=item('wide','V20','  \n');
+const mixed=item('mixed','V21','真实竖版提示词');
+assert.equal(presentation.summarizePackageProgress([wide,mixed],2).images_completed,1);
+assert.deepEqual(presentation.listPackageInspectionTargets([wide,mixed],'images'),[
+ {package_id:'mixed',kind:'output',output_type:'cover',output_id:'mixed-portrait'}
+]);
+mixed.copied_keys.push('cover:mixed-portrait');
+assert.equal(presentation.summarizePackageProgress([wide,mixed],2).completed,2);
+const page=start(process.argv[1],auth,async path=>{
+ if(path==='/api/v3/auth/me')return new Response(JSON.stringify(superUser));
+ if(path==='/api/health')return new Response('{"ok":true,"database":{"ok":true}}');
+ if(path==='/api/v3/realtime/config')return new Response('{"enabled":false}');
+ if(path==='/api/v3/demo-data/feishu-first20')return new Response('{"active":false}');
+ if(path.startsWith('/api/v3/packages/operations-overview'))return new Response(JSON.stringify([wide,mixed]));
+ return new Response('[]');
+});
+for(let i=0;i<6;i++)await page.tick();
+await page.document.emit('click',{target:{closest:s=>s==='[data-view]'?{dataset:{view:'packages'}}:null}});
+for(let i=0;i<4;i++)await page.tick();
+const markup=()=>page.nodes.get('viewRoot').innerHTML;
+assert.equal((markup().match(/class="cover-pair is-wide-only"/g)||[]).length,5);
+assert.equal((markup().match(/>4:5</g)||[]).length,1);
+assert.doesNotMatch(markup(),/data-output-id="wide-portrait"/);
+assert.match(markup(),/data-output-id="mixed-portrait"/);
+for (const id of ['wide','mixed']){
+ const button={dataset:{action:'package-page-detail',id},closest:()=>null};
+ await page.document.emit('click',{target:{closest:s=>s==='[data-action]'?button:null}});
+ for(let i=0;i<2;i++)await page.tick();
+ assert.equal((markup().match(/16:9 封面提示词/g)||[]).length,3);
+ assert.equal((markup().match(/4:5 封面提示词/g)||[]).length,id==='wide'?0:1);
+ if(id==='mixed')assert.match(markup(),/真实竖版提示词/);
+}
+''')

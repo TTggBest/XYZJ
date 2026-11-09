@@ -99,3 +99,54 @@ def test_search_acceptance_preserves_raw_json_and_advances_once(store):
         assert attempt.payload["external_evidence"]["videos"][0]["video_url"] == "https://www.youtube.com/watch?v=abcdefghijk"
         nodes = {n.node_type: n.status for n in s.scalars(sa.select(ProductionNodeRun))}
         assert nodes["search"] == "completed" and nodes["title"] == "queued"
+
+
+def test_cover_copy_progress_ignores_empty_and_old_title_prompts_without_relaxing_production(store):
+    from zhiju.models import PackageCoverVariant, PackageTitle, ProductionNodeRun
+    from zhiju.schemas.production import CoverBatchWrite, PackageCopyMark
+    from zhiju.services.identity import ConflictError
+    from zhiju.services.package_outputs import mark_package_output_copied, write_covers
+
+    with TenantSession(store, info={"tenant_id": "tenant-a"}) as session:
+        titles = [
+            PackageTitle(package_id="package-a",
+                         variant_number=number, generation_number=2, localized_title="当前标题")
+            for number in (1, 2, 3)
+        ]
+        old_title = PackageTitle(package_id="package-a", variant_number=1, localized_title="旧标题")
+        session.add_all([*titles, old_title])
+        cover_node = session.scalar(sa.select(ProductionNodeRun).where(
+            ProductionNodeRun.package_id == "package-a", ProductionNodeRun.node_type == "cover"))
+        cover_node.status = "running"
+        session.commit()
+        wide_only = CoverBatchWrite(covers=[
+            {"title_id": title.id, "aspect_ratio": "16:9", "creative_prompt": "横版提示词"}
+            for title in titles
+        ])
+        with pytest.raises(ConflictError, match="工单画幅"):
+            write_covers(session, "package-a", wide_only)
+
+        wide_covers = [
+            PackageCoverVariant(package_id="package-a", **item.model_dump())
+            for item in wide_only.covers
+        ]
+        blank, portrait, stale = [
+            PackageCoverVariant(package_id="package-a", title_id=title.id,
+                                aspect_ratio="4:5", creative_prompt=prompt)
+            for title, prompt in (
+                (titles[0], " \n "),
+                (titles[1], "竖版提示词"),
+                (old_title, "旧竖版提示词"),
+            )
+        ]
+        session.add_all([*wide_covers, blank, portrait, stale])
+        session.commit()
+        for output_type, output_id in [
+            *(("title", title.id) for title in titles),
+            *(("cover", cover.id) for cover in [*wide_covers, portrait]),
+        ]:
+            progress = mark_package_output_copied(
+                session, "package-a", PackageCopyMark(output_type=output_type, output_id=output_id)
+            )
+        assert progress["copy_status"] == "completed"
+        assert progress["copy_total"] == 7

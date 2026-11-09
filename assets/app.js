@@ -1638,7 +1638,8 @@
       const title = titleMap[number];
       const cover45 = title ? coverMap.get(`${title.id}:4:5`) : null;
       const cover169 = title ? coverMap.get(`${title.id}:16:9`) : null;
-      return `<div class="cover-pair"><strong>标题 ${number}<span>${esc(title?.core_phrase || "无核心词")}</span></strong>${item.workflow_version?.label === 'V21' ? '' : copyCell("4:5", item.package_id, `cover-${number}-45`, cover45?.creative_prompt, "", "", tracked("cover", cover45?.id))}${copyCell("16:9", item.package_id, `cover-${number}-169`, cover169?.creative_prompt, "", "", tracked("cover", cover169?.id))}${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div>`;
+      const hasPortrait = window.ZhijuPackagePresentation.hasCoverPrompt(cover45);
+      return `<div class="cover-pair${hasPortrait ? "" : " is-wide-only"}"><strong>标题 ${number}<span>${esc(title?.core_phrase || "无核心词")}</span></strong>${hasPortrait ? copyCell("4:5", item.package_id, `cover-${number}-45`, cover45?.creative_prompt, "", "", tracked("cover", cover45?.id)) : ""}${copyCell("16:9", item.package_id, `cover-${number}-169`, cover169?.creative_prompt, "", "", tracked("cover", cover169?.id))}${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div>`;
     }).join("");
     const description = item.description;
     const presentation = window.ZhijuPackagePresentation.buildPackagePresentation(item);
@@ -1726,7 +1727,7 @@
     const tracked = (type, outputId) => outputId ? { type, id: outputId, copied: copiedKeys.has(`${type}:${outputId}`) } : null;
     const titleGroups = [1, 2, 3].map(number => {
       const title = titleMap[number], cover45 = title ? coverMap.get(`${title.id}:4:5`) : null, cover169 = title ? coverMap.get(`${title.id}:16:9`) : null;
-      return `<div class="detail-result-group"><h2>标题 ${number}${title?.core_phrase ? `<span>${esc(title.core_phrase)}</span>` : ""}</h2>${fullOutputField("标题", title?.localized_title, id, `detail-title-${number}`, true, tracked("title", title?.id))}${fullOutputField("标题翻译", title?.chinese_translation, id, `detail-title-translation-${number}`, false)}<div class="package-image-prompt-target" data-missing-role="封面${number}">${item.workflow_version?.label === 'V21' ? '' : fullOutputField("4:5 封面提示词", cover45?.creative_prompt, id, `detail-cover-${number}-45`, true, tracked("cover", cover45?.id), "出图词未生成")}${fullOutputField("16:9 封面提示词", cover169?.creative_prompt, id, `detail-cover-${number}-169`, true, tracked("cover", cover169?.id), "出图词未生成")}<div class="package-detail-assets">${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div></div></div>`;
+      return `<div class="detail-result-group"><h2>标题 ${number}${title?.core_phrase ? `<span>${esc(title.core_phrase)}</span>` : ""}</h2>${fullOutputField("标题", title?.localized_title, id, `detail-title-${number}`, true, tracked("title", title?.id))}${fullOutputField("标题翻译", title?.chinese_translation, id, `detail-title-translation-${number}`, false)}<div class="package-image-prompt-target" data-missing-role="封面${number}">${window.ZhijuPackagePresentation.hasCoverPrompt(cover45) ? fullOutputField("4:5 封面提示词", cover45?.creative_prompt, id, `detail-cover-${number}-45`, true, tracked("cover", cover45?.id)) : ""}${fullOutputField("16:9 封面提示词", cover169?.creative_prompt, id, `detail-cover-${number}-169`, true, tracked("cover", cover169?.id), "出图词未生成")}<div class="package-detail-assets">${packageAssetTile(mediaMap.get(cover169?.asset_id), `封面${number}`)}</div></div></div>`;
     }).join("");
     const community = (item.community_posts || []).map(post => {
       const imageAssets = (post.asset_ids || []).map(assetId => mediaMap.get(assetId)).filter(Boolean);

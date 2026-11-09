@@ -528,7 +528,11 @@ def _copy_targets(
     communities: list[PackageCommunityPost],
 ) -> set[str]:
     targets = {_copy_key("title", row.id) for row in titles}
-    targets.update(_copy_key("cover", row.id) for row in covers if row.creative_prompt)
+    title_ids = {row.id for row in titles}
+    targets.update(
+        _copy_key("cover", row.id) for row in covers
+        if row.title_id in title_ids and (row.creative_prompt or "").strip()
+    )
     if description is not None and description.localized_text:
         targets.add(_copy_key("description", description.id))
     for row in communities:

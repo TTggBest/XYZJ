@@ -46,49 +46,34 @@
     const readyAssets = new Set((item.media_assets || [])
       .filter(asset => asset.asset_role === "thumbnail" && asset.status === "ready")
       .map(asset => asset.id));
-    const logoCovers = (item.covers || []).filter(cover => cover.aspect_ratio === "16:9");
+    const titleIds = new Set((item.titles || []).map(title => title.id));
+    const logoCovers = (item.covers || []).filter(cover => titleIds.has(cover.title_id) && cover.aspect_ratio === "16:9");
     return logoCovers.length === 3
       && logoCovers.every(cover => cover.asset_id && readyAssets.has(cover.asset_id));
   }
 
-  function coverRatios(item) {
-    return item.workflow_version?.label === "V21" ? ["16:9"] : ["4:5", "16:9"];
-  }
-
-  function packageImageClicksComplete(item) {
-    if (item.source_complete !== true) return false;
-    const copied = new Set(item.copied_keys || []);
-    const covers = item.covers || [];
-    const expectedPairs = new Set([1, 2, 3].flatMap(number => coverRatios(item).map(ratio => `${number}:${ratio}`)));
-    const actualPairs = new Set(covers.map(cover => {
-      const title = (item.titles || []).find(row => row.id === cover.title_id);
-      return `${title?.variant_number || ""}:${cover.aspect_ratio}`;
-    }));
-    const coversComplete = covers.length === expectedPairs.size
-      && [...expectedPairs].every(pair => actualPairs.has(pair))
-      && covers.every(cover => cover.creative_prompt && copied.has(`cover:${cover.id}`));
-    if (!coversComplete) return false;
-
-    const communityCount = Number(item.community_count || 0);
-    if (communityCount === 0) return true;
-    const posts = item.community_posts || [];
-    return posts.length === communityCount
-      && posts.every(post => post.image_prompt && copied.has(`community_image:${post.id}`));
+  function hasCoverPrompt(cover) {
+    return Boolean(cover?.creative_prompt?.trim());
   }
 
   function imageInspectionTarget(item) {
     if (item.source_complete !== true) return { package_id: item.package_id, kind: "card" };
     const copied = new Set(item.copied_keys || []);
     const titles = [...(item.titles || [])].sort((left, right) => left.variant_number - right.variant_number);
+    if (titles.length !== 3 || titles.some((title, index) => title.variant_number !== index + 1)) {
+      return { package_id: item.package_id, kind: "cover_module" };
+    }
     const covers = item.covers || [];
     for (const title of titles) {
-      for (const ratio of coverRatios(item)) {
+      for (const ratio of ["4:5", "16:9"]) {
         const cover = covers.find(row => row.title_id === title.id && row.aspect_ratio === ratio);
-        if (!cover || !cover.creative_prompt) return { package_id: item.package_id, kind: "cover_module" };
+        if (!hasCoverPrompt(cover)) {
+          if (ratio === "4:5") continue;
+          return { package_id: item.package_id, kind: "cover_module" };
+        }
         if (!copied.has(`cover:${cover.id}`)) return { package_id: item.package_id, kind: "output", output_type: "cover", output_id: cover.id };
       }
     }
-    if (titles.length !== 3 || covers.length !== 3 * coverRatios(item).length) return { package_id: item.package_id, kind: "cover_module" };
     const communityCount = Number(item.community_count || 0);
     const communities = [...(item.community_posts || [])].sort((left, right) => left.sequence_number - right.sequence_number);
     if (communities.length !== communityCount) return { package_id: item.package_id, kind: "community_module" };
@@ -107,9 +92,9 @@
     }
     const covers = item.covers || [];
     for (const title of titles) {
-      for (const ratio of coverRatios(item)) {
+      for (const ratio of ["4:5", "16:9"]) {
         const cover = covers.find(row => row.title_id === title.id && row.aspect_ratio === ratio);
-        if (cover?.creative_prompt && !copied.has(`cover:${cover.id}`)) return { package_id: item.package_id, kind: "output", output_type: "cover", output_id: cover.id };
+        if (hasCoverPrompt(cover) && !copied.has(`cover:${cover.id}`)) return { package_id: item.package_id, kind: "output", output_type: "cover", output_id: cover.id };
       }
     }
     const description = item.description;
@@ -152,7 +137,7 @@
 
   function summarizePackageProgress(items, total) {
     const generatedItems = (items || []).filter(item => item.source_complete === true);
-    const imagesCompletedItems = generatedItems.filter(packageImageClicksComplete);
+    const imagesCompletedItems = generatedItems.filter(item => !imageInspectionTarget(item));
     return {
       total: Number(total || 0),
       generated: generatedItems.length,
@@ -228,5 +213,5 @@
     return lines.join('\n');
   }
 
-  return { buildPackagesMarkdown, buildPackagePresentation, summarizePackageProgress, renderPackageProgressSummary, listPackageInspectionTargets, resolveMissingImageTargets };
+  return { buildPackagesMarkdown, buildPackagePresentation, hasCoverPrompt, summarizePackageProgress, renderPackageProgressSummary, listPackageInspectionTargets, resolveMissingImageTargets };
 });
