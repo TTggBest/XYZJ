@@ -288,7 +288,7 @@ def attempt_input(session, run, attempt_id, claim_id, external_evidence=None):
     if attempt.node_type == 'search':
         context['plot_payload'] = stage.context['plot_payload']
     elif attempt.node_type == 'cover' and stage.rules.get('cover_concepts', {}).get('native_plugin'):
-        context = {key: stage.context[key] for key in ('casting', 'exclusion_sentence')
+        context = {key: stage.context[key] for key in ('casting', 'exclusion_sentence', 'overlay_position')
                    if key in stage.context}
     return {key: getattr(stage, key) for key in ('node_type', 'prompt', 'schema', 'item', 'rules')} | {
         'context': context}

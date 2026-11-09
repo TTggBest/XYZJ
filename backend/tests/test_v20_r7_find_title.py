@@ -9,7 +9,7 @@ from test_v14_api import client, store
 from test_v14_contract import envelope
 from test_v18_title_two_phase import RecordingClient, creation, metadata
 from zhiju.database import TenantSession
-from zhiju.models import Drama, DramaAlias, PackageTitle
+from zhiju.models import Drama, DramaAlias, PackageCoverVariant, PackageTitle
 from zhiju.models.v14 import WorkflowSkillVersion
 from zhiju.v14_runtime.contract import build_stage_input, validate_result
 from zhiju.v14_runtime import canonical, market
@@ -87,17 +87,22 @@ def test_find_hands_raw_titles_and_independent_story_facts_to_title(titles, arch
         ('C1', 1, 3), ('C2', 2, 2), ('C3', 3, 1)]
 
 
-@pytest.mark.parametrize('revision,external_titles', [(7, ['Raw overseas title']), (8, []), (8, ['Raw overseas title'])])
+@pytest.mark.parametrize('revision,external_titles', [(7, ['Raw overseas title']), (8, []), (8, ['Raw overseas title']), (21, ['Raw overseas title'])])
 def test_work_order_accepts_find_and_persists_fixed_titles(client, store, request, revision, external_titles):
-    archive = request.getfixturevalue('archive_r8' if revision == 8 else 'archive')
-    protocol = 12 if revision == 8 else 11
+    if revision == 21:
+        archive = (Path(__file__).resolve().parents[4] /
+                   'outputs/交接/运营包-V21/V21-Skill草稿.zip').read_bytes()
+    else:
+        archive = request.getfixturevalue('archive_r8' if revision == 8 else 'archive')
+    label, number = ('V21', 1) if revision == 21 else ('V20', revision)
+    protocol = {7: 11, 8: 12, 21: 13}[revision]
     with TenantSession(store, info={'tenant_id': 'tenant-a'}) as session:
         drama = session.get(Drama, 'drama-a')
         drama.source_language = 'zh'
         drama.plot_archive = ''.join(EVENTS)
         session.add(DramaAlias(tenant_id='tenant-a', drama_id=drama.id, alias='旧名', normalized_alias='旧名'))
-        session.add(WorkflowSkillVersion(id=f'v20-r{revision}', tenant_id='tenant-a', label='V20',
-                                        revision=revision, status='published', archive=archive))
+        session.add(WorkflowSkillVersion(id=f'v20-r{revision}', tenant_id='tenant-a', label=label,
+                                        revision=number, status='published', archive=archive))
         session.commit()
     client.post('/api/v3/work-orders/work-a/v14-runs',
                 json={'workflow_version_id': f'v20-r{revision}'}).raise_for_status()
@@ -125,7 +130,7 @@ def test_work_order_accepts_find_and_persists_fixed_titles(client, store, reques
     path, title = begin('title')
     prompt = title['rules']['title_creation']['prompt']
     assert all(t in prompt for t in external_titles)
-    if revision == 8:
+    if revision in (8, 21):
         assert 'packaging_candidates' not in prompt
         assert all(event in prompt for event in EVENTS)
     identity = {key: found['plot_payload']['results'][0][key] for key in canonical.IDENTITY_PROPERTIES}
@@ -167,6 +172,23 @@ def test_work_order_accepts_find_and_persists_fixed_titles(client, store, reques
     assert rejected.status_code == 409 and 'opening_repeats_title_1' in rejected.json()['detail']
     response = client.put(path, json={**claim_body, 'outcome': 'accepted', 'result': result})
     assert response.status_code == 200, response.text
+    if revision == 21:
+        cover_path, cover = begin('cover')
+        context = cover['context']
+        assert 'overlay_position' in context
+        rows = [{
+            'title_index': i, 'title': title, 'core_words': word,
+            'thumbnail_creator': {'concept': 'Specific title hook', 'core_words': word, 'score': 9.6},
+            'prompt_16_9': f'16:9. {context["casting"]} Overlay text: "{word}". '
+                           f'{context["exclusion_sentence"]} {context["overlay_position"]}',
+        } for i, (title, word) in enumerate(zip(public, ('First', 'Second', 'Third')), 1)]
+        response = client.put(cover_path, json={**claim_body, 'outcome': 'accepted',
+                              'result': {'section': 'cover', 'results': [{'titles': rows}]}})
+        assert response.status_code == 200, response.text
+        with TenantSession(store, info={'tenant_id': 'tenant-a'}) as session:
+            saved_covers = session.scalars(select(PackageCoverVariant).where(
+                PackageCoverVariant.package_id == claim['package_id'])).all()
+            assert [row.aspect_ratio for row in saved_covers] == ['16:9'] * 3
     if revision == 8:
         _, cover = begin('cover')
         assert set(cover['context']) == {'casting', 'exclusion_sentence'}

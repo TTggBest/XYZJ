@@ -51,18 +51,20 @@
       && logoCovers.every(cover => cover.asset_id && readyAssets.has(cover.asset_id));
   }
 
+  function coverRatios(item) {
+    return item.workflow_version?.label === "V21" ? ["16:9"] : ["4:5", "16:9"];
+  }
+
   function packageImageClicksComplete(item) {
     if (item.source_complete !== true) return false;
     const copied = new Set(item.copied_keys || []);
     const covers = item.covers || [];
-    const expectedPairs = new Set([
-      "1:4:5", "1:16:9", "2:4:5", "2:16:9", "3:4:5", "3:16:9",
-    ]);
+    const expectedPairs = new Set([1, 2, 3].flatMap(number => coverRatios(item).map(ratio => `${number}:${ratio}`)));
     const actualPairs = new Set(covers.map(cover => {
       const title = (item.titles || []).find(row => row.id === cover.title_id);
       return `${title?.variant_number || ""}:${cover.aspect_ratio}`;
     }));
-    const coversComplete = covers.length === 6
+    const coversComplete = covers.length === expectedPairs.size
       && [...expectedPairs].every(pair => actualPairs.has(pair))
       && covers.every(cover => cover.creative_prompt && copied.has(`cover:${cover.id}`));
     if (!coversComplete) return false;
@@ -80,13 +82,13 @@
     const titles = [...(item.titles || [])].sort((left, right) => left.variant_number - right.variant_number);
     const covers = item.covers || [];
     for (const title of titles) {
-      for (const ratio of ["4:5", "16:9"]) {
+      for (const ratio of coverRatios(item)) {
         const cover = covers.find(row => row.title_id === title.id && row.aspect_ratio === ratio);
         if (!cover || !cover.creative_prompt) return { package_id: item.package_id, kind: "cover_module" };
         if (!copied.has(`cover:${cover.id}`)) return { package_id: item.package_id, kind: "output", output_type: "cover", output_id: cover.id };
       }
     }
-    if (titles.length !== 3 || covers.length !== 6) return { package_id: item.package_id, kind: "cover_module" };
+    if (titles.length !== 3 || covers.length !== 3 * coverRatios(item).length) return { package_id: item.package_id, kind: "cover_module" };
     const communityCount = Number(item.community_count || 0);
     const communities = [...(item.community_posts || [])].sort((left, right) => left.sequence_number - right.sequence_number);
     if (communities.length !== communityCount) return { package_id: item.package_id, kind: "community_module" };
@@ -105,7 +107,7 @@
     }
     const covers = item.covers || [];
     for (const title of titles) {
-      for (const ratio of ["4:5", "16:9"]) {
+      for (const ratio of coverRatios(item)) {
         const cover = covers.find(row => row.title_id === title.id && row.aspect_ratio === ratio);
         if (cover?.creative_prompt && !copied.has(`cover:${cover.id}`)) return { package_id: item.package_id, kind: "output", output_type: "cover", output_id: cover.id };
       }

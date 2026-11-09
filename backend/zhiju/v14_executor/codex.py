@@ -10,7 +10,7 @@ from copy import copy, deepcopy
 import unicodedata
 
 from zhiju.v14_runtime.contract import StageInput, validate_result
-from zhiju.workflow_bundles import uses_fixed_v20_titles
+from zhiju.workflow_bundles import is_v21, uses_fixed_v20_titles
 
 
 class TitleContentError(RuntimeError):
@@ -159,10 +159,15 @@ class CodexClient:
 
         if not model or self.cancelled():
             raise RuntimeError('模型未指定或执行已取消')
-        properties = {key: {'type': 'string'} for key in ('concept', 'core_words', 'rationale')}
+        wide_only = is_v21(stage.skill_bundle)
+        fields = ('concept', 'core_words') if wide_only else ('concept', 'core_words', 'rationale')
+        properties = {key: {'type': 'string'} for key in fields}
         properties['score'] = {'type': 'number'}
-        schema = {'type': 'object', 'properties': properties, 'required': list(properties),
+        proposal_fields = {key: properties[key] for key in fields} if wide_only else properties
+        schema = {'type': 'object', 'properties': proposal_fields, 'required': list(proposal_fields),
                   'additionalProperties': False}
+        score_schema = {'type': 'object', 'properties': {'score': {'type': 'number'}},
+                        'required': ['score'], 'additionalProperties': False}
         deadline = time.monotonic() + self.timeout
         locked, seen_words = [], set()
         with ThumbnailCreator.open(self.binary, self._model_env(), self.cancelled,
@@ -182,6 +187,14 @@ class CodexClient:
                     'title. Report the honest total, using 9.5 or more only when the proposal earns it. '
                     'Return one current proposal.\n\n'
                     + json.dumps(inputs, ensure_ascii=False))
+                if wide_only:
+                    prompt = (
+                        'Use the installed YouTube Thumbnail Creator. Privately iterate until an honest score '
+                        'strictly above 9.5 out of 10. Return only the title-specific central conflict and one '
+                        'striking, idiomatic overlay of one or two words in the target language. The conflict '
+                        'must retain the distinctive people, event and stakes of the title. Leave scene design, '
+                        'casting, camera, typography and layout to the next stage. Return only concept and '
+                        'core_words. Do not browse or generate images.\n\n' + json.dumps(inputs, ensure_ascii=False))
                 rejection = None
                 while True:
                     trace = {'phase': 'thumbnail_creator', 'title_index': index, 'plugin': PLUGIN_ID,
@@ -195,13 +208,25 @@ class CodexClient:
                             raise
                         raise CoverContentError(f'第{index}组插件已迭代至封面时限：{rejection}') from exc
                     trace['raw'] = deepcopy(concept)
+                    if wide_only:
+                        review = 'Privately verify the last conflict and core words against the original title. Return only their honest numeric score out of 10 for the internal gate.'
+                        score_trace = {'phase': 'thumbnail_creator_score', 'title_index': index,
+                                       'prompt': review, 'schema': score_schema, 'raw': None}
+                        self.phase_trace.append(score_trace)
+                        try:
+                            assessed = creator.run(thread, review, score_schema, use_plugin=True)
+                        except TimeoutError as exc:
+                            raise CoverContentError(f'第{index}组插件自评未在时限内完成') from exc
+                        score_trace['raw'] = deepcopy(assessed)
+                        concept = {**concept, 'score': assessed['score']}
                     words, score = concept['core_words'], concept['score']
                     key = ' '.join(unicodedata.normalize('NFKC', words).casefold().split())
-                    if not 9.5 <= score <= 10:
-                        rejection = f'插件实际自评 {score:g}，定稿要求 9.5–10'
+                    score_passes = 9.5 < score <= 10 if wide_only else 9.5 <= score <= 10
+                    if not score_passes:
+                        rejection = f'插件实际自评 {score:g}，未达到定稿门槛' if wide_only else f'插件实际自评 {score:g}，定稿要求 9.5–10'
                     elif words != words.strip() or not 1 <= len(words.split()) <= 2 or key in seen_words:
                         rejection = '核心词须为 1–2 个自然词，且与同包其他组不同'
-                    elif not concept['concept'].strip() or not concept['rationale'].strip():
+                    elif not concept['concept'].strip() or (not wide_only and not concept['rationale'].strip()):
                         rejection = '缺少完整方案或独立创作依据'
                     else:
                         seen_words.add(key)
@@ -211,8 +236,14 @@ class CodexClient:
                               '请用原装插件重新构思，解决最影响画面与文案的不足，再如实自评。'
                               '保留独立依据。即使仍未达标也报告真实分数，不要抬分。')
 
-            render = creator.new_thread(model, use_plugin=False)
-            prompt = stage.prompt + '\n\nThumbnail Creator handoff:\n' + json.dumps(locked, ensure_ascii=False)
+                    if wide_only:
+                        prompt = (f'{rejection}。按同一原标题继续优化，严格大于 9.5 后只返回核心冲突与核心词。'
+                                  '场景、镜头和排版由下游决定。')
+
+            render = creator.new_thread('gpt-6.1-sol' if wide_only else model, use_plugin=False)
+            handoff = [{k: v for k, v in row.items() if k != 'score'} for row in locked] if wide_only else locked
+            prompt = stage.prompt + '\n\nThumbnail Creator handoff:\n' + json.dumps(handoff, ensure_ascii=False)
+            prompt_keys = ('prompt_16_9',) if wide_only else ('prompt_4_5', 'prompt_16_9')
             issues = []
             while True:
                 trace = {'phase': 'cover_descriptions', 'prompt': prompt, 'schema': stage.schema, 'raw': None}
@@ -222,16 +253,16 @@ class CodexClient:
                 except TimeoutError as exc:
                     if not issues:
                         raise
-                    raise CoverContentError('双画幅提示词迭代未通过：' + '; '.join(issues)) from exc
+                    raise CoverContentError('封面提示词迭代未通过：' + '; '.join(issues)) from exc
                 trace['raw'] = deepcopy(result)
                 rows = result['results'][0]['titles']
                 issues = []
                 if len(rows) != len(locked) or any(
                         row['title_index'] != concept['title_index'] or any(
                             not re.search(r'(?<!\w)' + re.escape(concept['core_words']) + r'(?!\w)', row[key])
-                            for key in ('prompt_4_5', 'prompt_16_9'))
+                            for key in prompt_keys)
                         for row, concept in zip(rows, locked)):
-                    issues = ['逐组按顺序在两份提示词中逐字使用锁定核心词']
+                    issues = ['逐组按顺序在提示词中逐字使用锁定核心词']
                 else:
                     for row, concept in zip(rows, locked):
                         row.update(title=concept['title'], core_words=concept['core_words'],
@@ -240,7 +271,7 @@ class CodexClient:
                         issues = validate_result(stage, result)
                 if not issues:
                     return result
-                prompt = ('保留该回合的全部插件定稿，不重选标题、方案或核心词。仅修正双画幅提示词的验收项后，'
+                prompt = ('保留该回合的全部插件定稿，不重选标题、方案或核心词。仅修正封面提示词的验收项后，'
                           '重新返回完整结果：' + '; '.join(issues))
 
     def _generate_native_community(self, stage, inputs, model):

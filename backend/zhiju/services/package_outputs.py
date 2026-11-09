@@ -133,6 +133,15 @@ def write_titles(session: Session, package_id: str, payload: TitleBatchWrite, *,
     return rows
 
 
+def cover_ratios(session: Session, package_id: str) -> tuple[str, ...]:
+    from zhiju.models.v14 import V14Run
+    from zhiju.workflow_bundles import is_v21
+
+    frozen = session.scalar(select(V14Run.input_snapshot).where(V14Run.package_id == package_id)) or {}
+    version = frozen.get('workflow_recovery', {}).get('version') or frozen.get('workflow_version')
+    return ("16:9",) if is_v21(version) else ("4:5", "16:9")
+
+
 def write_covers(session: Session, package_id: str, payload: CoverBatchWrite, *, commit: bool = True) -> list[PackageCoverVariant]:
     package = _package(session, package_id)
     node = _running_node(session, package, "cover")
@@ -141,9 +150,9 @@ def write_covers(session: Session, package_id: str, payload: CoverBatchWrite, *,
     if len(titles) != len(title_ids) or any(title.package_id != package.id for title in titles):
         raise ConflictError("封面关联了不属于当前运营包的标题")
     pairs = {(next(title.variant_number for title in titles if title.id == item.title_id), item.aspect_ratio) for item in payload.covers}
-    expected = {(variant, ratio) for variant in (1, 2, 3) for ratio in ("4:5", "16:9")}
-    if pairs != expected or len(payload.covers) != 6:
-        raise ConflictError("封面必须为三个标题各提交一张 4:5 和一张 16:9")
+    expected = {(variant, ratio) for variant in (1, 2, 3) for ratio in cover_ratios(session, package.id)}
+    if pairs != expected or len(payload.covers) != len(expected):
+        raise ConflictError("封面必须按当前工单画幅与三个标题一一对应")
     asset_ids = {item.asset_id for item in payload.covers if item.asset_id}
     assets = require_tenant_entities(session, MediaAsset, asset_ids)
     assets_by_id = {asset.id: asset for asset in assets}
@@ -855,8 +864,8 @@ def validate_node_output(session: Session, node: ProductionNodeRun) -> None:
             raise ConflictError("标题节点缺少本次尝试的三个标题结果")
     elif node.node_type == "cover":
         count = len(list(session.scalars(select(PackageCoverVariant.id).where(PackageCoverVariant.package_id == package.id, PackageCoverVariant.generation_number == node.attempt_number))))
-        if count != 6:
-            raise ConflictError("封面节点缺少本次尝试的六个封面结果")
+        if count != 3 * len(cover_ratios(session, package.id)):
+            raise ConflictError("封面节点缺少本次尝试所需的封面结果")
     elif node.node_type == "description":
         if not session.scalar(select(PackageDescription.id).where(PackageDescription.package_id == package.id, PackageDescription.version_number == node.attempt_number)):
             raise ConflictError("说明节点缺少本次尝试的说明结果")
@@ -903,8 +912,8 @@ def _selected_snapshot(session: Session, package: OperationPackage) -> dict[str,
         )
     )
     cover_latest = _current_rows(all_covers, lambda pair: (pair[1], pair[0].aspect_ratio))
-    if {(variant, cover.aspect_ratio) for cover, variant in cover_latest} != {(variant, ratio) for variant in (1, 2, 3) for ratio in ("4:5", "16:9")}:
-        raise ConflictError("运营包缺少标题与 4:5、16:9 封面的完整对应关系")
+    if {(variant, cover.aspect_ratio) for cover, variant in cover_latest} != {(variant, ratio) for variant in (1, 2, 3) for ratio in cover_ratios(session, package.id)}:
+        raise ConflictError("运营包缺少标题与当前工单封面的完整对应关系")
     description = session.scalar(select(PackageDescription).where(PackageDescription.package_id == package.id, PackageDescription.selected.is_(True)).order_by(PackageDescription.version_number.desc()))
     if description is None:
         raise ConflictError("运营包缺少当前说明")

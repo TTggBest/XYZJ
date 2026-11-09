@@ -98,12 +98,16 @@ def is_v20_revision_6(bundle: dict | None) -> bool:
     return bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision', 0) == 6)
 
 
+def is_v21(bundle: dict | None) -> bool:
+    return bool(bundle and bundle.get('label') == 'V21')
+
+
 def uses_fixed_v20_titles(bundle: dict | None) -> bool:
-    return bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision') in (7, 8))
+    return is_v21(bundle) or bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision') in (7, 8))
 
 
 def uses_raw_v20_find(bundle: dict | None) -> bool:
-    return bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision') == 8)
+    return is_v21(bundle) or bool(bundle and bundle.get('label') == 'V20' and bundle.get('revision') == 8)
 
 
 def executor_protocol(rules_snapshot: dict) -> int:
