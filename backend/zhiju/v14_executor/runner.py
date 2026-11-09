@@ -6,7 +6,7 @@ import time
 
 from zhiju.v14_runtime.contract import StageInput, build_stage_input, validate_result
 from zhiju.v14_runtime.market import collect_agent_reach_evidence, build_market_packaging_prompt
-from zhiju.workflow_bundles import is_v20_revision_7
+from zhiju.workflow_bundles import uses_fixed_v20_titles, uses_raw_v20_find
 from .client import CloudConflict, CloudNotFound
 from .codex import CoverContentError, TitleContentError
 from .execution_state import ExecutionState
@@ -69,7 +69,7 @@ def apply_content_recovery(stage, envelope, node):
     if not failures:
         return
     feedback = "\n".join(str(row.get("error") or "") for row in failures[-3:])
-    if node == 'search' and is_v20_revision_7(stage.skill_bundle):
+    if node == 'search' and uses_fixed_v20_titles(stage.skill_bundle):
         stage.prompt += "\n\n请核对剧库原文，修正上次校验指出的内部剧情记录问题。\n" + feedback
         return
     if node in {"title", "cover_scene", "cover"}:
@@ -135,6 +135,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
         return build_stage_input({**envelope, **({'external_evidence': evidence} if evidence is not None else {})}, node)
     path = root / envelope["run_id"] / "pending.json"
     state=ExecutionState(root / envelope["run_id"] / "execution.json",envelope)
+    raw_find_result = None
     terminal=False
     previous_process_changed=getattr(model_client,'process_changed',lambda pid:None)
     def process_changed(pid):
@@ -178,10 +179,20 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                         result = {"section": "community_scene", "plans": []}
                     elif node == "community" and stage.item["community_count"] == 0:
                         result = {"section": "community", "results": []}
+                    elif node == "search" and uses_raw_v20_find(stage.skill_bundle):
+                        if raw_find_result is None:
+                            if evidence_provider is collect_agent_reach_evidence:
+                                from zhiju.v14_runtime.market import collect_revision8_titles
+                                evidence = collect_revision8_titles(stage.item)
+                            else:
+                                evidence = evidence_provider(stage.item)
+                            raw_find_result = {"plot_payload": stage.context["plot_payload"],
+                                               "external_evidence": evidence}
+                        result = raw_find_result
                     elif node == "search":
                         if stage.skill_bundle and evidence_provider is collect_agent_reach_evidence:
                             from zhiju.workflow_bundles import invoke_bundle, archive_from_snapshot, is_v20_revision_6
-                            if is_v20_revision_7(stage.skill_bundle):
+                            if uses_fixed_v20_titles(stage.skill_bundle):
                                 from zhiju.v14_runtime.market import collect_revision7_titles
                                 evidence = collect_revision7_titles(stage.item)
                             elif is_v20_revision_6(stage.skill_bundle):
@@ -192,7 +203,7 @@ def run_once(client, model_client, *, cache_root=Path.home() / "Library/Caches/z
                         else:
                             evidence = evidence_provider(stage.item)
                         # R7 runs internal Find on the frozen plot alone.
-                        if stage.skill_bundle and not is_v20_revision_7(stage.skill_bundle):
+                        if stage.skill_bundle and not uses_fixed_v20_titles(stage.skill_bundle):
                             stage = prepare(attempt_id, node, evidence)
                         elif not stage.skill_bundle:
                             stage.prompt = build_market_packaging_prompt(stage.item, stage.context["plot_payload"], stage.rules["prompts"]["search"], evidence)

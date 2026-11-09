@@ -30,6 +30,16 @@ def archive():
     return path.read_bytes()
 
 
+@pytest.fixture
+def archive_r8():
+    default = (Path(__file__).resolve().parents[4] / 'outputs/交接/运营包-V20-r8'
+               / 'V20-修订8-Skill草稿.zip')
+    path = Path(os.environ.get('ZHJ_V20_R8_ARCHIVE', default))
+    if not path.is_file():
+        pytest.skip('需要 V20 修订 8 归档，可通过 ZHJ_V20_R8_ARCHIVE 指定')
+    return path.read_bytes()
+
+
 def story_hooks():
     return [{'candidate_id': f'C{i}', 'core_conflict': event, 'hook_a_fact': event,
              'hook_b_fact': event, 'visual_moment': event, 'plot_evidence': event}
@@ -77,39 +87,47 @@ def test_find_hands_raw_titles_and_independent_story_facts_to_title(titles, arch
         ('C1', 1, 3), ('C2', 2, 2), ('C3', 3, 1)]
 
 
-def test_revision7_work_order_accepts_find_and_persists_fixed_titles(client, store, archive):
+@pytest.mark.parametrize('revision,external_titles', [(7, ['Raw overseas title']), (8, []), (8, ['Raw overseas title'])])
+def test_work_order_accepts_find_and_persists_fixed_titles(client, store, request, revision, external_titles):
+    archive = request.getfixturevalue('archive_r8' if revision == 8 else 'archive')
+    protocol = 12 if revision == 8 else 11
     with TenantSession(store, info={'tenant_id': 'tenant-a'}) as session:
         drama = session.get(Drama, 'drama-a')
         drama.source_language = 'zh'
         drama.plot_archive = ''.join(EVENTS)
         session.add(DramaAlias(tenant_id='tenant-a', drama_id=drama.id, alias='旧名', normalized_alias='旧名'))
-        session.add(WorkflowSkillVersion(id='v20-r7', tenant_id='tenant-a', label='V20',
-                                        revision=7, status='published', archive=archive))
+        session.add(WorkflowSkillVersion(id=f'v20-r{revision}', tenant_id='tenant-a', label='V20',
+                                        revision=revision, status='published', archive=archive))
         session.commit()
     client.post('/api/v3/work-orders/work-a/v14-runs',
-                json={'workflow_version_id': 'v20-r7'}).raise_for_status()
-    outdated = client.post('/api/v3/v14/claims', json={'host_id': 'device-a', 'executor_protocol': 10})
+                json={'workflow_version_id': f'v20-r{revision}'}).raise_for_status()
+    outdated = client.post('/api/v3/v14/claims', json={'host_id': 'device-a', 'executor_protocol': protocol - 1})
     assert outdated.status_code == 409 and '请更新本机执行器' in outdated.json()['detail']
     claim = client.post('/api/v3/v14/claims', json={
-        'host_id': 'device-a', 'executor_protocol': 11}).raise_for_status().json()
+        'host_id': 'device-a', 'executor_protocol': protocol}).raise_for_status().json()
     url = f"/api/v3/v14/runs/{claim['run_id']}/attempts"
     claim_body = {'claim_id': claim['claim_id']}
 
     def begin(node):
         attempt = client.post(url, json={**claim_body, 'node_type': node,
-                                         'executor_protocol': 11}).raise_for_status().json()['attempt_id']
+                                         'executor_protocol': protocol}).raise_for_status().json()['attempt_id']
         path = f'{url}/{attempt}'
         stage = client.post(path + '/input', json=claim_body).raise_for_status().json()
         return path, stage
 
     path, find = begin('search')
     assert find['item']['drama_aliases'] == ['旧名']
-    found = {'plot_payload': find['context']['plot_payload'], 'market_payload': {'story_hooks': story_hooks()},
-             'external_evidence': {'titles': ['Raw overseas title']}}
+    found = {'plot_payload': find['context']['plot_payload'], 'external_evidence': {'titles': external_titles}}
+    if revision == 7:
+        found['market_payload'] = {'story_hooks': story_hooks()}
     client.put(path, json={**claim_body, 'outcome': 'accepted', 'result': found}).raise_for_status()
 
     path, title = begin('title')
-    assert 'Raw overseas title' in title['rules']['title_creation']['prompt']
+    prompt = title['rules']['title_creation']['prompt']
+    assert all(t in prompt for t in external_titles)
+    if revision == 8:
+        assert 'packaging_candidates' not in prompt
+        assert all(event in prompt for event in EVENTS)
     identity = {key: found['plot_payload']['results'][0][key] for key in canonical.IDENTITY_PROPERTIES}
     brief = dict.fromkeys(('core_story_promise', 'audience_emotion', 'information_gap', 'title_role',
                            'thumbnail_role', 'truth_constraints', 'avoid_repetition'), '女主反击争取公平待遇')
@@ -170,3 +188,86 @@ def test_external_find_returns_only_titles_and_uses_mainland_only_on_empty(monke
     monkeypatch.setattr(market, '_mainland_search', mainland)
     result = market.collect_revision7_titles({'drama_name': '剧目', 'language': '法语', 'direction': '复仇'})
     assert result == {'titles': youtube_titles or mainland_titles}
+
+
+def test_revision8_search_stops_at_first_usable_query(monkeypatch):
+    calls = []
+
+    def youtube(item, *, query, include_details):
+        calls.append(query)
+        assert not include_details
+        return {'videos': [] if len(calls) == 1 else [{'video_title': 'An original title!'}]}
+
+    monkeypatch.setattr(market, 'collect_agent_reach_evidence', youtube)
+    assert market.collect_revision8_titles({'drama_name': '剧目', 'language': '法语', 'direction': '复仇',
+                                           'drama_aliases': ['剧目', '别名一', '别名二']}) == {
+                                               'titles': ['An original title!']}
+    assert calls == ['剧目 法语', '别名一 法语']
+
+
+def test_revision8_search_retry_reuses_result_and_skips_model(tmp_path):
+    from zhiju.v14_executor.client import CloudConflict
+    from zhiju.v14_executor.runner import run_once
+
+    queries, submissions = [], []
+
+    class Cloud:
+        def claim(self):
+            return {'run_id': 'r', 'work_order_id': 'w', 'claim_id': 'c', 'account_profile': 'current',
+                    'model': 'fixed', 'staged_inputs': True, 'node_sequence': ['search'],
+                    'rules_snapshot': {'skill_bundle': {'label': 'V20', 'revision': 8}}}
+
+        def begin(self, envelope, node):
+            return node
+
+        def stage_input(self, envelope, attempt, evidence=None):
+            return {'node_type': 'search', 'prompt': '', 'schema': {}, 'item': {'drama_name': '剧名'},
+                    'context': {'plot_payload': {'raw': '原文'}}, 'rules': {}}
+
+        def submit(self, envelope, attempt, body):
+            submissions.append(deepcopy(body))
+            if len(submissions) == 1:
+                raise CloudConflict('V14 验收失败: test retry')
+            return {'status': 'running'}
+
+    class Model:
+        account_profile = 'current'
+
+        def generate(self, stage, model):
+            pytest.fail('Find should not call the model')
+
+    def search(item):
+        queries.append(item)
+        return {'titles': []}
+
+    assert run_once(Cloud(), Model(), cache_root=tmp_path, evidence_provider=search, recover=False)
+    assert len(queries) == 1
+    assert [b['outcome'] for b in submissions] == ['accepted', 'content_error', 'accepted']
+    assert submissions[-1]['result'] == {'plot_payload': {'raw': '原文'}, 'external_evidence': {'titles': []}}
+
+
+def test_revision8_cover_requires_video_interface_exclusions_on_both_aspects(archive_r8):
+    run = envelope(count=0)
+    run['rules_snapshot']['skill_bundle'] = snapshot(archive_r8, version_id='r8', label='V20', revision=8)
+    run['input_snapshot']['drama']['source_language'] = 'zh'
+    run['accepted_results']['title'] = {'results': [{'directions': [
+        {'title': title, 'index': index} for index, title in enumerate(('One', 'Two', 'Three'), 1)]}]}
+    cover = build_stage_input(run, 'cover')
+    exclusion = cover.context['exclusion_sentence']
+    assert exclusion in cover.prompt
+    rows = []
+    for index, (title, word) in enumerate(zip(('One', 'Two', 'Three'), ('Deal', 'Loss', 'Choice')), 1):
+        row = {'title_index': index, 'title': title, 'core_words': word,
+               'thumbnail_creator': {'concept': 'An adult woman confronts a business partner.',
+                                     'core_words': word, 'rationale': 'Visible reaction', 'score': 9.5}}
+        for field, ratio in (('prompt_4_5', '4:5'), ('prompt_16_9', '16:9')):
+            row[field] = f'{ratio}. {cover.context["casting"]} Overlay text: "{word}". {exclusion}'
+        rows.append(row)
+    output = {'section': 'cover', 'results': [{'titles': rows}]}
+    assert not validate_result(cover, deepcopy(output))
+    rows[0]['prompt_4_5'] = rows[0]['prompt_4_5'].replace(exclusion, '')
+    rows[2]['prompt_16_9'] = rows[2]['prompt_16_9'].replace(exclusion, '')
+    assert validate_result(cover, output) == [
+        'cover_1_prompt_4_5_video_interface_exclusion_missing',
+        'cover_3_prompt_16_9_video_interface_exclusion_missing',
+    ]

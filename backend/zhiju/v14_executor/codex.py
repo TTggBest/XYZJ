@@ -10,7 +10,7 @@ from copy import copy, deepcopy
 import unicodedata
 
 from zhiju.v14_runtime.contract import StageInput, validate_result
-from zhiju.workflow_bundles import is_v20_revision_7
+from zhiju.workflow_bundles import uses_fixed_v20_titles
 
 
 class TitleContentError(RuntimeError):
@@ -58,7 +58,7 @@ class CodexClient:
         creation_plan = stage.rules.get('title_creation') if stage.node_type == 'title' else None
         if not creation_plan:
             return self._generate_once(stage, model)
-        fixed_slots = is_v20_revision_7(stage.skill_bundle)
+        fixed_slots = uses_fixed_v20_titles(stage.skill_bundle)
         creation = copy(stage)
         creation.prompt = creation_plan['prompt']
         creation.schema = creation_plan['schema']
@@ -286,7 +286,7 @@ class CodexClient:
                 "--model", model, "-c", "model_reasoning_effort=" + json.dumps(stage.rules.get("execution", {}).get("reasoning_effort", "medium")),
                 "--output-schema", str(schema), "--output-last-message", str(output)]
             if stage.node_type == "search":
-                if is_v20_revision_7(stage.skill_bundle):
+                if uses_fixed_v20_titles(stage.skill_bundle):
                     args += ["--disable", "standalone_web_search", "-c", 'web_search="disabled"']
                 else:
                     args += ["--enable", "standalone_web_search"]

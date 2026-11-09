@@ -231,6 +231,24 @@ def collect_revision7_titles(item):
     return {'titles': list(dict.fromkeys(titles))}
 
 
+def collect_revision8_titles(item):
+    name = item['drama_name']
+    language = item.get('market_language_name') or item['language']
+    pattern = re.split(r'[、，,；;]', item.get('plot_pattern') or '')[0].strip()
+    alias = next((alias for alias in item.get('drama_aliases', [])
+                  if alias.strip() and alias.strip().casefold() != name.strip().casefold()), '')
+    comparable = ' '.join(part for part in (item['direction'], pattern, language) if part)
+    queries = dict.fromkeys([f'{name} {language}', *([f'{alias} {language}'] if alias else []),
+                             name, comparable])
+    for query in queries:
+        result = collect_agent_reach_evidence(item, query=query, include_details=False)
+        titles = [row['video_title'] for row in result['videos'] if row.get('video_title', '').strip()]
+        if titles:
+            return {'titles': list(dict.fromkeys(titles))}
+    pages, _ = _mainland_search(f'{name} {pattern} 短剧 site:douyin.com OR site:hongguo.com')
+    return {'titles': list(dict.fromkeys(page['video_title'] for page in pages if page['video_title'].strip()))}
+
+
 def _mainland_search(query):
     command = shutil.which('mcporter')
     if not command:

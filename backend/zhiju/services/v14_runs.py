@@ -13,7 +13,7 @@ from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel
 from zhiju.services.identity import ConflictError, channel_order_columns, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.schemas.v14 import V14SettingsWrite
-from zhiju.workflow_bundles import execution_nodes, is_v20_revision_6, is_v20_revision_7
+from zhiju.workflow_bundles import execution_nodes, is_v20_revision_6, uses_fixed_v20_titles
 
 
 def get_settings(session: Session) -> V14Setting | None:
@@ -101,7 +101,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
         if guidance['source'] != 'legacy_reference':
             channel_input = {**channel_input, 'generation_spec':guidance['generation_spec'],
                              'analysis_version':{**{k:guidance[k] for k in ('dna_id','run_id','report_id')},'report_type':guidance['mode']}}
-    if is_v20_revision_6(bundle) or is_v20_revision_7(bundle):
+    if is_v20_revision_6(bundle) or uses_fixed_v20_titles(bundle):
         if drama.source_language not in {'zh', 'en'}:
             raise ConflictError('请先在剧库登记中文或英语原片语言，供封面正确选角')
         profile = session.scalar(select(ChannelProfile).where(ChannelProfile.channel_id == channel.id))
@@ -137,7 +137,7 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
             "target_publish_date": str(work.target_publish_date),
             "video_id": task.source_video_id or f"pending_{work.id}", "video_url": task.source_video_url,
         })
-    if is_v20_revision_7(bundle):
+    if uses_fixed_v20_titles(bundle):
         run.input_snapshot['drama']['aliases'] = list(session.scalars(select(DramaAlias.alias).where(
             DramaAlias.tenant_id == session.info['tenant_id'], DramaAlias.drama_id == drama.id
         ).order_by(DramaAlias.alias)))

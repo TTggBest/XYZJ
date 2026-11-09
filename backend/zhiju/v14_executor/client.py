@@ -5,7 +5,7 @@ import time
 from urllib.parse import urlparse
 from uuid import uuid4
 
-EXECUTOR_PROTOCOL = 11
+EXECUTOR_PROTOCOL = 12
 
 
 class CloudConflict(RuntimeError):

@@ -11,7 +11,7 @@ from .market import MARKET_PACKAGING_SCHEMA, build_market_packaging_prompt, mark
 from .prompts import build_prompt, STAGE_DIRECTIVES
 from .rules import using_rules
 from .preflight import stage_preflight_issues
-from zhiju.workflow_bundles import is_v20_revision_6, is_v20_revision_7
+from zhiju.workflow_bundles import is_v20_revision_6, uses_fixed_v20_titles
 
 STAGES = {"search": "xy-find", "title": "xy-title", "cover": "xy-cover", "description": "xy-place", "community": "xy-post"}
 PLOT_FIELDS = {"内容概述": "content_summary", "剧情档案": "plot_archive", "剧情套路": "plot_pattern", "核心人设": "core_personas"}
@@ -158,8 +158,8 @@ def _wire_stage(stage, data):
                          'and as the first playlist link in the public description: '
                          + json.dumps(playlist, ensure_ascii=False))
     revision6 = is_v20_revision_6(stage.skill_bundle)
-    revision7 = is_v20_revision_7(stage.skill_bundle)
-    if not (revision6 or revision7):
+    fixed_titles = uses_fixed_v20_titles(stage.skill_bundle)
+    if not (revision6 or fixed_titles):
         return stage
     if stage.node_type == 'search':
         stage.item['market_language_name'] = channel.get('market_language_name') or channel['language']
@@ -225,7 +225,7 @@ def validate_result(stage: StageInput, result: dict, history: list[dict] | None 
         if issues:
             return issues
         if stage.node_type == 'community_scene' and (is_v20_revision_6(stage.skill_bundle)
-                                                     or is_v20_revision_7(stage.skill_bundle)):
+                                                     or uses_fixed_v20_titles(stage.skill_bundle)):
             actions = [' '.join(row['main_action'].casefold().split()) for row in result['plans']]
             if len(set(actions)) != len(actions):
                 return ['社群场景各组须使用不同的主要动作']
