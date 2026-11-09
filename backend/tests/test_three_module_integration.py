@@ -141,6 +141,7 @@ def test_analysis_to_schedule_to_new_work_order(client, store, monkeypatch, tmp_
     snapshot = plan['input_snapshot']
     assert snapshot['batch']['registered_on'] == '2026-11-01'
     assert snapshot['operating_reference']['dna_id'] == dna_id
+    assert {row['id']: row['source_language'] for row in snapshot['candidates']}['drama-a'] == 'zh'
     assert client.post('/api/v3/schedule-planning/claims', json={'host_id': 'device-a', 'executor_protocol': 9}).status_code == 204
     claim = client.post('/api/v3/schedule-planning/claims', json={'host_id': 'device-a', 'executor_protocol': 10}).raise_for_status().json()
 
@@ -150,7 +151,7 @@ def test_analysis_to_schedule_to_new_work_order(client, store, monkeypatch, tmp_
         assert 'selection_guidance' in stage.prompt
         return {'rows': [
             {'drama_id': row['id'], 'actual_theme': kind,
-             'strong_directions': sections['topics'][kind][:1] if kind != 'neither' else [],
+             'strong_direction_ids': [f'{kind}:1'] if kind != 'neither' else [],
              'actual_direction': '女主主动反击', 'playlist_id': 'chosen',
              'reason': '逐部判断', 'plot_evidence': row['content_summary']}
             for row in snapshot['candidates']
@@ -371,3 +372,128 @@ def test_concurrent_confirmations_against_mysql():
         assert len(s.scalars(select(ChannelScheduleEntry)).all()) == 1
         assert sorted(s.scalars(select(ChannelSchedulePlan.status)).all()) == ['applied', 'ready']
     engine.dispose()
+
+
+@pytest.mark.parametrize('scenario', ['fresh', 'cached', 'date-limited'])
+def test_r3_uses_compliant_stock_when_direction_is_invalid_or_dates_limit_stock(tmp_path, scenario):
+    from zhiju.scheduling_rules.contract import validate_result
+
+    topics = {'primary': ['女主夺回公司'], 'secondary': ['职场重建']}
+    plot = '她找到真实凭证并揭穿骗局。'
+    candidates = [
+        {'id': key, 'chinese_title': key, 'duration_seconds': duration,
+         'expires_at': None, 'finished_languages': ['fr'], 'content_summary': plot}
+        for key, duration in [('strong', 3600), ('long_fallback', 7200), ('short_fallback', 5400)]
+    ]
+    snapshot = {
+        'model': 'test',
+        'skill_version': {'files': {'SKILL.md': '按生效资料评估主线'}},
+        'operating_reference': {'dna_id': 'dna', 'sections': {
+            'topics': topics, 'empathy': {}, 'selection_guidance': {},
+        }},
+        'analysis_topics': topics,
+        'playlists': [{'id': 'playlist'}],
+        'slots': [{'id': 'main', 'timezone': 'Europe/Paris', 'local_time': '18:00', 'slot_type': 'main'}],
+        'slot_topics': {'main': 'primary'},
+        'batch_blocked': [],
+        'candidates': candidates,
+        'date_basis': 'beijing',
+        'targets': [{'publish_date': day, 'publish_slot_id': 'main'} for day in ('2026-11-10', '2026-11-11')],
+    }
+    rows = [
+        {'drama_id': row['id'], 'actual_theme': 'primary', 'actual_direction': '查明公司骗局',
+         'reason': '依据主线', 'plot_evidence': plot, 'playlist_id': 'playlist'}
+        for row in candidates
+    ]
+    if scenario == 'cached':
+        rows[0]['strong_directions'] = ['女主夺回公司']
+        rows[1]['strong_directions'] = ['职场重建', '女主反击夺回了公司']
+        rows[2]['strong_directions'] = []
+        (tmp_path / 'reference-assessment-0.json').write_text(json.dumps({'rows': rows}))
+    else:
+        rows[0]['strong_direction_ids'] = ['secondary:1', 'primary:1']
+        rows[1]['strong_direction_ids'] = ['secondary:1', 'primary:99']
+        rows[2]['strong_direction_ids'] = []
+        if scenario == 'date-limited':
+            rows[1]['strong_direction_ids'] = ['primary:1']
+            candidates[0]['expires_at'] = '2026-11-10T12:00:00+00:00'
+            snapshot['batch_blocked'] = [{'drama_id': 'short_fallback', 'beijing_date': '2026-11-11'}]
+
+    def judge(stage, model):
+        assert scenario != 'cached', 'validated cached candidates should be reused'
+        assert 'primary:1' in stage.prompt and 'secondary:1' in stage.prompt
+        assert 'strong_direction_ids' in stage.schema['properties']['rows']['items']['properties']
+        return {'rows': rows}
+
+    result = generate(SimpleNamespace(generate=judge), {'input_snapshot': snapshot}, tmp_path)
+    planned = validate_result(snapshot, result)['rows']
+    expected_level = 'strong' if scenario == 'date-limited' else 'fallback'
+    assert [(row['drama_id'], row['match_level']) for row in planned] == [
+        ('strong', 'strong'), ('long_fallback', expected_level),
+    ]
+    assert planned[0]['theme_basis'] == planned[0]['target_direction'] == topics['primary'][0]
+    assert planned[1]['deviates_from_target'] is (expected_level == 'fallback')
+    assert planned[1]['theme_basis'] == (None if expected_level == 'fallback' else topics['primary'][0])
+    assert planned[1]['playlist_id'] == 'playlist' and planned[1]['plot_evidence'] == plot
+
+
+def test_r3_prefers_match_then_chinese_original_then_duration():
+    from zhiju.v14_executor.schedule_planning import reference_rows
+
+    cases = [
+        ('long-en-ordinary', 'en', 8400, 'primary', []),
+        ('short-zh-ordinary', 'zh', 2400, 'primary', []),
+        ('long-en-strong', 'en', 9000, 'primary', ['反击']),
+        ('long-zh-ordinary', 'zh', 3600, 'primary', []),
+        ('short-en-ordinary', 'en', 5400, 'primary', []),
+        ('unknown', None, 7200, 'primary', []),
+        ('zh-fallback', 'zh', 12000, 'secondary', []),
+    ]
+    slots = [{'id': 'main', 'timezone': 'Asia/Shanghai', 'local_time': '10:00', 'slot_type': 'main'}]
+    candidates = [
+        {'id': key, 'source_language': language, 'finished_languages': ['zh'],
+         'duration_seconds': duration, 'expires_at': None}
+        for key, language, duration, _, _ in cases
+    ]
+    snapshot = {
+        'candidates': candidates, 'playlists': [{'id': 'playlist'}],
+        'analysis_topics': {'primary': ['反击'], 'secondary': ['重建']},
+        'slots': slots, 'slot_topics': {'main': 'primary'}, 'batch_blocked': [],
+        'operating_reference': {'dna_id': 'dna'}, 'date_basis': 'beijing',
+        'targets': [{'publish_date': f'2026-11-{day}', 'publish_slot_id': 'main'} for day in range(10, 17)],
+    }
+    assessments = [
+        {'drama_id': key, 'actual_theme': theme, 'strong_directions': directions,
+         'actual_direction': '查明公司骗局', 'reason': '依据主线',
+         'plot_evidence': '她找到真实凭证并揭穿骗局。', 'playlist_id': 'playlist'}
+        for key, _, _, theme, directions in cases
+    ]
+    result = reference_rows(snapshot, assessments)
+    assert [row['drama_id'] for row in result['rows']] == [
+        'long-en-strong', 'long-zh-ordinary', 'short-zh-ordinary',
+        'long-en-ordinary', 'unknown', 'short-en-ordinary', 'zh-fallback',
+    ]
+
+
+def test_r3_reserves_ordinary_secondary_match_before_primary_fallback():
+    from zhiju.v14_executor.schedule_planning import reference_rows
+
+    slots = [
+        {'id': key, 'timezone': 'Asia/Shanghai', 'local_time': clock, 'slot_type': key}
+        for key, clock in [('main', '10:00'), ('aux', '18:00')]
+    ]
+    snapshot = {
+        'candidates': [{'id': 'secondary', 'duration_seconds': 4200, 'expires_at': None}],
+        'playlists': [{'id': 'playlist'}], 'analysis_topics': {'primary': ['反击'], 'secondary': ['重建']},
+        'slots': slots, 'slot_topics': {'main': 'primary', 'aux': 'secondary'}, 'batch_blocked': [],
+        'operating_reference': {'dna_id': 'dna'}, 'date_basis': 'beijing',
+        'targets': [{'publish_date': '2026-11-10', 'publish_slot_id': key} for key in ('main', 'aux')],
+    }
+    result = reference_rows(snapshot, [
+        {'drama_id': 'secondary', 'actual_theme': 'secondary', 'strong_directions': [],
+         'actual_direction': '职场重建', 'reason': '依据主线',
+         'plot_evidence': '她重新找到一份工作。', 'playlist_id': 'playlist'},
+    ])
+    assert [(row['publish_slot_id'], row['drama_id']) for row in result['rows']] == [
+        ('main', None), ('aux', 'secondary'),
+    ]

@@ -104,7 +104,7 @@ def candidate_pool(session,channel):
         if not any(str(drama.get(k) or '').strip() for k in PLOT_FIELDS):excluded['plot_missing']+=1;continue
         duration=state.total_duration_seconds
         if duration is not None and duration<1800:excluded['duration_short']+=1;continue
-        pool.append({k:drama.get(k) for k in ('id','chinese_title','drama_code',*PLOT_FIELDS)} | {
+        pool.append({k:drama.get(k) for k in ('id','chinese_title','drama_code','source_language',*PLOT_FIELDS)} | {
             'duration_seconds':duration,'expires_at':drama['expires_at'].isoformat() if drama['expires_at'] else None,
             'finished_languages':state.finished_languages})
     return pool,excluded

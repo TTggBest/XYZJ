@@ -40,7 +40,7 @@ REFERENCE_ASSESSMENT_SCHEMA = array_schema({
     'drama_id': {'type': 'string'},
     'actual_theme': {'type': 'string', 'enum': ['primary', 'secondary', 'neither']},
     'actual_direction': {'type': 'string'},
-    'strong_directions': {'type': 'array', 'items': {'type': 'string'}},
+    'strong_direction_ids': {'type': 'array', 'items': {'type': 'string'}},
     'playlist_id': {'type': 'string'},
     'reason': {'type': 'string'},
     'plot_evidence': {'type': 'string'},
@@ -58,8 +58,6 @@ def reference_rows(snapshot, assessments):
     slots = {row['id']: row for row in snapshot['slots']}
     blocked = {(r['drama_id'], r['beijing_date']) for r in snapshot['batch_blocked']}
     reference_id = snapshot['operating_reference']['dna_id']
-    used = set()
-    rows = {}
     targets = []
     for target in snapshot['targets']:
         slot = slots[target['publish_slot_id']]
@@ -69,14 +67,14 @@ def reference_rows(snapshot, assessments):
         targets.append((instant, beijing_day, target))
     targets.sort(key=lambda row: (row[0], row[2]['publish_slot_id']))
 
-    def ranked(target, beijing_day, instant, *, strong_only):
+    def ranked(target, beijing_day, instant):
         category = snapshot['slot_topics'][target['publish_slot_id']]
         choices = []
         for assessment in assessments:
             drama = candidates[assessment['drama_id']]
             drama_id = drama['id']
             duration = drama['duration_seconds']
-            if drama_id in used or (drama_id, beijing_day) in blocked:
+            if (drama_id, beijing_day) in blocked:
                 continue
             if duration is not None and duration < 1800:
                 continue
@@ -84,40 +82,69 @@ def reference_rows(snapshot, assessments):
                 continue
             actual = assessment['actual_theme']
             strong = actual == category and bool(assessment['strong_directions'])
-            if strong_only and not strong:
-                continue
             preference = 2 if strong else 1 if actual == category else 0
-            choices.append((preference, duration if duration is not None else -1, drama_id, assessment))
-        return max(choices, key=lambda item: item[:3]) if choices else None
+            chinese_original = drama.get('source_language') == 'zh'
+            choices.append((preference, chinese_original, duration if duration is not None else -1, drama_id, assessment))
+        return sorted(choices, key=lambda item: item[:-1], reverse=True)
 
-    for strong_only in (True, False):
-        for instant, beijing_day, target in targets:
-            key = (target['publish_date'], target['publish_slot_id'])
-            if key in rows:
+    # Reserve strong and ordinary matches for their own slot category.
+    # Reassign only if expiry or same-day exclusions still leave a gap.
+    target_keys = [(target['publish_date'], target['publish_slot_id']) for _, _, target in targets]
+    choices_by_slot = {key: ranked(target, day, instant)
+                       for key, (instant, day, target) in zip(target_keys, targets)}
+    assignments = {}
+    owners = {}
+
+    def assign(key, pick):
+        assignments[key] = pick
+        owners[pick[3]] = key
+
+    def fill_gap(key, visited):
+        for pick in choices_by_slot[key]:
+            drama_id = pick[3]
+            if drama_id in visited:
                 continue
-            category = snapshot['slot_topics'][key[1]]
-            pick = ranked(target, beijing_day, instant, strong_only=strong_only)
-            if not pick:
-                if not strong_only:
-                    rows[key] = {**target, 'drama_id': None, 'reason': '符合语种、有效期和同日去重的剩余库存已用尽'}
+            visited.add(drama_id)
+            owner = owners.get(drama_id)
+            if owner is None or fill_gap(owner, visited):
+                assign(key, pick)
+                return True
+        return False
+
+    for level in (2, 1, 0):
+        for key in target_keys:
+            if key in assignments:
                 continue
-            _, _, drama_id, judgment = pick
-            used.add(drama_id)
-            actual = judgment['actual_theme']
-            basis = next(iter(judgment['strong_directions']), None)
-            strong = actual == category and bool(basis)
-            direction = basis if strong else next(iter(topics[category]), None)
-            if judgment['playlist_id'] not in playlists:
-                raise ValueError('剧情评估未选择当前频道的可用播放列表')
-            rows[key] = {**target, 'drama_id': drama_id, 'reason': judgment['reason'],
-                         'plot_evidence': judgment['plot_evidence'],
-                         'pairing_reason': f"按该档的目标与可用候选编排，实际主线为{judgment['actual_direction']}。",
-                         'target_theme': category, 'target_direction': direction, 'actual_theme': actual,
-                         'actual_direction': judgment['actual_direction'], 'theme_basis': basis,
-                         'match_level': 'strong' if strong else 'fallback', 'deviates_from_target': not strong,
-                         'fallback_reason': None if strong else '该档没有剩余的强匹配候选，按真实主线补位',
-                         'playlist_id': judgment['playlist_id'], 'operating_reference_version_id': reference_id}
-    return {'rows': list(rows.values())}
+            pick = next((item for item in choices_by_slot[key] if item[0] == level and item[3] not in owners), None)
+            if pick:
+                assign(key, pick)
+    for key in target_keys:
+        if key not in assignments:
+            fill_gap(key, set())
+
+    rows = []
+    for key, (_, _, target) in zip(target_keys, targets):
+        pick = assignments.get(key)
+        if not pick:
+            rows.append({**target, 'drama_id': None, 'reason': '符合语种、有效期和同日去重的剩余库存已用尽'})
+            continue
+        category = snapshot['slot_topics'][key[1]]
+        *_, drama_id, judgment = pick
+        actual = judgment['actual_theme']
+        basis = next(iter(judgment['strong_directions']), None)
+        strong = actual == category and bool(basis)
+        direction = basis if strong else next(iter(topics[category]), None)
+        if judgment['playlist_id'] not in playlists:
+            raise ValueError('剧情评估未选择当前频道的可用播放列表')
+        rows.append({**target, 'drama_id': drama_id, 'reason': judgment['reason'],
+                     'plot_evidence': judgment['plot_evidence'],
+                     'pairing_reason': f"按该档的目标与可用候选编排，实际主线为{judgment['actual_direction']}。",
+                     'target_theme': category, 'target_direction': direction, 'actual_theme': actual,
+                     'actual_direction': judgment['actual_direction'], 'theme_basis': basis,
+                     'match_level': 'strong' if strong else 'fallback', 'deviates_from_target': not strong,
+                     'fallback_reason': None if strong else '该档没有剩余的强匹配候选，按真实主线补位',
+                     'playlist_id': judgment['playlist_id'], 'operating_reference_version_id': reference_id})
+    return {'rows': rows}
 
 
 def reference_assessment(model, run, root, progress):
@@ -128,11 +155,17 @@ def reference_assessment(model, run, root, progress):
     rules = '\n'.join(v for k, v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
     context = {key: sections[key] for key in ('topics', 'empathy', 'selection_guidance')}
     playlist_ids = {p['id'] for p in snapshot['playlists']}
+    directions = {
+        theme: {f'{theme}:{index}': text for index, text in enumerate(topics, start=1)}
+        for theme, topics in snapshot['analysis_topics'].items()
+    }
     prompt = (rules + '\n本阶段只判断每部候选的实际主线，排片由系统完成。'
               '同批由系统按频道录入时间的北京时间日期和运营语言判定。'
-              'strong_directions 是实际核心冲突真正兑现的报告原文，可为空。包装监测、支线或偶然关键词不算。'
+              'strong_direction_ids 只返回下方 actual_theme 对应方向的编号。实际核心冲突必须兑现该方向。'
+              '没有充分依据填空数组。包装监测、支线或偶然关键词不算。编号由系统换回报告原文。'
               '不匹配的库存也要说明真实主线并选最贴近的现有列表 ID，供缺片时补位。每部恰好一行。'
-              '\n运营参考：' + encode(context) + '\n现有列表：' + encode(snapshot['playlists']))
+              '\n运营参考：' + encode(context) + '\n方向编号：' + encode(directions) +
+              '\n现有列表：' + encode(snapshot['playlists']))
     judgments = []
     for index, batch in enumerate(assessment_batches(snapshot['candidates'])):
         if progress:
@@ -150,13 +183,16 @@ def reference_assessment(model, run, root, progress):
             if (len(evidence) < 4 or not any(evidence in (drama.get(key) or '') for key in PLOT_FIELDS)
                     or not row['actual_direction'].strip() or not row['reason'].strip()):
                 raise ValueError('题材评估缺少真实剧情原文、实际主线或判断理由')
-            if any(direction not in snapshot['analysis_topics'].get(row['actual_theme'], [])
-                   for direction in row['strong_directions']):
-                raise ValueError('强匹配方向不属于实际题材的生效参考')
             if row['playlist_id'] not in playlist_ids:
                 raise ValueError('剧情评估指定的播放列表无效')
+            options = directions.get(row['actual_theme'], {})
+            if 'strong_direction_ids' in row:
+                strong = [options[code] for code in row['strong_direction_ids'] if code in options]
+            else:
+                # Previous executor checkpoints carry the original report text.
+                strong = [text for text in row['strong_directions'] if text in options.values()]
+            judgments.append({**row, 'strong_directions': strong})
         path.write_text(encode(result))
-        judgments.extend(rows)
     if progress:
         progress('planning', len(judgments), len(snapshot['candidates']), '按匹配强度和时长编排并核对播放列表')
     result = reference_rows(snapshot, judgments)
