@@ -429,19 +429,20 @@ def test_r3_uses_compliant_stock_when_direction_is_invalid_or_dates_limit_stock(
         assert scenario != 'cached', 'validated cached candidates should be reused'
         assert 'primary:1' in stage.prompt and 'secondary:1' in stage.prompt
         assert 'strong_direction_ids' in stage.schema['properties']['rows']['items']['properties']
+        if '仅补评下列候选' in stage.prompt:
+            requested = json.loads(stage.prompt.rsplit('\n候选：', 1)[1])
+            assert [row['id'] for row in requested] == ['long_fallback']
+            return {'rows': [rows[1]]}
         return {'rows': rows}
 
-    if scenario == 'invalid-playlist':
-        with pytest.raises(ValueError, match='播放列表无效'):
-            generate(SimpleNamespace(generate=judge), {'input_snapshot': snapshot}, tmp_path)
-        return
     result = generate(SimpleNamespace(generate=judge), {'input_snapshot': snapshot}, tmp_path)
     planned = validate_result(snapshot, result)['rows']
     if scenario == 'invalid-evidence':
         assert planned[1]['actual_theme'] == 'neither'
     expected_level = 'strong' if scenario == 'date-limited' else 'fallback'
     assert [(row['drama_id'], row['match_level']) for row in planned] == [
-        ('strong', 'strong'), ('long_fallback', expected_level),
+        ('strong', 'strong'),
+        ('short_fallback' if scenario == 'invalid-playlist' else 'long_fallback', expected_level),
     ]
     assert planned[0]['theme_basis'] == planned[0]['target_direction'] == topics['primary'][0]
     assert planned[1]['deviates_from_target'] is (expected_level == 'fallback')
@@ -509,3 +510,39 @@ def test_r3_reserves_ordinary_secondary_match_before_primary_fallback():
     assert [(row['publish_slot_id'], row['drama_id']) for row in result['rows']] == [
         ('main', None), ('aux', 'secondary'),
     ]
+
+
+def test_r3_repairs_only_missing_and_conflicting_rows_and_reuses_checkpoint(tmp_path):
+    from zhiju.v14_executor.schedule_planning import complete_assessment_batch
+
+    plot = '她拿到原始合同，最终夺回公司。'
+    candidates = [{'id': name, 'content_summary': plot} for name in ('valid', 'missing', 'duplicate', 'bad-playlist')]
+
+    def row(name, playlist='playlist', **kwargs):
+        return {'drama_id': name, 'plot_evidence': plot, 'playlist_id': playlist,
+                'actual_direction': '夺回公司', 'reason': '有合同依据', 'actual_theme': 'primary',
+                'strong_direction_ids': ['primary:1']} | kwargs
+
+    accepted = row('valid')
+    calls = []
+
+    def judge(stage, _):
+        requested = [item['id'] for item in json.loads(stage.prompt.rsplit('\n候选：', 1)[1])]
+        calls.append(requested)
+        if len(calls) == 1:
+            return {'rows': [accepted, accepted.copy(), row('foreign'), row('bad-playlist', 'other'),
+                             row('duplicate'), row('duplicate', reason='不同结论')]}
+        return {'rows': [row('missing'), row('duplicate', plot_evidence='无真实引文', reason=''),
+                         row('bad-playlist', 'other')]}
+
+    checkpoint = tmp_path / 'batch.json'
+    model = SimpleNamespace(generate=judge)
+    repaired = complete_assessment_batch(model, 'test', '规则', candidates, {'playlist'}, checkpoint)
+    assert calls == [['valid', 'missing', 'duplicate', 'bad-playlist'], ['missing', 'duplicate', 'bad-playlist']]
+    assert repaired[0] == accepted
+    assert [item['drama_id'] for item in repaired] == ['valid', 'missing', 'duplicate']
+    assert repaired[2]['actual_theme'] == 'neither'
+    assert repaired[2]['strong_direction_ids'] == []
+    assert repaired[2]['plot_evidence'] == plot
+    assert complete_assessment_batch(model, 'test', '规则', candidates, {'playlist'}, checkpoint) == repaired
+    assert len(calls) == 2

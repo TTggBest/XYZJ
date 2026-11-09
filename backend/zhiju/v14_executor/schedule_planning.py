@@ -147,8 +147,87 @@ def reference_rows(snapshot, assessments):
     return {'rows': rows}
 
 
+def complete_assessment_batch(model, model_name, prompt, batch, playlist_ids, path):
+    from zhiju.scheduling_rules.contract import PLOT_FIELDS
+
+    plots = {
+        drama['id']: [(drama.get(field) or '').strip() for field in PLOT_FIELDS]
+        for drama in batch
+    }
+
+    def group(rows, expected):
+        grouped = {drama_id: [] for drama_id in expected}
+        for row in rows:
+            drama_id = row.get('drama_id')
+            if drama_id in grouped and row not in grouped[drama_id]:
+                grouped[drama_id].append(row)
+        return grouped
+
+    def valid_row(drama_id, rows):
+        valid = []
+        for row in rows:
+            evidence = row['plot_evidence'].strip()
+            if (row['playlist_id'] in playlist_ids and len(evidence) >= 4
+                    and any(evidence in text for text in plots[drama_id])
+                    and row['actual_direction'].strip() and row['reason'].strip()):
+                valid.append(row)
+        return valid[0] if len(valid) == 1 else None
+
+    def assess(candidates, instructions=''):
+        return model.generate(stage(prompt + instructions + '\n候选：' + encode(candidates),
+                                    REFERENCE_ASSESSMENT_SCHEMA), model_name)['rows']
+
+    checkpoint = json.loads(path.read_text()) if path.exists() else {'rows': assess(batch)}
+    grouped = group(checkpoint['rows'], plots)
+    excluded = set(checkpoint.get('excluded_ids', [])) & plots.keys()
+
+    def save():
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(encode({'rows': [row for rows in grouped.values() for row in rows],
+                                     'excluded_ids': sorted(excluded)}))
+        temporary.replace(path)
+
+    pending = [drama for drama in batch if drama['id'] not in excluded
+               and valid_row(drama['id'], grouped[drama['id']]) is None]
+    if pending and not path.exists():
+        save()
+    for offset in range(0, len(pending), 4):
+        candidates = pending[offset:offset + 4]
+        try:
+            retried = assess(candidates, '\n仅补评下列候选，每个 ID 恰好返回一条。不要返回其他剧。')
+        except TimeoutError:
+            retried = []
+        repaired = group(retried, (drama['id'] for drama in candidates))
+        for drama in candidates:
+            drama_id = drama['id']
+            replacement = valid_row(drama_id, repaired[drama_id])
+            if replacement:
+                grouped[drama_id] = [replacement]
+                continue
+            # A fallback needs both a real excerpt and an unambiguous playlist.
+            assignments = {row['playlist_id'] for row in grouped[drama_id] + repaired[drama_id]
+                           if row['playlist_id'] in playlist_ids}
+            quote = next((text[:160].rstrip() for text in plots[drama_id] if len(text[:160].rstrip()) >= 4), '')
+            if len(assignments) == 1 and quote:
+                grouped[drama_id] = [{
+                    'drama_id': drama_id, 'plot_evidence': quote, 'actual_theme': 'neither',
+                    'strong_direction_ids': [], 'playlist_id': assignments.pop(),
+                    'actual_direction': '实际主线待核对，见剧情原文',
+                    'reason': '原评估未通过复核，依据库内原文保留为补位候选',
+                }]
+            else:
+                excluded.add(drama_id)
+                grouped[drama_id] = []
+        save()
+
+    if not path.exists():
+        save()
+    return [row for drama_id, rows in grouped.items() if drama_id not in excluded
+            and (row := valid_row(drama_id, rows)) is not None]
+
+
 def reference_assessment(model, run, root, progress):
-    from zhiju.scheduling_rules.contract import PLOT_FIELDS, validate_result
+    from zhiju.scheduling_rules.contract import validate_result
     snapshot = run['input_snapshot']
     from zhiju.channel_analysis_rules.operating_reference import selection_reference
     sections = selection_reference(snapshot['operating_reference']['sections'])
@@ -168,31 +247,12 @@ def reference_assessment(model, run, root, progress):
               '\n运营参考：' + encode(context) + '\n方向编号：' + encode(directions) +
               '\n现有列表：' + encode(snapshot['playlists']))
     judgments = []
+    processed = 0
     for index, batch in enumerate(assessment_batches(snapshot['candidates'])):
         if progress:
-            progress('assessing', len(judgments), len(snapshot['candidates']), f'评估第 {index + 1} 批剧情')
+            progress('assessing', processed, len(snapshot['candidates']), f'评估第 {index + 1} 批剧情')
         path = root / f'reference-assessment-{index}.json'
-        result = json.loads(path.read_text()) if path.exists() else model.generate(
-            stage(prompt + '\n候选：' + encode(batch), REFERENCE_ASSESSMENT_SCHEMA), snapshot['model'])
-        plots = {d['id']: d for d in batch}
-        rows = result['rows']
-        if len(rows) != len(plots) or {r['drama_id'] for r in rows} != set(plots):
-            raise ValueError('题材评估没有逐部覆盖候选')
-        for row in rows:
-            drama = plots[row['drama_id']]
-            if row['playlist_id'] not in playlist_ids:
-                raise ValueError('剧情评估指定的播放列表无效')
-            evidence = row['plot_evidence'].strip()
-            plots_text = [(drama.get(key) or '').strip() for key in PLOT_FIELDS]
-            if (len(evidence) < 4 or not any(evidence in text for text in plots_text)
-                    or not row['actual_direction'].strip() or not row['reason'].strip()):
-                # Unverified judgments can only compete for fallback slots.
-                quote = next((text[:160].rstrip() for text in plots_text if len(text) >= 4), '')
-                if len(quote) < 4:
-                    continue
-                row = {**row, 'plot_evidence': quote, 'actual_theme': 'neither', 'strong_direction_ids': [],
-                       'actual_direction': '实际主线待核对，见剧情原文',
-                       'reason': '原评估缺少可核实的剧情依据或主线，依据库内原文保留为补位候选'}
+        for row in complete_assessment_batch(model, snapshot['model'], prompt, batch, playlist_ids, path):
             options = directions.get(row['actual_theme'], {})
             if 'strong_direction_ids' in row:
                 strong = [options[code] for code in row['strong_direction_ids'] if code in options]
@@ -200,9 +260,9 @@ def reference_assessment(model, run, root, progress):
                 # Previous executor checkpoints carry the original report text.
                 strong = [text for text in row['strong_directions'] if text in options.values()]
             judgments.append({**row, 'strong_directions': strong})
-        path.write_text(encode(result))
+        processed += len(batch)
     if progress:
-        progress('planning', len(judgments), len(snapshot['candidates']), '按匹配强度和时长编排并核对播放列表')
+        progress('planning', processed, len(snapshot['candidates']), '按匹配强度和时长编排并核对播放列表')
     result = reference_rows(snapshot, judgments)
     validate_result(snapshot, result)
     return result
