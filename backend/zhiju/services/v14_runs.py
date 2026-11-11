@@ -302,11 +302,11 @@ def claim_run(session, host_id: str, *, executor_protocol: int = 2, claim_id: st
             V14Run.claim_id == claim_id, V14Run.status == 'running'))
         if existing is not None:
             return claim_read(session, existing)
-    from zhiju.services.executor_queue import admission
+    from zhiju.services.executor_queue import admission, claimable_packages
     if not admission(session):return None
     # Sort only IDs: full Skills JSON snapshots can exceed MySQL's sort buffer.
-    run_id = session.scalar(select(V14Run.id).join(WorkOrder, WorkOrder.id == V14Run.work_order_id).join(Channel, Channel.id == WorkOrder.channel_id).where(V14Run.tenant_id == session.info["tenant_id"],
-        V14Run.host_id == host_id, V14Run.status == "queued",*([V14Run.id==preferred_id] if preferred_id else [])).order_by(*channel_order_columns(), V14Run.created_at, V14Run.id).with_for_update().limit(1))
+    run_id = session.scalar(claimable_packages(select(V14Run.id).join(WorkOrder, WorkOrder.id == V14Run.work_order_id).join(Channel, Channel.id == WorkOrder.channel_id).where(V14Run.tenant_id == session.info["tenant_id"],
+        V14Run.host_id == host_id, V14Run.status == "queued",*([V14Run.id==preferred_id] if preferred_id else []))).order_by(*channel_order_columns(), V14Run.created_at, V14Run.id).with_for_update().limit(1))
     if run_id is None:
         return None
     run = session.scalar(select(V14Run).where(V14Run.id == run_id).with_for_update())

@@ -1,8 +1,9 @@
 """One tenant-wide admission limit and FIFO queue for all Codex task types."""
 from datetime import datetime,timezone
-from sqlalchemy import select,func,literal,union_all
-from zhiju.models import ChannelAnalysisRun,ChannelSchedulePlan,ExecutorClaim
-from zhiju.models.v14 import V14Run,V14Setting
+from sqlalchemy import select,func,literal,union_all,and_,or_
+from sqlalchemy.orm import aliased
+from zhiju.models import ChannelAnalysisRun,ChannelSchedulePlan,ExecutorClaim,WorkOrder
+from zhiju.models.v14 import V14Run,V14Setting,V14Attempt
 from zhiju.services.identity import ConflictError
 
 WORKER_LIMIT=10
@@ -49,6 +50,24 @@ def admission(session):
     return counts(session)['running']<WORKER_LIMIT
 
 
+def claimable_packages(query):
+    """Let V21 r3 peers read each other's completed title/cover before creating."""
+    peer=aliased(V14Run)
+    peer_work,current_work=aliased(WorkOrder),aliased(WorkOrder)
+    cover_ready=select(V14Attempt.id).where(
+        V14Attempt.tenant_id==peer.tenant_id,V14Attempt.run_id==peer.id,
+        V14Attempt.node_type=='cover',V14Attempt.outcome=='accepted').correlate(peer).exists()
+    busy=select(peer.id).join(peer_work,peer_work.id==peer.work_order_id).join(
+        current_work,current_work.id==V14Run.work_order_id).where(
+        peer.tenant_id==V14Run.tenant_id,peer.status=='running',peer.id!=V14Run.id,
+        peer_work.drama_id==current_work.drama_id,
+        peer_work.production_date==current_work.production_date,
+        peer_work.channel_id!=current_work.channel_id,~cover_ready).correlate(V14Run).exists()
+    bundle=V14Run.rules_snapshot['skill_bundle']
+    revised=and_(bundle['label'].as_string()=='V21',bundle['revision'].as_integer()>=3)
+    return query.where(or_(~func.coalesce(revised,False),~busy))
+
+
 def claim_next(session,host_id,claim_id,executor_protocol):
     if not claim_id:raise ConflictError('统一领取需要请求ID')
     available=admission(session)
@@ -60,6 +79,7 @@ def claim_next(session,host_id,claim_id,executor_protocol):
             return {'task_type':kind,'run':run}
     def queued_for_host(model, query):
         query = query.where(model.host_id==host_id, model.status=='queued')
+        if model is V14Run:query=claimable_packages(query)
         return schedule_planning.claimable_plans(query, executor_protocol) if model is ChannelSchedulePlan else query
 
     own_queued=sum(session.scalar(queued_for_host(m, select(func.count()).select_from(m))) for m in MODELS.values())
