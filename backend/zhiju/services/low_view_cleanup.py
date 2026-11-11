@@ -6,7 +6,7 @@ from statistics import median
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select
 
 from zhiju.models import (
     AccountChannelAuthorization, AuditEvent, Channel, ChannelScheduleEntry, MediaAsset,
@@ -236,10 +236,12 @@ def _clean_release(session, video, links):
     session.execute(delete(V14Run).where(V14Run.id.in_(run_ids)))
     session.execute(delete(ImageProcessingItem).where(or_(ImageProcessingItem.package_id.in_(package_ids),
                                                          ImageProcessingItem.schedule_id.in_(schedule_ids))))
-    session.execute(update(MediaAsset).where(MediaAsset.operation_package_id.in_(package_ids)).values(
-        operation_package_id=None))
-    session.execute(update(ChannelScheduleEntry).where(ChannelScheduleEntry.channel_id == video.channel_id,
-        ChannelScheduleEntry.replaced_by_schedule_id.in_(schedule_ids)).values(replaced_by_schedule_id=None))
+    for asset in session.scalars(select(MediaAsset).where(MediaAsset.operation_package_id.in_(package_ids))):
+        asset.operation_package_id = None
+    for entry in session.scalars(select(ChannelScheduleEntry).where(
+            ChannelScheduleEntry.channel_id == video.channel_id,
+            ChannelScheduleEntry.replaced_by_schedule_id.in_(schedule_ids))):
+        entry.replaced_by_schedule_id = None
     session.delete(video)
     session.flush()
     for rows in (packages, orders, tasks, schedules):
