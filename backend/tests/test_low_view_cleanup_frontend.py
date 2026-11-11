@@ -7,8 +7,9 @@ const {start}=require(process.argv[1]+'/backend/tests/frontend_dom_harness.js');
 const user={...principal,permissions:[...principal.permissions,'channel.manage']};
 const requests=[];
 const preview={channel_id:'c1',channel_name:'测试频道',fetched_at:'2026-11-11T12:00:00Z',fetched_count:12,
+ sample_count:6,baseline_views:1000,threshold_views:200,
  candidates:[{video_id:'local-1',youtube_video_id:'video000000',title:'<script>禁止作为HTML</script>',age_days:5,
- views:99,baseline_views:1000,threshold_views:200,sample_count:5}],pending_cleanup:[],skipped:[]};
+ views:99,baseline_views:1000,threshold_views:200,sample_count:6}],pending_cleanup:[],skipped:[]};
 const page=start(process.argv[1],auth,async(path,options={})=>{
  requests.push([path,options]);
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(user));
@@ -25,6 +26,9 @@ await page.document.emit('click',{target:button('low-view-cleanup')});
 assert.equal(requests.filter(([p])=>p.endsWith('/execute')).length,0);
 const body=page.nodes.get('modalBody').innerHTML;
 assert.ok(body.includes('低于 200'));
+assert.ok(body.includes('参与计算：6 部已公开长剧'));
+assert.ok(body.includes('整个频道所有已公开长剧'));
+assert.ok(!body.includes('上线天数相近'));
 assert.ok(body.includes('删除 1 个视频并清理记录'));
 assert.ok(body.includes('&lt;script&gt;'));
 await page.document.emit('click',{target:button('execute-low-view-cleanup')});

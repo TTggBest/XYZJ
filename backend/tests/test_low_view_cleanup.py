@@ -74,16 +74,19 @@ def preview(data):
     return service.preview_cleanup(s, TokenStore(), channel_id=channel.id, requester=requester, now=NOW)
 
 
-def test_preview_refreshes_api_and_uses_same_channel_peer_median(data):
+def test_preview_refreshes_api_and_uses_whole_channel_median(data):
     result = preview(data)
     assert len(data[4]) == 3
     assert [(v['youtube_video_id'], v['views'], v['baseline_views'], v['threshold_views'])
             for v in result['candidates']] == [('video000000', 99, 1000, 200)]
-    assert result['candidates'][0]['sample_count'] == 5
+    assert result['candidates'][0]['sample_count'] == 6
+    assert result['sample_count'] == 6
+    assert result['baseline_views'] == 1000
+    assert result['threshold_views'] == 200
     assert data[0].scalar(select(YoutubeVideo).where(YoutubeVideo.youtube_video_id == 'video000000')) is not None
 
 
-@pytest.mark.parametrize('change', ['young', 'missing_views', 'private', 'old_peers', 'boundary', 'short'])
+@pytest.mark.parametrize('change', ['young', 'missing_views', 'private', 'boundary', 'short'])
 def test_preview_keeps_ineligible_or_insufficiently_evidenced_videos(data, change):
     row = data[3][0]
     if change == 'young':
@@ -92,14 +95,42 @@ def test_preview_keeps_ineligible_or_insufficiently_evidenced_videos(data, chang
         row['statistics'] = {}
     elif change == 'private':
         row['status']['privacyStatus'] = 'private'
-    elif change == 'old_peers':
-        for peer in data[3][1:]:
-            peer['snippet']['publishedAt'] = (NOW - timedelta(days=60)).isoformat()
     elif change == 'boundary':
         row['statistics']['viewCount'] = '200'
     elif change == 'short':
         row['contentDetails']['duration'] = 'PT30S'
     assert preview(data)['candidates'] == []
+
+
+@pytest.mark.parametrize('published_days', [1, 60])
+def test_channel_baseline_includes_recent_and_old_public_drama(data, published_days):
+    for peer in data[3][1:]:
+        peer['snippet']['publishedAt'] = (NOW - timedelta(days=published_days)).isoformat()
+    result = preview(data)
+    assert result['sample_count'] == 6
+    assert result['baseline_views'] == 1000
+    assert [row['youtube_video_id'] for row in result['candidates']] == ['video000000']
+
+
+def test_channel_baseline_includes_all_published_drama_without_twenty_video_limit(data):
+    # These older public dramas have not yet been linked locally. Their actual
+    # channel views still contribute to the baseline, but they cannot be deleted.
+    for index in range(25):
+        data[3].append(remote(f'older{index:06d}', 9000, days=60))
+    result = preview(data)
+    assert result['sample_count'] == 31
+    assert result['baseline_views'] == 9000
+    assert result['threshold_views'] == 1800
+    assert {row['baseline_views'] for row in result['candidates']} == {9000}
+    assert {row['sample_count'] for row in result['candidates']} == {31}
+    assert all(not row['youtube_video_id'].startswith('older') for row in result['candidates'])
+
+
+def test_private_and_short_videos_do_not_change_published_drama_baseline(data):
+    for index in range(10):
+        data[3].append(remote(f'privt{index:06d}', 100000, privacy='private'))
+        data[3].append(remote(f'short{index:06d}', 100000, duration='PT30S'))
+    assert preview(data)['baseline_views'] == 1000
 
 
 def release(data):

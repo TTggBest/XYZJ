@@ -424,10 +424,11 @@
       const pending = preview.pending_cleanup || [];
       const skipped = preview.skipped || [];
       openModal(`清理低播放剧目 · ${preview.channel_name}`, `<p>数据获取时间：${esc(fmtUtc(preview.fetched_at))} · 共读取 ${preview.fetched_count} 个视频。</p>
-        <p>公开满 5 天，与本频道上线天数相近的长剧比较。播放量低于同类样本中位数的 20% 才清理，至少需要 5 个比较样本。</p>
-        ${rows.length ? table(["视频", "上线时长", "当前播放", "正常水平", "删除线", "比较样本"], rows, 720) : '<p>本次没有符合删除条件的视频。</p>'}
+        <p>以整个频道所有已公开长剧的累计播放量中位数为正常水平。仅清理公开满 5 天、播放量低于频道正常水平 20% 的剧目。</p>
+        <p>参与计算：${preview.sample_count} 部已公开长剧。${preview.baseline_views == null ? "全频道有效播放样本不足 5 个，暂不判断。" : `频道正常水平：${preview.baseline_views} 次播放，删除线：低于 ${preview.threshold_views} 次播放。`}</p>
+        ${rows.length ? table(["视频", "上线时长", "当前播放", "频道正常水平", "删除线", "频道样本"], rows, 720) : '<p>本次没有符合删除条件的视频。</p>'}
         ${pending.length ? `<h3>YouTube 已删除，待清理本地记录 ${pending.length} 条</h3><ul>${pending.map(row => `<li>${esc(row.title)} · ${esc(row.youtube_video_id)}</li>`).join("")}</ul>` : ""}
-        ${skipped.length ? `<details><summary>跳过 ${skipped.length} 条</summary><ul>${skipped.map(row => `<li>${esc(row.youtube_video_id)}：${esc(row.reason)}</li>`).join("")}</ul></details>` : ""}
+        ${skipped.length ? `<details><summary>本次不删除 ${skipped.length} 条</summary><ul>${skipped.map(row => `<li>${esc(row.youtube_video_id)}：${esc(row.reason)}</li>`).join("")}</ul></details>` : ""}
         <p>确认后将永久删除清单中的 YouTube 视频，并清理对应排期、工单和运营包，让剧目可重新参与排期。剧库原始资料与其他频道保留。</p>
         <div class="form-actions"><button class="button button-secondary" data-action="low-view-cleanup" data-id="${esc(channelId)}">重新获取数据</button>
         <button class="button button-primary" data-action="execute-low-view-cleanup" data-id="${esc(channelId)}" ${rows.length || pending.length ? "" : "disabled"}>${rows.length ? `删除 ${rows.length} 个视频并清理记录` : "继续清理本地记录"}</button></div>`);

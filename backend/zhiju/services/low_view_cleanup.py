@@ -25,8 +25,7 @@ from zhiju.services.youtube_oauth import YouTubeAuthorizationRequired
 
 
 MIN_AGE_DAYS = 5
-MIN_PEERS = 5
-MAX_PEERS = 20
+MIN_CHANNEL_SAMPLES = 5
 THRESHOLD_RATIO = 0.2
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,7 @@ def _snapshot(session, store, channel_id, requester, now):
     known = {row.youtube_video_id: row for row in session.scalars(select(YoutubeVideo).where(
         YoutubeVideo.channel_id == channel_id))}
     _confirm_interrupted_deletions(session, channel, known, resources, token, requester, now)
-    eligible, skipped = [], []
+    eligible, skipped, channel_views = [], [], []
     for resource in resources:
         external_id = resource['id']
         snippet, status = resource.get('snippet', {}), resource.get('status', {})
@@ -75,6 +74,16 @@ def _snapshot(session, store, channel_id, requester, now):
                 views = None
         except (ValueError, TypeError):
             views = None
+        try:
+            duration = parse_youtube_duration(resource.get('contentDetails', {}).get('duration', ''))
+        except ValueError:
+            duration = None
+        # The baseline describes every public long drama on this channel.
+        # Release age and local drama linkage only govern deletion eligibility.
+        if (status.get('privacyStatus') == 'public' and views is not None
+                and duration is not None and duration >= 1800
+                and (video is None or video.deleted_at is None)):
+            channel_views.append(views)
         if not reason:
             if age is None:
                 reason = '缺少实际公开时间'
@@ -82,36 +91,32 @@ def _snapshot(session, store, channel_id, requester, now):
                 reason = '上线不足 5 天'
             elif views is None:
                 reason = '未获取到播放量'
-            else:
-                try:
-                    if parse_youtube_duration(resource.get('contentDetails', {}).get('duration', '')) < 1800:
-                        reason = '非长剧视频'
-                except ValueError:
-                    reason = '缺少视频时长'
+            elif duration is None:
+                reason = '缺少视频时长'
+            elif duration < 1800:
+                reason = '非长剧视频'
         if reason:
             skipped.append({'youtube_video_id': external_id, 'reason': reason})
             continue
         eligible.append({'video_id': video.id, 'youtube_video_id': external_id, 'drama_id': video.drama_id,
                          'title': snippet.get('title') or video.title, 'views': views,
                          'published_at': published.isoformat(), 'age_days': age})
+    sample_count = len(channel_views)
+    baseline = median(channel_views) if sample_count >= MIN_CHANNEL_SAMPLES else None
+    threshold = baseline * THRESHOLD_RATIO if baseline is not None else None
     candidates = []
     for row in eligible:
-        peers = sorted((other for other in eligible
-                        if other['video_id'] != row['video_id']
-                        and abs(other['age_days'] - row['age_days']) <= max(2, row['age_days'] * 0.25)),
-                       key=lambda other: (abs(other['age_days'] - row['age_days']), other['youtube_video_id']))[:MAX_PEERS]
-        if len(peers) < MIN_PEERS:
-            skipped.append({'youtube_video_id': row['youtube_video_id'], 'reason': '相近上线天数的有效样本不足 5 个'})
+        if threshold is None:
+            skipped.append({'youtube_video_id': row['youtube_video_id'], 'reason': '全频道已公开长剧的有效播放样本不足 5 个'})
             continue
-        baseline = median(other['views'] for other in peers)
-        threshold = baseline * THRESHOLD_RATIO
         if row['views'] < threshold:
             candidates.append({**row, 'baseline_views': baseline, 'threshold_views': threshold,
-                               'sample_count': len(peers)})
+                               'sample_count': sample_count})
     removed_ids = set(session.scalars(select(AuditEvent.entity_id).where(
         AuditEvent.action == 'youtube.low_view_removed', AuditEvent.entity_type == 'youtube_video')))
     report = {'channel_id': channel_id, 'channel_name': channel.original_name, 'fetched_at': now.isoformat(),
               'fetched_count': len(resources), 'min_age_days': MIN_AGE_DAYS, 'threshold_ratio': THRESHOLD_RATIO,
+              'sample_count': sample_count, 'baseline_views': baseline, 'threshold_views': threshold,
               'candidates': candidates, 'skipped': skipped,
               'pending_cleanup': [{'video_id': row.id, 'youtube_video_id': row.youtube_video_id, 'title': row.title}
                                   for row in known.values() if row.publish_status == 'deleted'
