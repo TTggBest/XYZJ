@@ -14,6 +14,8 @@ from zhiju.database import TenantSession, get_db
 from zhiju.permissions import require_platform_permission
 from zhiju.models import YouTubeChannelImportSession
 from zhiju.schemas.operations import PlaylistRead
+from zhiju.schemas.youtube import LowViewCleanupExecute
+from zhiju.services import low_view_cleanup
 from zhiju.schemas.youtube_oauth import (
     CountryOptionRead,
     YouTubeAuthorizationStart,
@@ -305,6 +307,47 @@ def post_sync_youtube_channel_videos(
         from zhiju.services.schedule_youtube import reconcile_channel_schedules
         reconcile_channel_schedules(session, channel_id)
         return result
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ConflictError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _cleanup_store(session, principal):
+    if 'channel.manage' not in principal.permissions and principal.platform_role != 'super_admin':
+        raise HTTPException(status_code=403, detail='没有清理频道视频的权限')
+    settings = get_settings()
+    if settings.deployment != 'cloud' and settings.device_role != 'builder':
+        raise HTTPException(status_code=403, detail='仅代码机可以执行 YouTube 视频清理')
+    return (EncryptedDatabaseSecretStore(session, settings.oauth_encryption_key)
+            if settings.deployment == 'cloud' else MacOSKeychainSecretStore())
+
+
+@router.post('/channels/{channel_id}/low-view-cleanup/preview')
+def post_low_view_cleanup_preview(
+    channel_id: str,
+    principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_tenant_db),
+) -> dict:
+    store = _cleanup_store(session, principal)
+    try:
+        return low_view_cleanup.preview_cleanup(session, store, channel_id=channel_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ConflictError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post('/channels/{channel_id}/low-view-cleanup/execute')
+def post_low_view_cleanup_execute(
+    channel_id: str,
+    payload: LowViewCleanupExecute,
+    principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_tenant_db),
+) -> dict:
+    store = _cleanup_store(session, principal)
+    try:
+        return low_view_cleanup.execute_cleanup(session, store, channel_id=channel_id, video_ids=payload.video_ids)
     except NotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ConflictError, RuntimeError, ValueError) as exc:

@@ -302,6 +302,7 @@ def fetch_channel_upload_videos(
     youtube_channel_id: str,
     *,
     requester: Callable[[str, str], Mapping[str, object]] | None = None,
+    include_statistics: bool = False,
 ) -> list[Mapping[str, object]]:
     request_json = requester or _youtube_request_json
     channel_payload = request_json(
@@ -351,7 +352,7 @@ def fetch_channel_upload_videos(
         payload = request_json(
             _api_url(
                 "videos",
-                part="snippet,contentDetails,status,fileDetails",
+                part="snippet,contentDetails,status,fileDetails" + (",statistics" if include_statistics else ""),
                 id=",".join(batch),
                 maxResults=50,
             ),

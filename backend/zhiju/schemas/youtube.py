@@ -5,6 +5,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class LowViewCleanupExecute(BaseModel):
+    video_ids: list[str] = Field(min_length=1)
+
+
 class VideoUpsert(BaseModel):
     youtube_video_id: str = Field(min_length=3, max_length=32)
     channel_id: str

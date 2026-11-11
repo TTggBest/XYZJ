@@ -410,6 +410,64 @@
     renderChannels();
   }
 
+  async function showLowViewCleanup(channelId) {
+    const channel = state.channels.find(row => row.channel_id === channelId);
+    state.lowViewCleanupPreview = null;
+    openModal(`清理低播放剧目 · ${channel?.display_name || channel?.original_name || "当前频道"}`,
+      '<p role="status">正在通过 YouTube API 获取最新播放量…</p>');
+    const generation = modalGeneration, revision = auth.capture();
+    try {
+      const preview = await api(`/channels/${encodeURIComponent(channelId)}/low-view-cleanup/preview`, { method: "POST" });
+      if (!auth.isCurrent(revision) || modalGeneration !== generation) return;
+      state.lowViewCleanupPreview = preview;
+      const rows = preview.candidates.map(row => `<tr><td>${esc(row.title)}<span class="cell-sub mono">${esc(row.youtube_video_id)}</span></td><td>${Number(row.age_days).toFixed(1)} 天</td><td>${row.views}</td><td>${row.baseline_views}</td><td>低于 ${row.threshold_views}</td><td>${row.sample_count}</td></tr>`);
+      const pending = preview.pending_cleanup || [];
+      const skipped = preview.skipped || [];
+      openModal(`清理低播放剧目 · ${preview.channel_name}`, `<p>数据获取时间：${esc(fmtUtc(preview.fetched_at))} · 共读取 ${preview.fetched_count} 个视频。</p>
+        <p>公开满 5 天，与本频道上线天数相近的长剧比较。播放量低于同类样本中位数的 20% 才清理，至少需要 5 个比较样本。</p>
+        ${rows.length ? table(["视频", "上线时长", "当前播放", "正常水平", "删除线", "比较样本"], rows, 720) : '<p>本次没有符合删除条件的视频。</p>'}
+        ${pending.length ? `<h3>YouTube 已删除，待清理本地记录 ${pending.length} 条</h3><ul>${pending.map(row => `<li>${esc(row.title)} · ${esc(row.youtube_video_id)}</li>`).join("")}</ul>` : ""}
+        ${skipped.length ? `<details><summary>跳过 ${skipped.length} 条</summary><ul>${skipped.map(row => `<li>${esc(row.youtube_video_id)}：${esc(row.reason)}</li>`).join("")}</ul></details>` : ""}
+        <p>确认后将永久删除清单中的 YouTube 视频，并清理对应排期、工单和运营包，让剧目可重新参与排期。剧库原始资料与其他频道保留。</p>
+        <div class="form-actions"><button class="button button-secondary" data-action="low-view-cleanup" data-id="${esc(channelId)}">重新获取数据</button>
+        <button class="button button-primary" data-action="execute-low-view-cleanup" data-id="${esc(channelId)}" ${rows.length || pending.length ? "" : "disabled"}>${rows.length ? `删除 ${rows.length} 个视频并清理记录` : "继续清理本地记录"}</button></div>`);
+    } catch (error) {
+      if (!auth.isCurrent(revision) || modalGeneration !== generation) return;
+      openModal("获取播放数据失败", `<p>${esc(error.message)}</p><button class="button button-secondary" data-action="low-view-cleanup" data-id="${esc(channelId)}">重试</button>`);
+    }
+  }
+
+  async function executeLowViewCleanup(channelId, button) {
+    const preview = state.lowViewCleanupPreview;
+    if (!preview || preview.channel_id !== channelId) return;
+    const videoIds = [...preview.candidates, ...(preview.pending_cleanup || [])].map(row => row.video_id);
+    if (!videoIds.length) return;
+    button.disabled = true;
+    button.textContent = "正在更新播放量并清理…";
+    const revision = auth.capture();
+    try {
+      const result = await api(`/channels/${encodeURIComponent(channelId)}/low-view-cleanup/execute`, {
+        method: "POST", body: JSON.stringify({ video_ids: videoIds })
+      });
+      if (!auth.isCurrent(revision)) return;
+      state.lowViewCleanupPreview = null;
+      const rows = [
+        ...result.completed.map(row => `<tr><td>${esc(row.youtube_video_id)}</td><td>关联记录已清理</td></tr>`),
+        ...result.failed.map(row => `<tr><td>${esc(row.youtube_video_id || row.video_id)}</td><td>${row.remote_deleted ? "YouTube 已删除，本地待清理。" : row.remote_deleted === null ? "远端结果待确认，重新获取清单可复查。" : "未完成删除。"}${esc(row.reason)}</td></tr>`),
+        ...result.skipped.map(row => `<tr><td>${esc(row.video_id)}</td><td>${esc(row.reason)}</td></tr>`)
+      ];
+      openModal(`清理结果 · ${preview.channel_name}`, `<p>本次删除 YouTube 视频 ${result.deleted_count} 个，完成关联清理 ${result.cleaned_count} 条，失败 ${result.failed.length} 条，跳过 ${result.skipped.length} 条。</p>
+        ${rows.length ? table(["视频", "处理结果"], rows, 600) : ""}
+        <button class="button button-secondary" data-action="low-view-cleanup" data-id="${esc(channelId)}">重新获取清理清单</button>`);
+      if (result.cleaned_count && ["schedules", "channelLedger", "workorders", "packages"].includes(state.view)) {
+        await loadView(state.view, { preservePosition: true });
+      }
+    } finally {
+      button.disabled = false;
+      if (state.lowViewCleanupPreview) button.textContent = "重试清理";
+    }
+  }
+
   async function showChannelLedger() {
     const channelId = state.ledgerChannelId;
     if (!channelId) return loadView("channels");
@@ -1040,7 +1098,8 @@
     const batchAction = `<label class="schedule-batch-select"><input type="checkbox" id="scheduleTaskSelectAll" aria-label="全选当前列表可生成工单的排期" title="仅全选当前列表，不包含其他页">全选本页</label><span id="scheduleSelectedCount" role="status" aria-live="polite">已选 0 条</span><button class="button button-secondary" data-action="create-selected-tasks" title="工单日期：${date}；仅处理当前列表选中排期" ${listItems.some(canCreateScheduleTask) ? "" : "disabled"}>${icon("list-checks")} 批量生成选中工单</button>`;
     const channelOptions = channels.map(channel => `<option value="${channel.channel_id}" ${channel.channel_id === state.scheduleChannelId ? "selected" : ""}>${esc(channel.display_name)}</option>`).join("");
     const viewSwitch = `<div class="schedule-view-switch" role="group" aria-label="排期视图"><button class="button ${!fullMode && !allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="day">按日查看</button><button class="button ${fullMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="full">频道完整排期</button><button class="button ${allDayMode ? "button-primary" : "button-secondary"}" data-action="schedule-view-mode" data-mode="all-day">全部频道当日</button></div>`;
-    const commonActions = `${batchAction}${allDayMode ? "" : `<button class="button button-secondary" data-action="sync-schedule-channel" ${state.scheduleChannelId ? "" : "disabled"}>${icon("refresh-cw")} 同步频道视频</button>`}<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button>${allDayMode ? "" : `<button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button><button class="button button-secondary" data-action="schedule-planning" ${state.scheduleChannelId ? "" : "disabled"}>AI 排期</button>`}`;
+    const cleanupAction = !allDayMode && state.scheduleChannelId && (auth.can("channel.manage") || auth.current()?.platform_role === "super_admin") ? `<button class="button button-secondary" data-action="low-view-cleanup" data-id="${esc(state.scheduleChannelId)}">清理低播放剧目</button>` : "";
+    const commonActions = `${cleanupAction}${batchAction}${allDayMode ? "" : `<button class="button button-secondary" data-action="sync-schedule-channel" ${state.scheduleChannelId ? "" : "disabled"}>${icon("refresh-cw")} 同步频道视频</button>`}<button class="button button-secondary" data-action="sync-feishu-channel-schedules">${icon("refresh-cw")} 同步飞书排期</button><button class="button button-secondary" data-action="go-publish-slots">${icon("clock-3")} 频道档期表</button>${allDayMode ? "" : `<button class="button button-primary" data-action="add-schedule" ${state.scheduleChannelId ? "" : "disabled"}>${icon("plus")} 新建排期</button><button class="button button-secondary" data-action="schedule-planning" ${state.scheduleChannelId ? "" : "disabled"}>AI 排期</button>`}`;
     if (fullMode) {
       const rows = full.items.map(item => `<tr>${scheduleTaskCheckbox(item)}<td>${fmt(item.planned_beijing_time)}</td><td><span class="cell-main">${item.slot_type === "main" ? "主档" : "辅档"}</span><span class="cell-sub">档位 ${item.slot_number}</span></td><td><span class="cell-main">${esc(item.chinese_title)}</span>${scheduleDramaCode(item)}</td><td>${sourceVideoCell(item, "schedule")}</td><td>${scheduleVideoStatusTag(item, "is_uploaded")}</td><td>${scheduleVideoStatusTag(item, "is_published")}</td><td>${item.is_task_written ? '<span class="tag is-green">已生成</span>' : '<span class="tag">未生成</span>'}</td><td>${item.source_type === "feishu" ? "飞书" : item.source_type === "system" ? "系统" : "人工"}</td><td>${fmtUtc(item.source_synced_at)}</td><td>${tag(item.schedule_status)}</td><td>${item.task_id ? tag(item.task_status) : "—"}</td></tr>`);
       const pages = Math.max(1, Math.ceil(full.total / full.page_size));
@@ -2606,6 +2665,7 @@
         const authorized = channel.authorized_account_count > 0;
         const oauth = state.oauthStatus || {};
         openModal(`${channel.original_name} · 频道管理`, `<div class="channel-management-menu">
+          ${(auth.can("channel.manage") || auth.current()?.platform_role === "super_admin") ? `<button class="channel-management-item is-danger" data-action="low-view-cleanup" data-id="${esc(id)}" ${authorized ? "" : "disabled"}>${icon("trash-2")}<span>清理低播放剧目</span>${icon("chevron-right")}</button>` : ""}
           <button class="channel-management-item" data-action="configure-channel-logo" data-id="${esc(id)}">${icon("image-up")}<span>${profile ? "更新 Logo" : "配置 Logo"}</span>${icon("chevron-right")}</button>
           <button class="channel-management-item" data-action="authorize-youtube-channel" data-id="${esc(id)}" ${oauth.can_manage && oauth.configured && (auth.can("channel.manage") || auth.current()?.platform_role === "super_admin") ? "" : "disabled"}>${icon("key-round")}<span>${channel.authorized_account_count > 0 ? "重新授权" : "授权 YouTube"}</span>${icon("chevron-right")}</button>${state.deployment === "cloud" ? "" : `<button class="channel-management-item" data-action="sync-youtube-videos" data-id="${esc(id)}" ${authorized ? "" : "disabled"}>${icon("refresh-cw")}<span>同步视频</span>${icon("chevron-right")}</button>`}
           ${auth.can("channel.delete") ? `<button class="channel-management-item is-danger" data-action="delete-channel" data-id="${esc(id)}">${icon("trash-2")}<span>删除频道</span>${icon("chevron-right")}</button>` : ""}
@@ -3036,6 +3096,8 @@
           if (state.view === "channelLedger" && state.ledgerChannelId === channelId) await loadView("channelLedger", { preservePosition: true });
         } finally { button.disabled = false; }
       }
+      else if (action === "low-view-cleanup") await showLowViewCleanup(id || state.scheduleChannelId);
+      else if (action === "execute-low-view-cleanup") await executeLowViewCleanup(id, button);
       else if (action === "channel-detail") await showChannelDetail(id);
       else if (action === "new-channel-analysis") {
         openModal("开始频道分析", `<form id="channelAnalysisCreateForm" data-channel-id="${esc(id)}"><div class="field"><label>分析类型</label><select name="mode" class="select"><option value="periodic" ${button.dataset.mode !== "initial" ? "selected" : ""}>正式数据分析（已运营）</option><option value="initial" ${button.dataset.mode === "initial" ? "selected" : ""}>新频道冷启动 · channel-initial-audience</option></select></div><div class="field"><label>初始题材或定位（冷启动选填）</label><textarea name="positioning" class="textarea">${esc(state.channelDetail?.profile?.positioning || "")}</textarea></div><div class="field"><label>频道中文含义（冷启动选填）</label><input class="input" name="chinese_meaning" value="${esc(state.channelDetail?.channel?.chinese_meaning || "")}"></div><div class="field"><label>目标语言（可补充，否则读取本机注册资料）</label><input class="input" name="language" value="${esc(state.channelDetail?.channel?.default_language || "")}"></div><div class="field"><label>目标市场（可补充，否则读取本机注册资料）</label><input class="input" name="market" value="${esc(state.channelDetail?.channel?.country_name_zh || "")}"></div><div data-periodic-material-flags ${button.dataset.mode === "initial" ? "hidden" : ""}><label><input type="checkbox" name="posts_not_applicable"> 从未使用帖子，帖子截图不适用</label><br><label><input type="checkbox" name="ab_not_applicable"> 没有已完成的 A/B 测试，测试截图不适用</label></div><p>正式分析需授权和 Studio 材料；新频道冷启动无需 OAuth、API、ZIP 或截图。冷启动完成后交付三份文档和事实快照；应用生产策略仍需单独操作。</p><button class="button button-primary" type="submit">建立分析任务</button></form>`);
