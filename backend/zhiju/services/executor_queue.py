@@ -80,7 +80,9 @@ def claim_next(session,host_id,claim_id,executor_protocol):
     def queued_for_host(model, query, *, claimable=True):
         query = query.where(model.host_id==host_id, model.status=='queued')
         if model is V14Run and claimable:query=claimable_packages(query)
-        return schedule_planning.claimable_plans(query, executor_protocol) if model is ChannelSchedulePlan else query
+        if model is ChannelSchedulePlan:return schedule_planning.claimable_plans(query, executor_protocol)
+        if model is ChannelAnalysisRun:return channel_analysis.claimable_runs(query,executor_protocol)
+        return query
 
     own_queued=sum(session.scalar(queued_for_host(m, select(func.count()).select_from(m), claimable=False)) for m in MODELS.values())
     if not own_queued:return None
@@ -99,6 +101,6 @@ def claim_next(session,host_id,claim_id,executor_protocol):
     id,kind=selected
     if kind=='operation_package':
         run=v14_runs.claim_run(session,host_id,executor_protocol=executor_protocol,claim_id=claim_id,run_id=id)
-    elif kind=='channel_analysis':run=channel_analysis.claim_run(session,host_id,claim_id=claim_id,run_id=id)
+    elif kind=='channel_analysis':run=channel_analysis.claim_run(session,host_id,claim_id=claim_id,run_id=id,executor_protocol=executor_protocol)
     else:run=schedule_planning.claim_plan(session,host_id,claim_id=claim_id,plan_id=id,executor_protocol=executor_protocol)
     return {'task_type':kind,'run':run} if run else {'waiting_for_capacity':True,'worker_limit':WORKER_LIMIT}

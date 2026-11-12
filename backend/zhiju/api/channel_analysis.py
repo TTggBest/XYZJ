@@ -62,9 +62,9 @@ def read(run_id:str,s:Session=Depends(get_tenant_db)):
 
 
 @router.post('/analysis-runs/{run_id}/materials')
-async def upload(run_id:str,kind:str=Form(...),file:UploadFile=File(...),s:Session=Depends(get_tenant_db),p=Depends(operator)):
+async def upload(run_id:str,kind:str=Form(...),file:UploadFile=File(...),studio_role:str|None=Form(None),filter_scope:str=Form(''),s:Session=Depends(get_tenant_db),p=Depends(operator)):
     content=await file.read(32*1024*1024+1)
-    return service.run_read(call(service.add_material,s,run_id,kind,file.filename or 'material',content))
+    return service.run_read(call(service.add_material,s,run_id,kind,file.filename or 'material',content,studio_role=studio_role,filter_scope=filter_scope))
 
 
 @router.get('/analysis-runs/{run_id}/materials/{material_id}')
@@ -114,7 +114,7 @@ def claim(body:Claim,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     bound_host(s,p,body.host_id)
     from zhiju.api.v14 import require_shared_queue_protocol
     require_shared_queue_protocol(body.executor_protocol)
-    row=call(service.claim_run,s,body.host_id)
+    row=call(service.claim_run,s,body.host_id,executor_protocol=body.executor_protocol)
     return row if row else Response(status_code=204)
 
 

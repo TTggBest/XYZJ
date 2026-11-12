@@ -215,6 +215,9 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         from zhiju.services.channel_analysis_sources import verify_authorization
         _,identity,_=verify_authorization(session,snapshot['channel'])
         snapshot['authorization_evidence']={'identity':identity,'verified_at':datetime.now(timezone.utc).isoformat()}
+        if formal_skill.get('label')=='xy-yt-report-v2' and formal_skill.get('revision',0)>=5:
+            snapshot['studio_required_periods']=[28,7]
+            snapshot['studio_input_contract']='dual-window-v1'
     run = ChannelAnalysisRun(channel_id=channel_id,host_id=setting.payload['host_id'],mode=mode,
         status='draft',phase='materials',input_snapshot=snapshot,materials=[])
     if cold_start:
@@ -226,6 +229,11 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         snapshot['initial_facts']['positioning'] = snapshot['initial_facts']['positioning'] or (profile.positioning if profile else '') or channel.default_genre or ''
         for field,key in (('default_language','language'),('country_name_zh','market')):
             if snapshot['initial_facts'][key]:snapshot['channel'][field]=snapshot['initial_facts'][key]
+        if formal_skill.get('revision',0)>=5:
+            snapshot['rules']['microvertical-cold-start.md']=(
+                '主垂类细到主角处境、核心关系、具体伤害或压力、主动反击和情绪回报；女频、逆袭、豪门不是充分定位。'
+                '只有身份和定位资料时，给低置信度编辑假设、边界和反例，缺剧情库存则说明供给待核实。'
+                '不可编造7天指标、实测偏好或审阅未取得的未来排期。')
         snapshot['rules']['channel-initial-audience.md']=skill_version['files']['SKILL.md']
     if mode=='initial' and not cold_start:
         snapshot['rules']={k:v for k,v in snapshot['rules'].items() if k in {'output-contract.md','generation-spec-contract.md'}}
@@ -240,7 +248,7 @@ def material_path(run, material_id):
     return get_settings().artifact_root / 'channel-analysis' / run.tenant_id / run.id / material_id
 
 
-def add_material(session, run_id, kind, name, content):
+def add_material(session, run_id, kind, name, content, *, studio_role=None, filter_scope=''):
     run = get_run(session,run_id,True)
     if run.status != 'draft' or kind not in KINDS:
         raise ConflictError('只能在分析开始前上传指定类型素材')
@@ -248,7 +256,12 @@ def add_material(session, run_id, kind, name, content):
         raise ConflictError('素材为空或超过 32MB')
     if kind == 'studio_zip':
         from zhiju.services.channel_analysis_sources import parse_studio_zip
-        parse_studio_zip(content)  # Reject unreadable archives before the run is queued.
+        from zhiju.services.channel_analysis_normalize import studio_period
+        period=studio_period(parse_studio_zip(content))
+        if studio_role not in (None,'recent_28d','recent_7d','previous_7d'):
+            raise ConflictError('Studio 周期类型无效')
+        if studio_role and period['span_days'] != (28 if studio_role=='recent_28d' else 7):
+            raise ConflictError('所选周期与CSV实际日期不符，请检查28天或7天导出')
         suffix = '.zip'
     else:
         from io import BytesIO
@@ -262,8 +275,22 @@ def add_material(session, run_id, kind, name, content):
         except Exception as exc:
             raise ConflictError('截图必须为有效 PNG、JPEG 或 WebP 图片') from exc
     # A named slot is replaceable before start; individual A/B tests are additive.
-    materials = [m for m in run.materials if kind == 'ab' or m['kind'] != kind]
+    if kind=='studio_zip':
+        materials=[]
+        for material in run.materials:
+            old_period=material.get('period')
+            if material['kind']=='studio_zip' and not old_period:
+                old_period=studio_period(parse_studio_zip(material_path(run,material['id']).read_bytes()))
+            replace = material['kind']=='studio_zip' and (old_period==period or
+                (period['span_days']==28 and old_period and old_period['span_days']==28) or
+                (studio_role and material.get('studio_role')==studio_role))
+            if not replace:materials.append(material)
+    else:
+        materials = [m for m in run.materials if kind == 'ab' or m['kind'] != kind]
     item={'id':str(uuid4()),'kind':kind,'name':Path(name).name,'suffix':suffix,'size':len(content)}
+    if kind=='studio_zip':
+        item.update(period=period,studio_role=studio_role,filter_scope=filter_scope.strip(),
+            filter_verification='user_confirmed' if filter_scope.strip() else 'unavailable')
     run.materials = materials + [item]
     path = material_path(run,item['id']);path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(content)
     session.commit(); return run
@@ -281,11 +308,21 @@ def start_run(session, run_id):
         if not run.input_snapshot['posts_not_applicable']:required.add('posts')
         if not run.input_snapshot['ab_not_applicable']:required.add('ab')
         if required-kinds:raise ConflictError('缺少 Studio ZIP 或截图：'+', '.join(sorted(required-kinds)))
+        from zhiju.services.channel_analysis_sources import parse_studio_zip,validate_studio_exports
+        validate_studio_exports({m['id']:parse_studio_zip(material_path(run,m['id']).read_bytes())
+            for m in run.materials if m['kind']=='studio_zip'},
+            require_recent_7d=7 in run.input_snapshot.get('studio_required_periods',[]))
     run.status='queued';run.phase='authorization' if run.mode=='periodic' else 'analysis'
     session.commit();return run
 
 
-def claim_run(session, host_id, *, claim_id=None, run_id=None):
+def claimable_runs(query, executor_protocol):
+    if executor_protocol < 15:
+        query=query.where(func.coalesce(ChannelAnalysisRun.input_snapshot['studio_input_contract'].as_string(),'')!='dual-window-v1')
+    return query
+
+
+def claim_run(session, host_id, *, claim_id=None, run_id=None, executor_protocol=15):
     setting=session.scalar(select(V14Setting).with_for_update())
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
     from zhiju.services.executor_queue import admission
@@ -294,8 +331,8 @@ def claim_run(session, host_id, *, claim_id=None, run_id=None):
     other=aliased(ChannelAnalysisRun)
     busy=select(other.id).where(other.tenant_id==ChannelAnalysisRun.tenant_id,
         other.channel_id==ChannelAnalysisRun.channel_id,other.status=='running').exists()
-    run_id=session.scalar(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.host_id==host_id,
-        ChannelAnalysisRun.status=='queued',~busy,*( [ChannelAnalysisRun.id==preferred_id] if preferred_id else [])).order_by(ChannelAnalysisRun.created_at).with_for_update(skip_locked=True).limit(1))
+    run_id=session.scalar(claimable_runs(select(ChannelAnalysisRun.id).where(ChannelAnalysisRun.host_id==host_id,
+        ChannelAnalysisRun.status=='queued',~busy,*( [ChannelAnalysisRun.id==preferred_id] if preferred_id else [])),executor_protocol).order_by(ChannelAnalysisRun.created_at).with_for_update(skip_locked=True).limit(1))
     if run_id is None:return None
     run=get_run(session,run_id,True)
     run.claim_id=claim_id or str(uuid4());run.status='running';run.heartbeat_at=datetime.now(timezone.utc)

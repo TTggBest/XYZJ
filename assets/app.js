@@ -705,14 +705,28 @@
     },5000);
   }
   function analysisMaterialsForm(run) {
-    const slots = [
-      {key:"studio_zip", title:"28天数据 · Studio 内容导出 ZIP", accept:".zip", path:"YouTube Studio → 数据分析 → 高级模式 → 内容 → 最近28天 → 右上角导出当前视图 → CSV", help:"上传下载得到的原始 ZIP，不用解压。通常包含「表格数据.csv」「图表数据.csv」「总计.csv」。", detail:"数据应包含：内容 / 视频 ID、标题、发布日期、时长、观看次数、观看时长、订阅人数、展示次数和展示点击率；回访观众、收入等字段以 Studio 实际提供为准。只需这一份28天 ZIP，无需另传7天数据。"},
-      {key:"videos", title:"截图 1 · 内容 → 视频", accept:"image/png,image/jpeg,image/webp", path:"YouTube Studio → 数据分析 → 内容 → 视频", help:"日期选择与 ZIP 相同的最近28天，截取完整页面。", detail:"包含：观看次数、展示次数、展示点击率、平均观看时长、开头留存 / 前30秒表现、流量来源和热门视频。建议命名：内容_视频_28天.png。"},
-      {key:"audience", title:"截图 2 · 观众", accept:"image/png,image/jpeg,image/webp", path:"YouTube Studio → 数据分析 → 观众", help:"日期选择与 ZIP 相同的最近28天，截取完整页面及所有可见卡片。", detail:"包含：月度观众、新 / 回访观众、订阅状态、年龄与性别、设备、地区、字幕语言、观众在线时间及还看哪些频道 / 内容。Studio 显示「数据不足」的卡片照常截图，无需补数据。建议命名：观众_28天.png。"},
-      {key:"posts", title:"截图 3 · 内容 → 帖子", accept:"image/png,image/jpeg,image/webp", path:"YouTube Studio → 数据分析 → 内容 → 帖子", help:"日期选择与 ZIP 相同的最近28天，截取完整页面。", detail:"包含：帖子展示次数、点赞、订阅人数和热门帖子。如果从未发帖，请在创建分析任务时勾选「从未发布帖子」，无需上传此图。建议命名：帖子_28天.png。"},
-      {key:"ab", title:"已完成 A/B 测试截图（可多选）", accept:"image/png,image/jpeg,image/webp"}
-    ];
-    return `<form id="channelAnalysisMaterialsForm" data-run-id="${run.id}">${run.mode === "initial" ? `<p>冷启动无需上传运营数据，初始定位已随任务保存。</p>` : `<div class="analysis-materials-intro"><strong>先准备：1份28天 ZIP + 3张分析截图</strong><p>全部材料来自同一个频道，日期范围保持一致。截图请包含频道名称和日期；每个文件最多32MB，图片支持 PNG、JPG、WebP。</p></div>`}${run.mode === "periodic" ? slots.map(({key,title,accept,path,help,detail}) => `<section class="field analysis-material-slot"><label for="analysis-material-${key}">${title}</label>${path ? `<p class="analysis-material-path"><strong>获取位置</strong>${path}</p><p class="analysis-material-help">${help}</p><p class="analysis-material-help">${detail}</p>` : ""}<input type="file" id="analysis-material-${key}" name="${key}" accept="${accept}" ${key === "ab" ? "multiple" : ""}><span class="analysis-material-uploaded ${run.materials.some(m => m.kind === key) ? "is-green" : ""}" role="status" aria-live="polite" data-saved-names="${esc(JSON.stringify(run.materials.filter(m => m.kind === key).map(m => m.name)))}">${run.materials.some(m => m.kind === key) ? `${icon("circle-check")} 已上传 · ${run.materials.filter(m => m.kind === key).map(m => esc(m.name)).join("、")}` : "未选择文件"}</span></section>`).join("") : ""}<button class="button button-primary" type="submit">保存材料并开始</button></form>`;
+    const dual=run.input_snapshot?.studio_input_contract==="dual-window-v1";
+    const studio=run.materials.filter(m=>m.kind==="studio_zip");
+    const long=studio.find(m=>m.period?.span_days===28);
+    const roleOf=m=>m.studio_role || (m.period?.span_days===28 ? "recent_28d" : m.period?.end===long?.period?.end ? "recent_7d" : "previous_7d");
+    const zipSlot=(role,title,window)=>({key:"studio_zip",role,title,accept:".zip",
+      path:`YouTube Studio → 数据分析 → 高级模式 → 内容 → ${window} → 导出当前视图 → CSV`,
+      help:"上传原始 ZIP，不用解压。程序按CSV实际日期识别周期。",
+      detail:"观看次数、展示次数和CTR必需；两份导出保持相同截止日、内容筛选和指标列。保留标题、发布日期、时长、观看时长及平均观看百分比等可用列。"});
+    const slots=[zipSlot("recent_28d","28天数据 · Studio 内容导出 ZIP","最近28天"),
+      ...(dual ? [zipSlot("recent_7d","最近7天数据 · Studio 内容导出 ZIP（必需）","最近7天"),
+        {...zipSlot("previous_7d","前7天数据 · Studio 内容导出 ZIP（可选）","自定义前7天"),
+          detail:"截止日比最近7天提前7天。未提供时，展示量周环比和CTR百分点变化记为不可用；符合条件的历史原件可复用，不用每次多传第三份。"}] : []),
+      {key:"videos",title:"截图 1 · 内容 → 视频",accept:"image/png,image/jpeg,image/webp",path:"YouTube Studio → 数据分析 → 内容 → 视频",help:"日期与28天ZIP一致，截取完整页面。",detail:"包含观看、展示、CTR、观看时长、开头留存、流量来源和热门视频。"},
+      {key:"audience",title:"截图 2 · 观众",accept:"image/png,image/jpeg,image/webp",path:"YouTube Studio → 数据分析 → 观众",help:"日期与28天ZIP一致，截取完整页面和所有可见卡片。",detail:"保留卡片自己的7天、365天等周期。Studio数据不足照常截图，无需补数。"},
+      {key:"posts",title:"截图 3 · 内容 → 帖子",accept:"image/png,image/jpeg,image/webp",path:"YouTube Studio → 数据分析 → 内容 → 帖子",help:"日期与28天ZIP一致，截取完整页面。",detail:"从未发帖时沿用创建任务时的不适用选项。"},
+      {key:"ab",title:"已完成 A/B 测试截图（可多选）",accept:"image/png,image/jpeg,image/webp"}];
+    const fields=slots.map(({key,role,title,accept,path,help,detail})=>{
+      const saved=run.materials.filter(m=>m.kind===key && (!dual || key!=="studio_zip" || roleOf(m)===role));
+      const id=role || key;
+      return `<section class="field analysis-material-slot"><label for="analysis-material-${id}">${title}</label>${path ? `<p class="analysis-material-path"><strong>获取位置</strong>${path}</p><p class="analysis-material-help">${help}</p><p class="analysis-material-help">${detail}</p>` : ""}<input type="file" id="analysis-material-${id}" name="${key}" ${dual && role ? `data-studio-role="${role}"` : ""} accept="${accept}" ${key==="ab" ? "multiple" : ""}><span class="analysis-material-uploaded ${saved.length ? "is-green" : ""}" role="status" aria-live="polite" data-saved-names="${esc(JSON.stringify(saved.map(m=>m.name)))}">${saved.length ? `${icon("circle-check")} 已上传 · ${saved.map(m=>esc(m.name)).join("、")}` : "未选择文件"}</span></section>`;
+    }).join("");
+    return `<form id="channelAnalysisMaterialsForm" data-run-id="${run.id}" data-dual-window="${dual}">${run.mode==="initial" ? "<p>冷启动无需上传运营数据，初始定位已随任务保存。</p>" : `<div class="analysis-materials-intro"><strong>先准备：${dual ? "28天＋最近7天两份ZIP" : "1份28天ZIP"}及原28天分析截图</strong><p>全部来自同一频道。截图保持28天，不额外增加7天截图。每个文件最多32MB；图片支持PNG、JPG、WebP。</p>${dual ? `<label>导出筛选口径（可选）<input class="input" name="studio_filter_scope" value="${esc(studio.find(m=>m.filter_scope)?.filter_scope || "")}" placeholder="例如：内容=视频，其他筛选=无"></label><p>ZIP不保存完整筛选条件，程序不能自行验证。填写表示你确认本次各份导出使用同一口径；仅与口径、日期及指标完全匹配的历史7天原件复用。</p>` : ""}</div>${fields}`}<button class="button button-primary" type="submit">保存材料并开始</button></form>`;
   }
   function updateAnalysisMaterialStatus(input, stage = "selected") {
     const status = input.closest(".analysis-material-slot").querySelector(".analysis-material-uploaded");
@@ -3648,7 +3662,9 @@
               for (let index=0;index<pending.length;index++) {
                 const file=pending[index];
                 const body=new FormData();body.append("kind",input.name);body.append("file",file);
+                if(input.dataset.studioRole) {body.append("studio_role",input.dataset.studioRole);body.append("filter_scope",String(form.elements.studio_filter_scope?.value || "").trim());}
                 await api(`/analysis-runs/${runId}/materials`,{method:"POST",body,expectedRevision});
+                if(input.name!=="ab") saved.length=0;
                 saved.push(file.name);status.dataset.savedNames=JSON.stringify(saved);
                 const remaining=new DataTransfer();pending.slice(index+1).forEach(item=>remaining.items.add(item));input.files=remaining.files;
               }
@@ -3656,6 +3672,7 @@
             } catch(error) {updateAnalysisMaterialStatus(input,"failed");throw error;}
           }
           const config={...await prepareV14Executor(expectedRevision),task_type:"channel_analysis"};
+          if(form.dataset.dualWindow==="true" && Number(config.executor_protocol || 0)<15) throw new Error("双周期分析需要更新本机执行器，请安装新版后重新唤起");
           await api(`/analysis-runs/${runId}/start`,{method:"POST",expectedRevision});
           state.analysisHistoryPage=1;closeModal();
           try {await localV14Request("/start",config);} catch(error) {throw new Error(`分析已排队，但本机唤起失败：${error.message}。请重试唤起。`);}

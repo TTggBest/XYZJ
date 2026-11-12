@@ -10,7 +10,7 @@ from zhiju.services.channel_analysis_normalize import studio_screenshot_window
 import shutil
 import copy
 import yaml
-from .client import CloudConflict
+from .client import CloudConflict, EXECUTOR_PROTOCOL
 
 OUTPUT_SCHEMA={'type':'object','additionalProperties':False,
     'properties':{k:{'type':'string'} for k in ('profile','diagnosis','generation_spec','normalized_snapshot','material_checks')},
@@ -54,7 +54,9 @@ def bounded_context(snapshot):
 def screenshot_stage(run,root):
     schema=analysis_output_schema(run)['properties']['material_checks']
     inventory=run['input_snapshot']['sources']['fact_snapshot'].get('video_inventory',[])
-    studio=run['input_snapshot']['sources']['fact_snapshot'].get('studio_content',[])
+    facts=run['input_snapshot']['sources']['fact_snapshot']
+    studio=facts.get('studio_content',[])+[row for value in facts.get('studio_short_windows',{}).values() for row in value.get('content',[])]
+    studio=list({row['video_id']:row for row in studio}.values())
     inventory=inventory+[{'id':row['video_id'],'snippet':{'title':row['values'].get('视频标题',row['values'].get('Video title'))},'source':'Studio export; Data API details unavailable'} for row in studio if row.get('content_type','video')=='video' and row['video_id'] not in {item['id'] for item in inventory}]
     video_ids=[item['id'] for item in inventory]
     video_identity={'type':['string','null']}
@@ -135,7 +137,11 @@ def analysis_prompt_snapshot(snapshot):
     previous=snapshot.get('previous_analysis') or {}
     facts=dict(sources.get('fact_snapshot') or {})
     cohort_ids={row['video'] for domain in ('top_videos_28d','middle_videos_28d','low_videos_28d') for row in facts.get(domain,{}).get('rows',[]) if row.get('video')}
-    # Full descriptions/thumbnails are included only for compared cohorts; raw inventory stays archived.
+    for domain in ('recent_7d','previous_7d'):
+        cohort_ids.update(row['video_id'] for row in facts.get('studio_short_windows',{}).get(domain,{}).get('content',[]) if row.get('content_type','video')=='video')
+    for domain in ('api_videos_7d','api_videos_previous_7d'):
+        cohort_ids.update(row['video'] for row in facts.get(domain,{}).get('rows',[]) if row.get('video'))
+    # Keep packaging and plot context for all recent compared videos.
     facts['video_inventory']=[{'id':item['id'],'title':item.get('snippet',{}).get('title'),
         'published_at':item.get('snippet',{}).get('publishedAt'),
         'duration':item.get('contentDetails',{}).get('duration'),
@@ -157,12 +163,12 @@ def analysis_prompt_snapshot(snapshot):
     mapping=sources.get('video_drama_mapping',[])
     selected_mapping=[row for row in mapping if row['youtube_video_id'] in cohort_ids]
     return {key:snapshot.get(key) for key in ('mode','channel','profile','playlists','positioning','rules',
-        'posts_not_applicable','ab_not_applicable')} | {
+        'posts_not_applicable','ab_not_applicable','studio_required_periods','studio_input_contract')} | {
         'skill_instruction':snapshot.get('skill_version',{}).get('files',{}).get('SKILL.md',''),
         'previous_analysis':{key:previous.get(key) for key in ('profile','diagnosis','generation_spec')},
         'sources':{'fact_snapshot':facts,
             'video_drama_mapping':selected_mapping,
-            'mapping_scope':'drama mappings for ranked Studio cohorts (API fallback only if Studio absent); all exported Studio rows retained in prompt',
+            'mapping_scope':'drama mappings for 28-day cohorts and all 7-day compared videos; all exported Studio rows retained',
             'screenshots':sources.get('screenshots',[])}}
 
 
@@ -183,6 +189,10 @@ def stage_for(run,root):
         '关键结论写明所依据的API数据集、Studio表或截图id；数值以sources.fact_snapshot为准，不重算或编造。'
         '截图已经转录到facts中的observations；报告数值只能引用这些带来源、scope和window的字段，未读出的字段保留unavailable。A/B百分比是观看时长份额，不是CTR。'
         'Studio表格总计与完整视频行是本期总计、排名和CTR的优先来源；API覆盖不完整时不得代表全频道或完整7天趋势。'
+        'r5任务以studio_short_windows.recent_7d为当前Studio周期，previous_7d为可选对照，28天仅作背景。各周期总计、原生CTR、全量视频行独立，不叠加。'
+        'short_window_comparison标为unavailable时不取28天CTR补值；API近期窗口按实际返回完整日及覆盖说明读取，不与Studio日期混称。'
+        '逐视频和逐流量来源解释减少与增长抵消；把曝光、点击、承接、新片接力与题材偏移分开。缺包装、留存、来源或受众证据时只写假设。'
+        '起号方向细到关系、触发冲突、人物行动和兑现；只对已取得的发布清单或排期提出逐剧建议，没有未来计划时说明未审阅。'
         '按comparable_video_groups区分片长和成熟度。明确标注早期视频，不把短内容和长剧直接比较。'
         'video_source_coverage中in_studio=true的视频不得写成不在Studio；不在API仅代表API样本缺失。'
         '本期Studio表现与窗口外A/B结论必须分开；当前显示标题不能当作全期唯一标题，不把28天CTR归因于窗口后获胜组合。'
@@ -191,7 +201,7 @@ def stage_for(run,root):
         'data_window逐字采用fact_snapshot.data_windows；strategy_confidence只能high/medium/low；所有priority/reduce/focus及scheduling_notes均为字符串列表。'
         'GLOBAL 的目标语言使用平台语言代码，目标市场使用平台 country_name_zh；未知市场填写未配置。'
         '正式分析normalized_snapshot填写JSON字符串{}，程序会注入已核实事实，不要复制整份JSON。'
-        'API 与 Studio 以同一个结束日为基准。API 起点可能因频道创建日期而裁短。分别使用来源自己的窗口；若不是昨日截止，应标明实际截止日。'
+        '28/90天API请求以Studio截止日为基准；近期API比较以实际返回日D为准，可与Studio日期不同。API起点可能因频道创建日期裁短。分别标明来源窗口及实际覆盖，不能混称。'
         '比较视频时结合发布时间，未满7完整日标记早期样本，不认定为成熟表现。'
         'material_checks 是结构化对象，按附件id给出identity_matches/page_matches/window_matches布尔值及非空evidence字符串；字段名必须与schema一致。无法核实则false。无截图填写{}。'
         'A/B测试按自身测试起止时间核实；跨出28天统计窗口时window_matches=false并在evidence和报告中说明，仅作补充，不合并进28天指标。'
@@ -343,7 +353,7 @@ def recover_cached(client,config,cache_root):
 def claim_analysis(client):
     principal=client.request('GET','/auth/me')
     if principal['tenant_id']!=client.tenant_id:raise PermissionError('当前会话公司不匹配')
-    run=client.request('POST','/channel-analysis/claims',{'host_id':client.host_id,'executor_protocol':5})
+    run=client.request('POST','/channel-analysis/claims',{'host_id':client.host_id,'executor_protocol':EXECUTOR_PROTOCOL})
     if run and run['tenant_id']!=client.tenant_id:raise PermissionError('分析任务公司不匹配')
     return run
 
