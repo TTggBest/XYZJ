@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 SLOT_TOPICS_PROTOCOL = 9
 REFERENCE_PROTOCOL = 10
+CONTINUITY_PROTOCOL = 14
 
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
 BEIJING = ZoneInfo('Asia/Shanghai')
@@ -110,6 +111,17 @@ def validate_result(snapshot,result):
             return slot_local_datetime(date.fromisoformat(row['publish_date']), slot, 'beijing').astimezone(BEIJING)
         return row['publish_date'], slot['local_time']
 
-    return {'rows':sorted(rows,key=order),
-            'schedule_ids':[]}
+    saved = {'rows': sorted(rows, key=order), 'schedule_ids': []}
+    if snapshot.get('selection_method') == 'audience-continuity-v1':
+        review = result.get('planning_review')
+        if not isinstance(review, dict) or not isinstance(review.get('viewer_promises'), dict):
+            raise ValueError('修订4缺少细分观众承诺与候选对比复盘')
+        if not snapshot.get('selection_evidence'):
+            raise ValueError('修订4尚未冻结本频道表现证据')
+        for row in rows:
+            if row['drama_id'] and (not str(row.get('comparison_reason') or '').strip()
+                                   or not str(row.get('selection_focus') or '').strip()):
+                raise ValueError('修订4入选剧须说明细分方向及相对其他候选的理由')
+        saved['planning_review'] = review
+    return saved
 

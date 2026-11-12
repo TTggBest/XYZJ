@@ -46,6 +46,93 @@ REFERENCE_ASSESSMENT_SCHEMA = array_schema({
     'plot_evidence': {'type': 'string'},
 })
 
+CONTINUITY_SCHEMA = {
+    'type': 'object', 'additionalProperties': False,
+    'properties': {
+        'viewer_promises': {'type': 'object', 'additionalProperties': False,
+            'properties': {'primary': {'type': 'string'}, 'secondary': {'type': 'string'}},
+            'required': ['primary', 'secondary']},
+        'evidence_review': {'type': 'string'}, 'feedback_review': {'type': 'string'},
+        'packaging_review': {'type': 'string'},
+        'tiers': {'type': 'array', 'items': {'type': 'array', 'items': {'type': 'string'}}},
+        'comparisons': {'type': 'array', 'items': {
+            'type': 'object', 'additionalProperties': False,
+            'properties': {'drama_id': {'type': 'string'}, 'focus_match': {'type': 'boolean'},
+                           'reason': {'type': 'string'}},
+            'required': ['drama_id', 'focus_match', 'reason']}},
+    },
+    'required': ['viewer_promises', 'evidence_review', 'feedback_review', 'packaging_review', 'tiers', 'comparisons'],
+}
+
+
+def compare_audience(model, snapshot, judgments, root):
+    """Relative editorial comparison of the whole assessed pool, before length ties."""
+    evidence = snapshot.get('selection_evidence')
+    if not isinstance(evidence, dict) or not evidence.get('collected_at'):
+        raise ValueError('修订4尚未冻结本频道逐视频表现，请先读取证据')
+    plots = {row['id']: row for row in snapshot['candidates']}
+    compact = [{**row, **{key: plots[row['drama_id']].get(key) for key in (
+        'chinese_title', 'content_summary', 'plot_pattern', 'core_personas', 'duration_seconds')}}
+        for row in judgments]
+    prompt = (
+        '这是修订4的全候选相对比较，不是重新按宽泛标签选片。前阶段已经逐部阅读全文。'
+        '先结合本频道已应用定位、逐视频真实表现、上次承接假设及目前结果，确定细分观看承诺：'
+        '谁伤害谁→主角采取什么行动→最终兑现什么回报。primary与secondary分别解释；'
+        '不能只写豪门、逆袭、打脸或总裁，也不能凭语言或标题套用别的频道赢家。'
+        '有观测才称已验证；冷启动、缺失、过旧数据只形成待验证假设，不承诺推荐或播放增长。'
+        '比较近期7天、前7天、28天时考虑曝光/发布时间、样本量、观看时长/APV与增粉，'
+        '窗口互相重叠不能相加，未成熟视频不能同成熟视频直接排名，缺行不等于0。'
+        'evidence_review说明哪些实际样本支持或反对方向；feedback_review审视上次假设是否被结果支持。'
+        '没有逐视频展示或流量来源时不能断言下跌是选片造成。'
+        'packaging_review区分已读标题、封面实图、开场留存和正片；没取得就明确未验证，不能编造核验。'
+        '逐部作对照，说明为什么更适合或不如最接近的另一部，冲突/情绪/结局回报是否相近。'
+        'focus_match仅表示实际持续主线吻合本次细分承诺；并不改变原来的题材归类与准入规则。'
+        'tiers从最佳到较弱排列，适配质量相近的候选放同一层；系统只在同层比较原语种和时长。'
+        '每个已评估ID在tiers和comparisons中都必须恰好出现一次，包括未推荐的。'
+        '不用凑固定部数、不为跨频道去重牺牲适配、不照搬别的频道整表。'
+        '本次逐档题材是硬约束；同一题材的两档强化同一细分观看期待；播放列表只是归档不能代替剧情匹配。'
+        '\n已应用运营参考：' + encode(snapshot['operating_reference']) +
+        '\n逐档题材：' + encode(snapshot['slot_topics']) +
+        '\n本频道表现与上次复盘：' + encode(evidence) +
+        '\n全部已评估候选：' + encode(compact))
+    path = root / 'audience-comparison.json'
+    expected = {row['drama_id'] for row in judgments}
+    error = ''
+    for attempt in range(3):
+        result = json.loads(path.read_text()) if attempt == 0 and path.exists() else model.generate(
+            stage(prompt + ('\n上次比较未通过：' + error if error else ''), CONTINUITY_SCHEMA), snapshot['model'])
+        try:
+            ordered = [key for tier in result['tiers'] for key in tier]
+            compared = result['comparisons']
+            ids = [row['drama_id'] for row in compared]
+            if (len(ordered) != len(expected) or set(ordered) != expected
+                    or len(ids) != len(expected) or set(ids) != expected):
+                raise ValueError('全候选相对比较遗漏、重复或夹入了其他剧目')
+            for row in compared:
+                if not isinstance(row['focus_match'], bool) or not row['reason'].strip():
+                    raise ValueError('逐部比较缺少细分适配判定或相对理由')
+            for theme in set(snapshot['slot_topics'].values()):
+                if not result['viewer_promises'][theme].strip():
+                    raise ValueError('缺少该档细分观看承诺')
+            if not all(result[key].strip() for key in ('evidence_review', 'feedback_review', 'packaging_review')):
+                raise ValueError('缺少表现复核、上次反馈或包装证据说明')
+        except (KeyError, TypeError, ValueError) as exc:
+            error = str(exc)
+            continue
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(encode(result)); temporary.replace(path)
+        priorities = {key: -index for index, tier in enumerate(result['tiers']) for key in tier}
+        comparisons = {row['drama_id']: row for row in compared}
+        updated = [{**row, **comparisons[row['drama_id']],
+                    'comparison_priority': priorities[row['drama_id']]} for row in judgments]
+        review = {key: result[key] for key in (
+            'viewer_promises', 'evidence_review', 'feedback_review', 'packaging_review')}
+        review.update(compared_candidates=len(expected), total_candidates=len(plots),
+            unassessed_candidate_ids=sorted(plots.keys() - expected),
+            evidence_collected_at=evidence['collected_at'], missing_evidence=evidence.get('missing', []))
+        return updated, review
+    raise ValueError('修订4全候选对比未通过，未回退到按时长选片：' + error)
+
 
 def reference_rows(snapshot, assessments):
     """Reserve strong candidates first, then fill remaining slots from real stock."""
@@ -81,10 +168,11 @@ def reference_rows(snapshot, assessments):
             if drama['expires_at'] and utc(datetime.fromisoformat(drama['expires_at'])) <= instant:
                 continue
             actual = assessment['actual_theme']
-            strong = actual == category and bool(assessment['strong_directions'])
+            strong = actual == category and bool(assessment['strong_directions']) and assessment.get('focus_match', True)
             preference = 2 if strong else 1 if actual == category else 0
             chinese_original = drama.get('source_language') == 'zh'
-            choices.append((preference, chinese_original, duration if duration is not None else -1, drama_id, assessment))
+            editorial = (assessment.get('comparison_priority', 0), chinese_original)
+            choices.append((preference, editorial, duration if duration is not None else -1, drama_id, assessment))
         return sorted(choices, key=lambda item: item[:-1], reverse=True)
 
     # Reserve strong and ordinary matches for their own slot category.
@@ -132,7 +220,7 @@ def reference_rows(snapshot, assessments):
         *_, drama_id, judgment = pick
         actual = judgment['actual_theme']
         basis = next(iter(judgment['strong_directions']), None)
-        strong = actual == category and bool(basis)
+        strong = actual == category and bool(basis) and judgment.get('focus_match', True)
         direction = basis if strong else next(iter(topics[category]), None)
         if judgment['playlist_id'] not in playlists:
             raise ValueError('剧情评估未选择当前频道的可用播放列表')
@@ -142,7 +230,9 @@ def reference_rows(snapshot, assessments):
                      'target_theme': category, 'target_direction': direction, 'actual_theme': actual,
                      'actual_direction': judgment['actual_direction'], 'theme_basis': basis,
                      'match_level': 'strong' if strong else 'fallback', 'deviates_from_target': not strong,
-                     'fallback_reason': None if strong else '该档没有剩余的强匹配候选，按真实主线补位',
+                     'fallback_reason': None if strong else (
+                         '该剧未吻合本次细分观看承诺：' + judgment['reason'] if judgment.get('focus_match') is False
+                         else '该档没有剩余的强匹配候选，按真实主线补位'),
                      'playlist_id': judgment['playlist_id'], 'operating_reference_version_id': reference_id})
     return {'rows': rows}
 
@@ -233,6 +323,10 @@ def reference_assessment(model, run, root, progress):
     sections = selection_reference(snapshot['operating_reference']['sections'])
     rules = '\n'.join(v for k, v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
     context = {key: sections[key] for key in ('topics', 'empathy', 'selection_guidance')}
+    if snapshot.get('selection_method') == 'audience-continuity-v1':
+        if not snapshot.get('selection_evidence'):
+            raise ValueError('修订4尚未冻结本频道逐视频表现，请先读取证据')
+        context['feedback_stage'] = '本阶段只阅读全文、提取真实主线；逐视频表现统一在全候选相对比较阶段提供。'
     playlist_ids = {p['id'] for p in snapshot['playlists']}
     directions = {
         theme: {f'{theme}:{index}': text for index, text in enumerate(topics, start=1)}
@@ -261,9 +355,22 @@ def reference_assessment(model, run, root, progress):
                 strong = [text for text in row['strong_directions'] if text in options.values()]
             judgments.append({**row, 'strong_directions': strong})
         processed += len(batch)
+    review = None
+    if snapshot.get('selection_method') == 'audience-continuity-v1':
+        if progress:
+            progress('planning', processed, len(snapshot['candidates']), '全候选对照：细分观众期待与已发布表现')
+        judgments, review = compare_audience(model, snapshot, judgments, root)
     if progress:
-        progress('planning', processed, len(snapshot['candidates']), '按匹配强度和时长编排并核对播放列表')
+        progress('planning', processed, len(snapshot['candidates']), '按剧情承接优先编排，同档适配相近时再比较时长')
     result = reference_rows(snapshot, judgments)
+    if review:
+        result['planning_review'] = review
+        comparisons = {row['drama_id']: row for row in judgments}
+        for row in result['rows']:
+            if row['drama_id']:
+                row['selection_focus'] = review['viewer_promises'][row['target_theme']]
+                row['comparison_reason'] = comparisons[row['drama_id']]['reason']
+                row['pairing_reason'] = '本档观看承诺：' + row['selection_focus'] + '；' + row['comparison_reason']
     validate_result(snapshot, result)
     return result
 
@@ -433,6 +540,10 @@ def process_claimed(client,model,config,cache_root,run,stop_event=None):
     body={'claim_id':run['claim_id']}
     try:
         if model.account_profile!=run['input_snapshot']['account_profile']:raise ValueError('排期账号绑定不一致')
+        if run['input_snapshot'].get('selection_method') == 'audience-continuity-v1':
+            progress.set('preparing', 0, len(run['input_snapshot']['candidates']), '读取本频道逐视频表现及上次排期反馈')
+            refreshed = client.request('POST', f"/schedule-plans/{run['id']}/evidence", {'claim_id': run['claim_id']}, timeout=300)
+            run['input_snapshot'] = refreshed['input_snapshot']
         body['result']=generate(model,run,root,progress.set)
         progress.set('delivery',len(run['input_snapshot']['candidates']),len(run['input_snapshot']['candidates']),'回传预览，等待云端校验')
     except (ValueError,RuntimeError,OSError) as exc:

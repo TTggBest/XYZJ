@@ -79,6 +79,12 @@ def submit(plan_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends
     return service.read(call(service.submit_result,s,plan_id,body.claim_id,result=body.result,error=body.error))
 
 
+@router.post('/schedule-plans/{plan_id}/evidence')
+def evidence(plan_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    row=service.get_plan(s,plan_id);bound_host(s,p,row.host_id)
+    return call(service.freeze_evidence,s,plan_id,body.claim_id)
+
+
 @router.post('/schedule-plans/{plan_id}/apply')
 def apply(plan_id:str,s:Session=Depends(get_tenant_db),p=Depends(operator)):
     return service.read(call(service.apply_plan,s,plan_id))

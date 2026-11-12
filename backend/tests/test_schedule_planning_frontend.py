@@ -8,6 +8,8 @@ const requests=[];
 const user={...principal,permissions:[...principal.permissions,'schedule.read','schedule.manage','drama.read']};
 const plan={id:'plan-1',channel_id:'c1',status:'ready',input_snapshot:{channel:{id:'c1'},start_date:'2026-11-03',end_date:'2026-11-03',daily_count:1,guidance:{mode:'initial'},candidates:[{id:'d1'}],slot_topics:{s1:'secondary'},slots:[{id:'s1',slot_type:'main',slot_number:1}]},result:{rows:[{publish_date:'2026-11-03',publish_slot_id:'s1',drama_id:'d1',slot_type:'main',chinese_title:'重获人生',duration_seconds:7200,planned_beijing_time:'2026-11-04T09:00:00',reason:'女主反击符合定位',plot_evidence:'女主夺回公司',pairing_reason:'首日建立方向'}]}};
 let confirm=false;
+plan.input_snapshot.selection_evidence={collected_at:'2026-11-12T00:00:00Z',analytics:{recent_7d:{window:{start:'2026-11-05',end:'2026-11-11'},status:'unavailable',rows:[]}}};
+plan.result.planning_review={viewer_promises:{primary:'丈夫夺产→女主取证→夺回公司'},compared_candidates:128,total_candidates:129,evidence_review:'已核对真实观看样本',feedback_review:'旧假设待验证',packaging_review:'封面实图未读取',missing_evidence:['开场留存未取得']};
 const page=start(process.argv[1],auth,async(path,options={})=>{
  requests.push([path,options]);
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(user));
@@ -33,6 +35,10 @@ buttonElement=button('schedule-plan-view','plan-1');await page.document.emit('cl
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('女主夺回公司'));
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('主档 · 辅题材'));
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('冷启动定位（未经数据验证）'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('丈夫夺产→女主取证→夺回公司'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('已比较 128 / 129 部候选'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('未取得，非0'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('封面实图未读取'));
 buttonElement=button('schedule-plan-apply','plan-1');await page.document.emit('click',{target:buttonElement});
 assert.equal(requests.filter(([p])=>p.endsWith('/apply')).length,0,'取消确认时不能保存');
 confirm=true;await page.document.emit('click',{target:buttonElement});

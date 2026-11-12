@@ -488,6 +488,33 @@ def test_r3_prefers_match_then_chinese_original_then_duration():
     ]
 
 
+def test_r4_http_creation_freezes_method_and_requires_current_executor(client, store):
+    from zhiju.models import ChannelSchedulePlan
+    seed(store)
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        applied_sample(s)
+        install_rule(s, skill_catalog.SCHEDULING, 'channel-scheduling', zip_rule(
+            'references/planning.md', '按真实剧情选剧'), 4)
+        s.add(ChannelPlaylist(channel_id='channel-a', local_name='Revanche',
+            youtube_playlist_id='PLChosen', url='https://www.youtube.com/playlist?list=PLChosen', status='active'))
+        s.commit()
+    body = {'start_date': '2026-11-13', 'end_date': '2026-11-13', 'daily_count': 1,
+            'slot_topics': {'cadence:1:main:1': 'primary'}, 'executor_protocol': 13}
+    rejected = client.post('/api/v3/channels/channel-a/schedule-plans', json=body)
+    assert rejected.status_code == 409 and '修订4' in rejected.text
+    body['executor_protocol'] = 14
+    # Use the real cadence ID supplied by the workspace, not a UI-only assumption.
+    from zhiju.services.schedule_planning import cadence_slots
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        body['slot_topics'] = {slot['id']: 'primary' for slot in cadence_slots(s, 'channel-a', 1)}
+    response = client.post('/api/v3/channels/channel-a/schedule-plans', json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()['input_snapshot']['selection_method'] == 'audience-continuity-v1'
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        plan = s.get(ChannelSchedulePlan, response.json()['id'])
+        assert 'selection_evidence' not in plan.input_snapshot
+
+
 def test_r3_reserves_ordinary_secondary_match_before_primary_fallback():
     from zhiju.v14_executor.schedule_planning import reference_rows
 

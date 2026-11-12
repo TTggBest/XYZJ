@@ -14,7 +14,7 @@ from zhiju.services import channel_guidance, operations, schedule_batch, skill_c
 from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.schedule_youtube import LANGUAGES
-from zhiju.scheduling_rules.contract import SLOT_TOPICS_PROTOCOL, REFERENCE_PROTOCOL
+from zhiju.scheduling_rules.contract import SLOT_TOPICS_PROTOCOL, REFERENCE_PROTOCOL, CONTINUITY_PROTOCOL
 
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
 
@@ -219,6 +219,9 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
     skill_version = skill_catalog.scheduling_snapshot(session)
     uses_v2 = skill_version['label'] == 'channel-scheduling' and skill_version['revision'] >= 2
     uses_reference = uses_v2 and skill_version['revision'] >= 3
+    uses_continuity = uses_reference and skill_version['revision'] >= 4
+    if uses_continuity and executor_protocol is not None and executor_protocol < CONTINUITY_PROTOCOL:
+        raise ConflictError('请先更新本机执行器至支持修订4观众承接对比的版本')
     if uses_reference and executor_protocol is not None and executor_protocol < REFERENCE_PROTOCOL:
         raise ConflictError('请先更新本机执行器至支持排期修订 3 的版本')
     if session.scalar(select(ChannelSchedulePlan.id).where(ChannelSchedulePlan.channel_id==channel_id,
@@ -276,11 +279,15 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
         snapshot.update(operating_reference=reference, playlists=playlists, batch=batch,
                         batch_window={'first': first.isoformat(), 'last': last.isoformat()},
                         batch_blocked=blocked)
+    if uses_continuity:
+        snapshot['selection_method'] = 'audience-continuity-v1'
     plan=ChannelSchedulePlan(channel_id=channel_id,host_id=setting.payload['host_id'],input_snapshot=snapshot)
     session.add(plan);session.commit();session.refresh(plan);return plan
 
 
 def claimable_plans(query, executor_protocol):
+    if executor_protocol < CONTINUITY_PROTOCOL:
+        query = query.where(ChannelSchedulePlan.input_snapshot['selection_method'].as_string().is_(None))
     if executor_protocol < REFERENCE_PROTOCOL:
         query = query.where(ChannelSchedulePlan.input_snapshot['batch']['registered_on'].as_string().is_(None))
     if executor_protocol < SLOT_TOPICS_PROTOCOL:
@@ -288,7 +295,7 @@ def claimable_plans(query, executor_protocol):
     return query
 
 
-def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=REFERENCE_PROTOCOL):
+def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=CONTINUITY_PROTOCOL):
     preferred_id=plan_id
     setting=session.scalar(select(V14Setting))
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
@@ -312,6 +319,24 @@ def claimed(session,plan_id,claim_id):
     row=get_plan(session,plan_id,True);session.refresh(row)
     if row.status!='running' or row.claim_id!=claim_id:raise ConflictError('排期规划领取已失效')
     return row
+
+
+def freeze_evidence(session, plan_id, claim_id):
+    row = claimed(session, plan_id, claim_id)
+    snapshot = deepcopy(row.input_snapshot)
+    if snapshot.get('selection_method') != 'audience-continuity-v1':
+        raise ConflictError('旧任务保持原快照，不补写修订4证据')
+    if snapshot.get('selection_evidence'):
+        return read(row)
+    # OAuth refresh and API IO must not retain a planning row lock.
+    session.commit()
+    from zhiju.services.schedule_evidence import collect
+    evidence = collect(session, snapshot)
+    row = claimed(session, plan_id, claim_id)
+    if not row.input_snapshot.get('selection_evidence'):
+        row.input_snapshot = {**row.input_snapshot, 'selection_evidence': evidence}
+        session.commit()
+    return read(row)
 
 
 def validate_result(plan,result):

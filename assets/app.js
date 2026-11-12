@@ -1256,8 +1256,18 @@
       const slotLabels = Object.fromEntries(slots.map(slot => [slot.id, `${slot.label} · ${scheduleTopicLabels[slotTopics[slot.id]]}`]));
       const topicSummary = slots.length ? `<p>本次题材 · ${esc(Object.values(slotLabels).join(" / "))}</p>` : "";
       const analysisTopics = selected.input_snapshot.analysis_topics;
-      const reportTopics = analysisTopics ? Object.entries(scheduleTopicLabels).map(([kind, label]) =>
+      let reportTopics = analysisTopics ? Object.entries(scheduleTopicLabels).map(([kind, label]) =>
         `<p>${esc(label)}报告建议 · ${esc(analysisTopics[kind].join(" / ") || "报告未给出方向")}</p>`).join("") : "";
+      const selectionEvidence = selected.input_snapshot.selection_evidence;
+      const continuityReview = selected.result?.planning_review;
+      if (selectionEvidence) {
+        const windows = Object.entries(selectionEvidence.analytics || {}).map(([name, value]) =>
+          `${name}：${value.window?.start || "—"}～${value.window?.end || "—"} / ${value.status === "available" ? `${value.rows.length} 条逐视频记录` : "未取得，非0"}`);
+        reportTopics += `<p>本次表现读取 · ${esc(selectionEvidence.collected_at)}<br>${windows.map(esc).join("<br>")}</p>`;
+      }
+      if (continuityReview) {
+        reportTopics += `<section class="detail-block"><h4>细分承接与全候选对比</h4>${Object.entries(continuityReview.viewer_promises || {}).filter(([, value]) => value).map(([kind, value]) => `<p>${esc(scheduleTopicLabels[kind] || kind)} · ${esc(value)}</p>`).join("")}<p>已比较 ${esc(continuityReview.compared_candidates)} / ${esc(continuityReview.total_candidates)} 部候选</p><p>${esc(continuityReview.evidence_review)}</p><p>上次排期反馈 · ${esc(continuityReview.feedback_review)}</p><p>包装核对边界 · ${esc(continuityReview.packaging_review)}</p>${(continuityReview.missing_evidence || []).map(value => `<p>缺失证据 · ${esc(value)}</p>`).join("")}</section>`;
+      }
       const topicProtocol = slotTopics ? `data-slot-topics="true" data-reference-plan="${Boolean(selected.input_snapshot.batch)}"` : "";
       const playlists = Object.fromEntries((selected.input_snapshot.playlists || []).map(item => [item.id, item]));
       const choiceDetails = row => {
