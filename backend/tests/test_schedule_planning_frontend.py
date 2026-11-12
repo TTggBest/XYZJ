@@ -10,6 +10,9 @@ const plan={id:'plan-1',channel_id:'c1',status:'ready',input_snapshot:{channel:{
 let confirm=false;
 plan.input_snapshot.selection_evidence={collected_at:'2026-11-12T00:00:00Z',analytics:{recent_7d:{window:{start:'2026-11-05',end:'2026-11-11'},status:'unavailable',rows:[]}}};
 plan.result.planning_review={viewer_promises:{primary:'丈夫夺产→女主取证→夺回公司'},compared_candidates:128,total_candidates:129,evidence_review:'已核对真实观看样本',feedback_review:'旧假设待验证',packaging_review:'封面实图未读取',missing_evidence:['开场留存未取得']};
+plan.result.planning_review.next_actions=['取得展示来源后验证下一轮承接'];
+Object.assign(plan.result.rows[0],{target_theme:'primary',media_verification:'unverified',alternative_drama_id:'d2',comparison_reason:'相近候选不同在于主动取证',packaging_promise:'她亲手夺回公司',opening_check:'检查成片第一场冲突'});
+plan.input_snapshot.candidates.push({id:'d2',chinese_title:'相近的另一部'});
 const page=start(process.argv[1],auth,async(path,options={})=>{
  requests.push([path,options]);
  if(path==='/api/v3/auth/me')return new Response(JSON.stringify(user));
@@ -39,6 +42,10 @@ assert.ok(page.nodes.get('modalBody').innerHTML.includes('丈夫夺产→女主�
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('已比较 128 / 129 部候选'));
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('未取得，非0'));
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('封面实图未读取'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('取得展示来源后验证下一轮承接'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('相近的另一部'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('检查成片第一场冲突'));
+assert.ok(page.nodes.get('modalBody').innerHTML.includes('正片 · 未核验'));
 buttonElement=button('schedule-plan-apply','plan-1');await page.document.emit('click',{target:buttonElement});
 assert.equal(requests.filter(([p])=>p.endsWith('/apply')).length,0,'取消确认时不能保存');
 confirm=true;await page.document.emit('click',{target:buttonElement});
@@ -108,4 +115,22 @@ assert.ok(startCall);
 assert.equal(JSON.parse(startCall[1].body).task_type,'channel_scheduling');
 assert.ok(page.nodes.get('modalBody').innerHTML.includes('排队中'));
 assert.equal(requests.filter(([p])=>p.endsWith('/apply')).length,0);
+''')
+
+
+def test_v2_wake_prepare_requires_16_and_does_not_start_old_executor():
+    from test_auth_frontend_contract import APP_FIXTURE
+    for protocol in (15,16):
+        run_node(APP_FIXTURE+f'const protocol={protocol};'+r'''
+let starts=0;
+const page=start(process.argv[1],auth,async(path,options={})=>{
+ if(path==='http://127.0.0.1:19733/prepare')return new Response(JSON.stringify({ready:true,executor_protocol:protocol,host_id:'d1',tenant_id:'t1'}));
+ if(path==='http://127.0.0.1:19733/start'){starts++;assert.equal(JSON.parse(options.body).task_type,'channel_scheduling');return new Response('{"running":true}');}
+ return defaultResponse(path);
+});
+await settle(page);
+const messages=[];page.nodes.get('toastStack').appendChild=item=>messages.push(item.textContent);
+await clickAction(page,'schedule-plan-wake',{id:'plan',channelId:'channel',slotTopics:'true',referencePlan:'true',sequencePlan:'true'});
+assert.equal(starts,protocol===16?1:0);
+if(protocol===15)assert(messages.some(value=>value.includes('协议16')));
 ''')

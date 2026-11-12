@@ -324,7 +324,7 @@ def reference_assessment(model, run, root, progress):
     sections = selection_reference(snapshot['operating_reference']['sections'])
     rules = '\n'.join(v for k, v in snapshot['skill_version']['files'].items() if k.endswith('.md') and v)
     context = {key: sections[key] for key in ('topics', 'empathy', 'selection_guidance')}
-    if snapshot.get('selection_method') == 'audience-continuity-v1':
+    if snapshot.get('selection_method') in {'audience-continuity-v1', 'audience-sequence-v2'}:
         if not snapshot.get('selection_evidence'):
             raise ValueError('修订4尚未冻结本频道逐视频表现，请先读取证据')
         context['feedback_stage'] = '本阶段只阅读全文、提取真实主线；逐视频表现统一在全候选相对比较阶段提供。'
@@ -337,10 +337,14 @@ def reference_assessment(model, run, root, progress):
               '同批由系统按频道录入时间的北京时间日期和运营语言判定。'
               'strong_direction_ids 只返回下方 actual_theme 对应方向的编号。实际核心冲突必须兑现该方向。'
               '没有充分依据填空数组。包装监测、支线或偶然关键词不算。编号由系统换回报告原文。'
-              'plot_evidence 必须逐字引用该剧剧情字段中的一段连续原文，说明实际主线和理由。'
-              '不匹配的库存也要选最贴近的现有列表 ID，供缺片时补位。每部恰好一行。'
+              'plot_evidence 必须逐字引用该剧剧情字段中的一段连续原文，说明实际主线和理由。' +
+              ('不匹配的库存也要返回评估，不能用作强主题补位。每部恰好一行。'
+               if snapshot.get('selection_method') == 'audience-sequence-v2' else
+               '不匹配的库存也要选最贴近的现有列表 ID，供缺片时补位。每部恰好一行。') +
               '\n运营参考：' + encode(context) + '\n方向编号：' + encode(directions) +
               '\n现有列表：' + encode(snapshot['playlists']))
+    if snapshot.get('selection_method') == 'audience-sequence-v2':
+        prompt += '\nreason概括人物关系、主动行动、破局方式、情绪和结局回报，供后续序列比较；不能只写符合题材。'
     judgments = []
     processed = 0
     for index, batch in enumerate(assessment_batches(snapshot['candidates'])):
@@ -356,6 +360,9 @@ def reference_assessment(model, run, root, progress):
                 strong = [text for text in row['strong_directions'] if text in options.values()]
             judgments.append({**row, 'strong_directions': strong})
         processed += len(batch)
+    if snapshot.get('selection_method') == 'audience-sequence-v2':
+        from .schedule_v2 import generate_sequence
+        return generate_sequence(model, snapshot, judgments, root, progress)
     review = None
     if snapshot.get('selection_method') == 'audience-continuity-v1':
         if progress:
@@ -541,7 +548,7 @@ def process_claimed(client,model,config,cache_root,run,stop_event=None):
     body={'claim_id':run['claim_id']}
     try:
         if model.account_profile!=run['input_snapshot']['account_profile']:raise ValueError('排期账号绑定不一致')
-        if run['input_snapshot'].get('selection_method') == 'audience-continuity-v1':
+        if run['input_snapshot'].get('selection_method') in {'audience-continuity-v1', 'audience-sequence-v2'}:
             progress.set('preparing', 0, len(run['input_snapshot']['candidates']), '读取本频道逐视频表现及上次排期反馈')
             refreshed = client.request('POST', f"/schedule-plans/{run['id']}/evidence", {'claim_id': run['claim_id']}, timeout=300)
             run['input_snapshot'] = refreshed['input_snapshot']

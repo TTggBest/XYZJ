@@ -1281,15 +1281,20 @@
       }
       if (continuityReview) {
         reportTopics += `<section class="detail-block"><h4>细分承接与全候选对比</h4>${Object.entries(continuityReview.viewer_promises || {}).filter(([, value]) => value).map(([kind, value]) => `<p>${esc(scheduleTopicLabels[kind] || kind)} · ${esc(value)}</p>`).join("")}<p>已比较 ${esc(continuityReview.compared_candidates)} / ${esc(continuityReview.total_candidates)} 部候选</p><p>${esc(continuityReview.evidence_review)}</p><p>上次排期反馈 · ${esc(continuityReview.feedback_review)}</p><p>包装核对边界 · ${esc(continuityReview.packaging_review)}</p>${(continuityReview.missing_evidence || []).map(value => `<p>缺失证据 · ${esc(value)}</p>`).join("")}</section>`;
+        if (continuityReview.next_actions?.length) {
+          reportTopics += `<section class="detail-block"><h4>下一轮验证</h4>${continuityReview.next_actions.map(value => `<p>${esc(value)}</p>`).join("")}</section>`;
+        }
       }
-      const topicProtocol = slotTopics ? `data-slot-topics="true" data-reference-plan="${Boolean(selected.input_snapshot.batch)}"` : "";
+      const topicProtocol = slotTopics ? `data-slot-topics="true" data-reference-plan="${Boolean(selected.input_snapshot.batch)}" data-sequence-plan="${selected.input_snapshot.selection_method === "audience-sequence-v2"}"` : "";
       const playlists = Object.fromEntries((selected.input_snapshot.playlists || []).map(item => [item.id, item]));
+      const candidateTitles = Object.fromEntries(selected.input_snapshot.candidates.map(item => [item.id, item.chinese_title || item.id]));
       const choiceDetails = row => {
         if (!row.target_theme) return "";
         const target = [scheduleTopicLabels[row.target_theme], row.target_direction].filter(Boolean).join(" · ");
         const actual = row.actual_direction ? [scheduleTopicLabels[row.actual_theme] || "其他题材", row.actual_direction].join(" · ") : "未入选";
         const playlist = playlists[row.playlist_id];
-        return `<p>目标 · ${esc(target)}<br>实际 · ${esc(actual)}${row.fallback_reason ? `<br>补位 · ${esc(row.fallback_reason)}` : ""}${playlist ? `<br>播放列表 · ${esc(playlist.name)} <span class="mono">${esc(playlist.youtube_playlist_id)}</span>` : ""}</p>`;
+        const sequence = row.media_verification === "unverified" ? `<p>承接前档 · ${esc(candidateTitles[row.predecessor_drama_id] || "本次首档")}<br>相近替代 · ${esc(candidateTitles[row.alternative_drama_id] || "无其他有效强匹配候选")}<br>取舍 · ${esc(row.comparison_reason)}<br>拟包装承诺 · ${esc(row.packaging_promise)}<br>开场待查 · ${esc(row.opening_check)}<br>封面、开场、语种音频与正片 · 未核验</p>` : "";
+        return `<p>目标 · ${esc(target)}<br>实际 · ${esc(actual)}${row.fallback_reason ? `<br>补位 · ${esc(row.fallback_reason)}` : ""}${playlist ? `<br>播放列表 · ${esc(playlist.name)} <span class="mono">${esc(playlist.youtube_playlist_id)}</span>` : ""}</p>${sequence}`;
       };
       preview = `<section class="detail-block"><h3>本次规划 · ${esc(connectionDelayed ? "连接待确认" : labels[selected.status] || selected.status)}</h3><p>资料：${guidance.mode === "periodic" ? "已生效正式分析" : "冷启动定位（未经数据验证）"} · 已按完整频道历史去重 · ${selected.input_snapshot.candidates.length} 部可用候选</p>${topicSummary}${reportTopics}${scheduleTaskProgress(selected)}<p>${esc(selected.error || (connectionDelayed ? "超过150秒未收到心跳，暂时无法确认执行状态；请先检查本机进程，确认停止后再恢复。" : selected.status === "running" ? "正在阅读剧情并编排，点击刷新可查看进度。" : ""))}</p>${rows.length ? table(["当地日期 / 档位","北京时间","剧目 / 时长","剧情依据与编排理由"], rows.map(r => `<tr><td>${esc(r.planned_local_time?.slice(0, 10) || (selected.input_snapshot.date_basis === "beijing" ? "—" : r.publish_date))}<br>${esc(slotLabels[r.publish_slot_id] || (r.slot_type === "main" ? "主档" : r.slot_type === "aux" ? "辅档" : "待补档位"))}</td><td>${esc(r.planned_beijing_time?.replace("T"," ") || (selected.input_snapshot.date_basis === "beijing" ? r.publish_date : "—"))}</td><td>${esc(r.chinese_title || "缺少合格剧目")}<br>${r.duration_seconds ? Math.round(r.duration_seconds/60)+" 分钟" : "时长未验证"}</td><td>${esc(r.reason)}<br>${esc(r.plot_evidence || "")}<br>${esc(r.pairing_reason || "")}${r.theme_basis ? `<p>分析依据 · ${esc(r.theme_basis)}</p>` : ""}${choiceDetails(r)}${(r.warnings || []).map(w => `<p>${esc(w)}</p>`).join("")}</td></tr>`), 900) : ""}<div class="form-actions"><button class="button button-secondary" data-action="schedule-plan-view" data-channel-id="${channelId}" data-id="${selected.id}">刷新进度</button>${selected.status === "ready" ? `<button class="button button-primary" data-action="schedule-plan-apply" data-channel-id="${channelId}" data-id="${selected.id}">确认并保存排期</button>` : ""}${selected.status === "queued" ? `<button class="button button-secondary" data-action="schedule-plan-wake" data-channel-id="${channelId}" data-id="${selected.id}" ${topicProtocol}>唤起执行器</button>` : ""}${["failed","cancelled","running"].includes(selected.status) ? `<button class="button button-secondary" data-action="schedule-plan-resume" data-channel-id="${channelId}" data-id="${selected.id}" ${topicProtocol}>确认停止后恢复</button>` : ""}${["queued","running","ready","failed"].includes(selected.status) ? `<button class="button button-secondary" data-action="schedule-plan-cancel" data-channel-id="${channelId}" data-id="${selected.id}">取消本次规划</button>` : ""}</div></section>`;
     }
@@ -1353,13 +1358,16 @@
       clearTimeout(timer);
     }
   }
-  async function prepareV14Executor(expectedRevision, requireSlotTopics = false, requireReferencePlan = false) {
+  async function prepareV14Executor(expectedRevision, requireSlotTopics = false, requireReferencePlan = false, requireSequencePlan = false) {
     const session = await api("/v14/executor-session", {method: "POST", expectedRevision});
     if (!auth.isCurrent(expectedRevision)) throw new DOMException("账号已切换", "AbortError");
     const config = {...session, base_url: window.location.origin};
     const ready = await localV14Request("/prepare", config);
     if (!ready.ready || ready.host_id !== config.host_id || ready.tenant_id !== config.tenant_id) {
       throw new Error("本机 V14 唤起组件与当前公司或执行主机不匹配，请检查安装");
+    }
+    if (requireSequencePlan && Number(ready.executor_protocol || 0) < 16) {
+      throw new Error("频道排期v2需要包含序列编排的本机执行器（协议16）");
     }
     if (requireReferencePlan && Number(ready.executor_protocol || 0) < 10) {
       throw new Error("请先更新本机执行器至支持排期修订 3 的版本");
@@ -2828,7 +2836,7 @@
             await api(`/schedule-plans/${id}/cancel`, {method:"POST",expectedRevision:revision});
           } else {
             if (action === "schedule-plan-resume" && !window.confirm("请确认上次本机规划已停止。已完成的剧情评估会保留，继续本次规划？")) return;
-            const config = {...await prepareV14Executor(revision, button.dataset.slotTopics === "true", button.dataset.referencePlan === "true"),task_type:"channel_scheduling"};
+            const config = {...await prepareV14Executor(revision, button.dataset.slotTopics === "true", button.dataset.referencePlan === "true", button.dataset.sequencePlan === "true"),task_type:"channel_scheduling"};
             if (action === "schedule-plan-resume") await api(`/schedule-plans/${id}/resume`, {method:"POST",body:JSON.stringify({stopped_confirmed:true}),expectedRevision:revision});
             await localV14Request("/start", config);
             notify("已唤起执行器，等待领取排期规划");

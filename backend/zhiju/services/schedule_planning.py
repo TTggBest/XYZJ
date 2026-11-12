@@ -15,6 +15,7 @@ from zhiju.services.identity import ConflictError, _audit
 from zhiju.tenant_repository import require_tenant_entity
 from zhiju.services.schedule_youtube import LANGUAGES
 from zhiju.scheduling_rules.contract import SLOT_TOPICS_PROTOCOL, REFERENCE_PROTOCOL, CONTINUITY_PROTOCOL
+from zhiju.scheduling_v2_rules.contract import METHOD as SEQUENCE_METHOD, PROTOCOL as SEQUENCE_PROTOCOL
 
 PLOT_FIELDS=('content_summary','plot_archive','plot_pattern','core_personas')
 
@@ -217,9 +218,12 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
     if end_date<start_date or (end_date-start_date).days>=31 or not 1<=daily_count<=10:
         raise ConflictError('请选择 1～31 天的日期范围和有效每日更新数量')
     skill_version = skill_catalog.scheduling_snapshot(session)
-    uses_v2 = skill_version['label'] == 'channel-scheduling' and skill_version['revision'] >= 2
-    uses_reference = uses_v2 and skill_version['revision'] >= 3
-    uses_continuity = uses_reference and skill_version['revision'] >= 4
+    uses_sequence = skill_version['label'] == 'channel-scheduling-v2'
+    uses_v2 = uses_sequence or skill_version['label'] == 'channel-scheduling' and skill_version['revision'] >= 2
+    uses_reference = uses_sequence or uses_v2 and skill_version['revision'] >= 3
+    uses_continuity = uses_sequence or uses_reference and skill_version['revision'] >= 4
+    if uses_sequence and executor_protocol is not None and executor_protocol < SEQUENCE_PROTOCOL:
+        raise ConflictError('频道排期v2需要支持序列编排的执行器（协议16）')
     if uses_continuity and executor_protocol is not None and executor_protocol < CONTINUITY_PROTOCOL:
         raise ConflictError('请先更新本机执行器至支持修订4观众承接对比的版本')
     if uses_reference and executor_protocol is not None and executor_protocol < REFERENCE_PROTOCOL:
@@ -278,14 +282,17 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
         first, last, blocked = schedule_batch.reservations(session, channel_id, batch)
         snapshot.update(operating_reference=reference, playlists=playlists, batch=batch,
                         batch_window={'first': first.isoformat(), 'last': last.isoformat()},
-                        batch_blocked=blocked)
+                        batch_blocked=[] if uses_sequence else blocked)
     if uses_continuity:
-        snapshot['selection_method'] = 'audience-continuity-v1'
+        snapshot['selection_method'] = SEQUENCE_METHOD if uses_sequence else 'audience-continuity-v1'
     plan=ChannelSchedulePlan(channel_id=channel_id,host_id=setting.payload['host_id'],input_snapshot=snapshot)
     session.add(plan);session.commit();session.refresh(plan);return plan
 
 
 def claimable_plans(query, executor_protocol):
+    if executor_protocol < SEQUENCE_PROTOCOL:
+        method = ChannelSchedulePlan.input_snapshot['selection_method'].as_string()
+        query = query.where(method.is_(None) | (method != SEQUENCE_METHOD))
     if executor_protocol < CONTINUITY_PROTOCOL:
         query = query.where(ChannelSchedulePlan.input_snapshot['selection_method'].as_string().is_(None))
     if executor_protocol < REFERENCE_PROTOCOL:
@@ -295,7 +302,7 @@ def claimable_plans(query, executor_protocol):
     return query
 
 
-def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=CONTINUITY_PROTOCOL):
+def claim_plan(session,host_id,*,claim_id=None,plan_id=None,executor_protocol=SEQUENCE_PROTOCOL):
     preferred_id=plan_id
     setting=session.scalar(select(V14Setting))
     if not setting or setting.payload['host_id']!=host_id:raise ConflictError('执行主机与公司配置不符')
@@ -324,7 +331,7 @@ def claimed(session,plan_id,claim_id):
 def freeze_evidence(session, plan_id, claim_id):
     row = claimed(session, plan_id, claim_id)
     snapshot = deepcopy(row.input_snapshot)
-    if snapshot.get('selection_method') != 'audience-continuity-v1':
+    if snapshot.get('selection_method') not in {'audience-continuity-v1', SEQUENCE_METHOD}:
         raise ConflictError('旧任务保持原快照，不补写修订4证据')
     if snapshot.get('selection_evidence'):
         return read(row)
@@ -341,6 +348,8 @@ def freeze_evidence(session, plan_id, claim_id):
 
 def validate_result(plan,result):
     from zhiju.scheduling_rules.contract import validate_result as validate_plan
+    if plan.input_snapshot.get('selection_method') == SEQUENCE_METHOD:
+        from zhiju.scheduling_v2_rules.contract import validate_result as validate_plan
     try:
         return validate_plan(plan.input_snapshot,result)
     except ValueError as exc:
@@ -391,8 +400,9 @@ def apply_plan(session,plan_id):
                                                 channel, snapshot['targets'], snapshot['slots'], date_basis=snapshot.get('date_basis'))
         if current_batch != batch:
             raise ConflictError('频道录入日期或同批身份已变化，请重新规划')
-        _, _, blocked = schedule_batch.reservations(session, channel.id, batch)
-        schedule_batch.check(selected, blocked)
+        if snapshot.get('selection_method') != SEQUENCE_METHOD:
+            _, _, blocked = schedule_batch.reservations(session, channel.id, batch)
+            schedule_batch.check(selected, blocked)
         available = {p['id']: p for p in available_playlists(session, channel.id, lock=True)}
         frozen_playlists = {p['id']: p for p in snapshot['playlists']}
         for entry in selected:
