@@ -142,6 +142,8 @@ def test_feedback_collects_current_channel_windows_and_preserves_unavailable(dat
     assert result['previous_review']['viewer_promises']['primary'] == '旧承接假设'
     assert result['missing'] and 'retention_30s' not in result['analytics']['recent_7d']['rows'][0]
     assert len(result['videos']) == 1  # Never invent a drama mapping from the title.
+    assert result['unmapped_performance_video_ids'] == ['unmapped']
+    assert any('1个有表现的视频' in value for value in result['missing'])
     assert result['applied_studio']['windows']['studio/export']['end'] == '2026-11-07'
     assert result['applied_studio']['retention_observations']['value'] == 48
     unavailable = collect(s, {'channel': {'id': channel.id}},

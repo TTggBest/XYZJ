@@ -71,8 +71,14 @@ def collect(session, snapshot, *, now=None, fetcher=None, authorize=None):
         .order_by(ChannelSchedulePlan.created_at.desc(), ChannelSchedulePlan.id.desc()).limit(1))
     previous = session.get(ChannelSchedulePlan, previous_id) if previous_id else None
     normalized = snapshot.get('guidance', {}).get('normalized_snapshot') or {}
+    measured_ids = {row['video'] for dataset in analytics.values() for row in dataset['rows']}
+    mapped_ids = {video['youtube_video_id'] for video in videos if video['drama_id'] and video['plot']}
+    unmatched = sorted(measured_ids - mapped_ids)
+    if unmatched:
+        missing.append(f'{len(unmatched)}个有表现的视频尚未绑定可核对剧情，不能凭标题认定题材机制')
     return {'collected_at': now.isoformat(), 'channel_id': channel['id'], 'analytics': analytics,
-        'videos': videos, 'missing': missing, 'previous_plan_id': previous_id,
+        'videos': videos, 'unmapped_performance_video_ids': unmatched,
+        'missing': missing, 'previous_plan_id': previous_id,
         'previous_review': deepcopy((previous.result or {}).get('planning_review')) if previous else None,
         'applied_studio': {'windows': deepcopy(normalized.get('studio_windows') or {
                 row['source']: row.get('window') for row in normalized.get('source_manifest', [])
