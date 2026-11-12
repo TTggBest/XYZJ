@@ -221,10 +221,12 @@ class CodexClient:
                         concept = {**concept, 'score': assessed['score']}
                     words, score = concept['core_words'], concept['score']
                     key = ' '.join(unicodedata.normalize('NFKC', words).casefold().split())
+                    word_count = (sum(any(char.isalnum() for char in token) for token in words.split())
+                                  if wide_only and stage.skill_bundle.get('revision', 0) >= 3 else len(words.split()))
                     score_passes = 9.5 < score <= 10 if wide_only else 9.5 <= score <= 10
                     if not score_passes:
                         rejection = f'插件实际自评 {score:g}，未达到定稿门槛' if wide_only else f'插件实际自评 {score:g}，定稿要求 9.5–10'
-                    elif words != words.strip() or not 1 <= len(words.split()) <= 2 or key in seen_words:
+                    elif words != words.strip() or not 1 <= word_count <= 2 or key in seen_words:
                         rejection = '核心词须为 1–2 个自然词，且与同包其他组不同'
                     elif not concept['concept'].strip() or (not wide_only and not concept['rationale'].strip()):
                         rejection = '缺少完整方案或独立创作依据'

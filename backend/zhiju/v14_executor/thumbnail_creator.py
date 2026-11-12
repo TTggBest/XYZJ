@@ -97,9 +97,12 @@ class ThumbnailCreator:
                        if row['id'] == PLUGIN_ID and row['installed'] and row['enabled']), None)
         if not plugin or (plugin.get('localVersion') or plugin.get('version')) != PLUGIN_VERSION:
             raise RuntimeError(f'当前 Codex 账号需启用 YouTube Thumbnail Creator {PLUGIN_VERSION}')
-        listing = self._request('skills/list', {'cwds': [self.root], 'forceReload': True})
-        found = {skill['name']: Path(skill['path']).resolve() for group in listing['data']
-                 for skill in group['skills'] if skill['enabled'] and skill['name'] in SKILL_NAMES}
+        for reload in (True, False):
+            listing = self._request('skills/list', {'cwds': [self.root], 'forceReload': reload})
+            found = {skill['name']: Path(skill['path']).resolve() for group in listing['data']
+                     for skill in group['skills'] if skill['enabled'] and skill['name'] in SKILL_NAMES}
+            if set(found) == set(SKILL_NAMES):
+                break
         if set(found) != set(SKILL_NAMES):
             raise RuntimeError('Codex 未发现已启用的原装 Thumbnail Creator 技能')
         roots = {path.parents[2] for path in found.values()}

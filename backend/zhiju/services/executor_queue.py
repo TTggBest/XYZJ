@@ -77,12 +77,12 @@ def claim_next(session,host_id,claim_id,executor_protocol):
         if old:
             run=v14_runs.claim_read(session,old) if kind=='operation_package' else {**(channel_analysis.run_read(old) if kind=='channel_analysis' else schedule_planning.read(old)),'tenant_id':old.tenant_id}
             return {'task_type':kind,'run':run}
-    def queued_for_host(model, query):
+    def queued_for_host(model, query, *, claimable=True):
         query = query.where(model.host_id==host_id, model.status=='queued')
-        if model is V14Run:query=claimable_packages(query)
+        if model is V14Run and claimable:query=claimable_packages(query)
         return schedule_planning.claimable_plans(query, executor_protocol) if model is ChannelSchedulePlan else query
 
-    own_queued=sum(session.scalar(queued_for_host(m, select(func.count()).select_from(m))) for m in MODELS.values())
+    own_queued=sum(session.scalar(queued_for_host(m, select(func.count()).select_from(m), claimable=False)) for m in MODELS.values())
     if not own_queued:return None
     if not available:return {'waiting_for_capacity':True,'worker_limit':WORKER_LIMIT}
     from sqlalchemy.orm import aliased

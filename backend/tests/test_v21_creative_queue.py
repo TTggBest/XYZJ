@@ -100,3 +100,15 @@ def test_revision_2_keeps_existing_parallel_claims(client, store):
     first, same, _ = queued_samples(client, store, revision=2)
     assert claim(client)['run']['run_id'] == first
     assert claim(client)['run']['run_id'] == same
+
+
+def test_only_blocked_peer_keeps_the_executor_polling(client, store):
+    first, same, different = queued_samples(client, store)
+    assert claim(client)['run']['run_id'] == first
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        s.get(V14Run, different).status = 'cancelled'
+        s.commit()
+    waiting = claim(client)
+    assert waiting['waiting_for_capacity'] is True
+    with TenantSession(store, info={'tenant_id': 'tenant-a'}) as s:
+        assert s.get(V14Run, same).status == 'queued'
