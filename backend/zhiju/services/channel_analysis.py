@@ -215,9 +215,11 @@ def create_run(session, channel_id, *, mode, positioning='', posts_not_applicabl
         from zhiju.services.channel_analysis_sources import verify_authorization
         _,identity,_=verify_authorization(session,snapshot['channel'])
         snapshot['authorization_evidence']={'identity':identity,'verified_at':datetime.now(timezone.utc).isoformat()}
-        if formal_skill.get('label')=='xy-yt-report-v2' and formal_skill.get('revision',0)>=5:
+        if formal_skill.get('label')=='xy-yt-report-v3' or (formal_skill.get('label')=='xy-yt-report-v2' and formal_skill.get('revision',0)>=5):
             snapshot['studio_required_periods']=[28,7]
             snapshot['studio_input_contract']='dual-window-v1'
+        if formal_skill.get('label')=='xy-yt-report-v3':
+            snapshot['package_inquiry_contract']='question-led-v1'
     run = ChannelAnalysisRun(channel_id=channel_id,host_id=setting.payload['host_id'],mode=mode,
         status='draft',phase='materials',input_snapshot=snapshot,materials=[])
     if cold_start:
@@ -317,6 +319,8 @@ def start_run(session, run_id):
 
 
 def claimable_runs(query, executor_protocol):
+    if executor_protocol < 17:
+        query=query.where(func.coalesce(ChannelAnalysisRun.input_snapshot['package_inquiry_contract'].as_string(),'')!='question-led-v1')
     if executor_protocol < 15:
         query=query.where(func.coalesce(ChannelAnalysisRun.input_snapshot['studio_input_contract'].as_string(),'')!='dual-window-v1')
     return query
@@ -551,14 +555,18 @@ def apply_result(session,run_id):
     for dna in session.scalars(select(ChannelDnaVersion).where(ChannelDnaVersion.channel_id==channel.id,ChannelDnaVersion.status=='active')):
         dna.status='archived';dna.effective_to=datetime.now(timezone.utc)
     dna_version=session.scalar(select(func.coalesce(func.max(ChannelDnaVersion.version_number),0)).where(ChannelDnaVersion.channel_id==channel.id))+1
+    from zhiju.services.channel_guidance import analysis_positioning
     dna=ChannelDnaVersion(channel_id=channel.id,analysis_report_id=report.id,version_number=dna_version,
-        status='active',language=channel.default_language,primary_genre=channel.default_genre or '未配置',
+        status='active',language=channel.default_language,primary_genre=analysis_positioning(result.get('operating_reference'))[:120],
         audience_summary=result['profile'],reference_summary=result['generation_spec'],effective_from=datetime.now(timezone.utc))
     session.add(dna);session.flush()
     payload=copy.deepcopy(setting.payload);material=payload['channel_inputs'].setdefault(channel.id,{})
     if not material:
         material.update(language=channel.default_language,gender=channel.drama_type or '',
-            direction=channel.default_genre or '',playlists=run.input_snapshot['playlists'])
+            direction=analysis_positioning(result.get('operating_reference')),
+            playlists=[{'name':p.local_name,'url':p.url} for p in session.scalars(select(ChannelPlaylist).where(
+                ChannelPlaylist.channel_id==channel.id,ChannelPlaylist.status=='active')) if p.url])
+    material['direction']=analysis_positioning(result.get('operating_reference'))
     material['generation_spec']=result['generation_spec']
     material['analysis_version']={'run_id':run.id,'report_id':report.id,'dna_id':dna.id,'report_type':run.mode}
     setting.payload=payload;run.report_id=report.id;run.dna_id=dna.id;run.status='applied'

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Response, Query
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from zhiju.auth_context import get_tenant_db
 from zhiju.api.v14 import operator, bound_host, call
@@ -130,6 +130,28 @@ def gather(run_id:str,body:Execution,s:Session=Depends(get_tenant_db),p=Depends(
     row=call(collect,s,run_id,body.claim_id)
     s.refresh(row)  # MySQL JSON may normalize the last digit of computed floats.
     return service.run_read(row)
+
+
+class PackageInquiry(BaseModel):
+    video_id: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    sections: list[Literal['plot_basis','titles_and_hooks','cover_prompts','cover_images',
+                           'adoption_history','description','community']] = Field(min_length=1)
+
+
+class PackageInquiries(BaseModel):
+    claim_id: str
+    drilldown_requests: list[PackageInquiry]
+    initial_findings: str = ''
+    image_review: list[dict] | None = None
+
+
+@router.post('/analysis-runs/{run_id}/package-inquiries')
+def package_inquiries(run_id:str,body:PackageInquiries,s:Session=Depends(get_tenant_db),p=Depends(operator)):
+    checked(s,p,run_id,body.claim_id)
+    from zhiju.services.analysis_package_inquiries import inquire
+    return call(inquire,s,run_id,body.claim_id,[r.model_dump() for r in body.drilldown_requests],initial_findings=body.initial_findings,image_review=body.image_review)
 
 
 @router.post('/analysis-runs/{run_id}/heartbeat')

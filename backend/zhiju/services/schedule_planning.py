@@ -272,6 +272,8 @@ def create_plan(session,channel_id,start_date,end_date,daily_count,slot_topics=N
         'history':[{'drama_id':r.drama_id,'publish_date':r.planned_beijing_time.date().isoformat(),'status':r.status} for r in existing],
         'skill_version':skill_version,
         'model':setting.payload['default_model'],'account_profile':setting.payload['account_profile']}
+    if uses_sequence:
+        snapshot['channel'].pop('default_genre', None)
     if slot_topics is not None:
         snapshot['slot_topics'] = slot_topics
     if topics is not None:

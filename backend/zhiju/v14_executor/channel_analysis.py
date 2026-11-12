@@ -161,6 +161,8 @@ def analysis_prompt_snapshot(snapshot):
         facts['cohort_source']='Studio content sample; API per-video dataset unavailable'
     facts['studio_content']=studio
     mapping=sources.get('video_drama_mapping',[])
+    if snapshot.get('package_inquiry_contract')=='question-led-v1':
+        cohort_ids.update(row['video_id'] for row in studio if row.get('video_id') and row.get('content_type','video')=='video')
     selected_mapping=[row for row in mapping if row['youtube_video_id'] in cohort_ids]
     return {key:snapshot.get(key) for key in ('mode','channel','profile','playlists','positioning','rules',
         'posts_not_applicable','ab_not_applicable','studio_required_periods','studio_input_contract')} | {
@@ -169,7 +171,8 @@ def analysis_prompt_snapshot(snapshot):
         'sources':{'fact_snapshot':facts,
             'video_drama_mapping':selected_mapping,
             'mapping_scope':'drama mappings for 28-day cohorts and all 7-day compared videos; all exported Studio rows retained',
-            'screenshots':sources.get('screenshots',[])}}
+            'screenshots':sources.get('screenshots',[]),
+            'package_inquiries':sources.get('package_inquiries',[])}}
 
 
 def stage_for(run,root):
@@ -226,9 +229,13 @@ def generation_spec_stage(run,analysis):
     snapshot=run['input_snapshot']
     context={'channel':snapshot['channel'],'profile':analysis['profile'],'diagnosis':analysis['diagnosis'],
         'previous_analysis':{key:(snapshot.get('previous_analysis') or {}).get(key) for key in ('profile','diagnosis','generation_spec')},
-        'history_precedence':'previous_analysis is the cloud-applied baseline. Never promote an un-applied draft or one-period anomaly to stable identity.',
+        'history_precedence':'Previous analysis is comparison context only. Derive current guidance solely from the current profile/diagnosis. Missing current evidence stays unknown; never refill it from old strategy or an un-applied draft.',
         'contract':snapshot.get('rules',{}).get('generation-spec-contract.md',''),
         'template':snapshot.get('skill_version',{}).get('files',{}).get('assets/generation-spec-template.md','')}
+    if snapshot.get('operating_reference_skill',{}).get('label')=='xy-yt-report-v3':
+        context['channel']={k:v for k,v in snapshot['channel'].items() if k!='default_genre'}
+        context.pop('previous_analysis',None)
+        context['fixed_configuration']={k:snapshot.get('profile',{}).get(k) for k in ('title_template','fixed_symbol')}
     return SimpleNamespace(prompt='依据已完成的长期档案、当前诊断与历史对比，生成唯一供运营包消费的七段generation_spec。不得改写两层分析或新增事实。只提炼有依据的表达规则；短期爆款不能变成永久剧情模板，GLOBAL只用确认身份。冷启动只写未经数据验证的编辑假设。\n'+json.dumps(context,ensure_ascii=False),
         schema={'type':'object','additionalProperties':False,'properties':{'generation_spec':{'type':'string'}},'required':['generation_spec']},
         skill_bundle=None,node_type='channel_generation_spec',rules={'execution':{'reasoning_effort':'high'}},images=[])
@@ -285,6 +292,79 @@ def retry_feedback(root,key,stage):
         stage.prompt+='\n上次此文档被业务校验拒绝，请修正后重新生成：'+feedback[key]
     return stage
 
+
+
+def investigate_packages(client, model, run, root, progress=None):
+    """Metrics first; only the model's explicit questions cause detail reads."""
+    history = []
+    snapshot = run['input_snapshot']
+    while True:
+        if progress: progress('diagnosis', 0, 1, '指标初判与典型视频调查')
+        context = analysis_prompt_snapshot(snapshot)
+        context['sources']['package_inquiries'] = history
+        context, files = bounded_context(context)
+        schema = {'type':'object','additionalProperties':False,'properties':{
+            'initial_findings':{'type':'string'},
+            'drilldown_requests':{'type':'array','items':{'type':'object','additionalProperties':False,
+                'properties':{'video_id':{'type':'string'},'reason':{'type':'string'},'question':{'type':'string'},
+                    'sections':{'type':'array','items':{'type':'string','enum':[
+                        'plot_basis','titles_and_hooks','cover_prompts','cover_images','adoption_history','description','community']}}},
+                'required':['video_id','reason','question','sections']}}},
+            'required':['initial_findings','drilldown_requests']}
+        stage = SimpleNamespace(node_type='channel_analysis_inquiry',skill_bundle=None,schema=schema,
+            rules={'execution':{'reasoning_effort':'high'}},source_files=files,images=[],
+            prompt=('先解释本次28/7天指标、Studio及已审阅截图和A/B中的变化、反例与不确定性，再决定是否需要回查典型视频。'
+                '典型对象、数量与所需资料由实际问题决定，不固定数量、比例、阈值或名单。没有必要回查或现有证据已足够时返回空列表。'
+                '每项请求给出本次材料中的video_id、可核查指标来源的reason、具体question和最少sections。'
+                '只想了解标题不能请求全部包。已返回资料若缺失就收窄结论；不重复同一调查。仍有新问题可继续精确请求。'
+                '生成、选中、复制不等于上线；当前包装不能代表历史全窗；图片仅在image_review有实际观察时可作视觉依据。'
+                '不要生成三份正式文档；initial_findings写当前判断和仍待解的问题。\n'+json.dumps(context,ensure_ascii=False,default=str)))
+        output = cached_generation(model,run,root,f'analysis-inquiry-{len(history)}',stage)
+        requests = output['drilldown_requests']
+        if requests and any(requests == previous['requests'] for previous in history):
+            raise ValueError('初判重复请求已经返回的资料，没有新的调查问题')
+        batch = client.request('POST',f"/analysis-runs/{run['id']}/package-inquiries",{
+            'claim_id':run['claim_id'],'initial_findings':output['initial_findings'],'drilldown_requests':requests})
+        reviews = []
+        images = []
+        ids = []
+        for detail in batch['results']:
+            for image in detail['sections'].get('cover_images',[]):
+                if image.get('availability') != 'downloadable': continue
+                asset_id = image['asset_id']
+                if asset_id in ids: continue
+                suffix = {'image/jpeg':'.jpg','image/webp':'.webp','image/png':'.png'}.get(image.get('mime_type'),'.png')
+                target = root/'package-images'/(asset_id+suffix)
+                target.parent.mkdir(exist_ok=True)
+                try:
+                    if not target.exists(): target.write_bytes(client.download_analysis_package_image(asset_id))
+                    from PIL import Image
+                    with Image.open(target) as picture: picture.verify()
+                    images.append(target); ids.append(asset_id)
+                except (RuntimeError,OSError,ValueError) as exc:
+                    reviews.append({'asset_id':asset_id,'status':'unavailable','reason':str(exc)})
+        if images:
+            visual = SimpleNamespace(node_type='channel_analysis_package_images',skill_bundle=None,
+                rules={'execution':{'reasoning_effort':'high'}},source_files={},images=images,
+                schema={'type':'object','additionalProperties':False,'properties':{
+                    'observations':{'type':'array','items':{'type':'object','additionalProperties':False,
+                        'properties':{'asset_id':{'type':'string','enum':ids},'observation':{'type':'string'}},
+                        'required':['asset_id','observation']}}},'required':['observations']},
+                prompt=('实际查看附件封面，并按附件顺序的asset_id逐项记录可见内容、与调查问题相关的差异和不可判断处。'
+                    '提示词不是图片，不能从选中/复制推断实际采用。附件asset_id顺序：'+json.dumps(ids)+
+                    '\n对应调查与来源：'+json.dumps(batch,ensure_ascii=False)) )
+            observations = cached_generation(model,run,root,f'analysis-package-images-{len(history)}',visual)['observations']
+            if {row['asset_id'] for row in observations} != set(ids):
+                raise ValueError('封面图片复核缺少已提供资产的实际观察')
+            reviews.extend({**row,'status':'viewed'} for row in observations)
+        if reviews:
+            batch = client.request('POST',f"/analysis-runs/{run['id']}/package-inquiries",{
+                'claim_id':run['claim_id'],'drilldown_requests':requests,'image_review':reviews})
+        history.append(batch)
+        if not requests: break
+    updated = copy.deepcopy(run)
+    updated['input_snapshot']['sources']['package_inquiries'] = history
+    return updated
 
 def generate_documents(model,run,root,progress=None):
     base=stage_for(run,root)
@@ -365,7 +445,7 @@ def failure_result(root,result=None):
     # Keep resumable document checkpoints in the cloud failure record, not a workstation folder.
     return {**(result or {}),'executor_checkpoints':{
         name:json.loads((root/name).read_text())
-        for name in (*CHECKPOINT_FILES,*(path.name for path in root.glob('screenshot-*.json')))
+        for name in (*CHECKPOINT_FILES,*(path.name for pattern in ('screenshot-*.json','analysis-inquiry-*.json','analysis-package-images-*.json') for path in root.glob(pattern)))
         if (root/name).is_file()}}
 
 
@@ -375,7 +455,8 @@ def process_claimed(client,model,config,cache_root,run,stop_event=None):
     for attempt in reversed(run.get('attempts') or []):
         checkpoints=(attempt.get('raw_result') or {}).get('executor_checkpoints')
         if checkpoints is not None:
-            names=(*CHECKPOINT_FILES,*('screenshot-'+m['id']+'.json' for m in run.get('materials',[])))
+            names=(*CHECKPOINT_FILES,*('screenshot-'+m['id']+'.json' for m in run.get('materials',[])),
+                   *(name for name in checkpoints if name.startswith(('analysis-inquiry-','analysis-package-images-')) and name.endswith('.json') and '/' not in name))
             for name in names:
                 if name in checkpoints:(root/name).write_text(json.dumps(checkpoints[name],ensure_ascii=False))
             break
@@ -400,6 +481,8 @@ def process_claimed(client,model,config,cache_root,run,stop_event=None):
         client.request('POST',f"/analysis-runs/{run['id']}/heartbeat",body)
         if cancelled.is_set():raise RuntimeError('分析已取消')
         if run['mode']=='periodic':run=generate_screenshots(client,model,run,root,progress.set)
+        if run['input_snapshot'].get('package_inquiry_contract')=='question-led-v1':
+            run=investigate_packages(client,model,run,root,progress.set)
         result=generate_documents(model,run,root,progress.set)
         progress.set('delivery',3,3,'校验与交付分析结果')
         result['normalized_snapshot']=normalized if normalized is not None else run['input_snapshot']['sources']['fact_snapshot'] if run['mode']=='periodic' else json.loads(result['normalized_snapshot'])

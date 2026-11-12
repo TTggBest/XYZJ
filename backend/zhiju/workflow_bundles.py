@@ -112,7 +112,8 @@ def uses_raw_v20_find(bundle: dict | None) -> bool:
 
 def executor_protocol(rules_snapshot: dict) -> int:
     bundle = rules_snapshot.get('skill_bundle')
+    required = int(rules_snapshot.get('executor_protocol',1))
     if not bundle:
-        return 1
+        return required
     archived = int(inspect_bundle(archive_from_snapshot(bundle)).get('executor_protocol', 2))
-    return max(10, archived) if is_v20_revision_6(bundle) else archived
+    return max(required, 10 if is_v20_revision_6(bundle) else 1, archived)

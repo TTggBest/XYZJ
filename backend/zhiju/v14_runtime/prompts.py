@@ -374,6 +374,9 @@ def build_prompt(
                 "per_direction_requirement": "Each Chinese audit direction and the packaging promise must contain at least one accepted_theme_signal.",
             }
         )
+        if theme.get('source') == 'current_applied_analysis':
+            acceptance_spec.pop('accepted_theme_signals', None)
+            acceptance_spec['per_direction_requirement'] = 'Use applicable current guidance and real plot facts. No literal theme keyword quota.'
     elif stage == "xy-cover":
         audit = context.get("cover_rule_contract", {}).get("prompt_audit", {}) if isinstance(context.get("cover_rule_contract"), dict) else {}
         acceptance_spec.update(

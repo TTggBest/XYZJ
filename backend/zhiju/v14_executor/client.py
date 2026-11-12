@@ -5,7 +5,7 @@ import time
 from urllib.parse import urlparse
 from uuid import uuid4
 
-EXECUTOR_PROTOCOL = 16
+EXECUTOR_PROTOCOL = 17
 
 
 class CloudConflict(RuntimeError):
@@ -105,3 +105,15 @@ class CloudClient:
             raise RuntimeError(f'分析素材下载失败 HTTP {exc.code}') from None
         except (urllib.error.URLError, TimeoutError):
             raise ConnectionError('分析素材下载失败') from None
+
+    def download_analysis_package_image(self, asset_id):
+        request = urllib.request.Request(self.base_url + f'/api/v3/media-assets/{asset_id}/content',
+            headers={'Cookie':'zhiju_session='+self.token})
+        try:
+            with urllib.request.urlopen(request,timeout=60) as response:
+                return response.read(32*1024*1024+1)
+        except urllib.error.HTTPError as exc:
+            if exc.code in {401,403}:raise PermissionError('分析图片授权失效') from None
+            raise RuntimeError(f'运营包图片下载失败 HTTP {exc.code}') from None
+        except (urllib.error.URLError, TimeoutError):
+            raise ConnectionError('运营包图片下载失败') from None

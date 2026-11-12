@@ -187,6 +187,8 @@ def test_v2_prepare_keeps_worker_idle_and_reports_required_protocol(tmp_path,mon
     monkeypatch.setattr(subprocess,'run',lambda args,**kwargs:subprocess.CompletedProcess(args,0))
     result=manager.prepare({'base_url':'https://fixture.example','host_id':'host','tenant_id':'tenant',
         'account_profile':'current','session_token':'fixture-only','task_type':'channel_scheduling'})
-    assert result['ready'] and result['executor_protocol']==PROTOCOL==16
+    from zhiju.v14_executor.client import EXECUTOR_PROTOCOL
+    assert result['ready'] and result['executor_protocol']==EXECUTOR_PROTOCOL
+    assert result['executor_protocol']>=PROTOCOL==16
     assert result['running'] is False and manager.process is None
     manager.close()

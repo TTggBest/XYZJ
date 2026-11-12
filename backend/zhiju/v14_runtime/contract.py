@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from . import canonical as c
-from .channel import channel_theme_contract, title_channel_context
+from .channel import channel_theme_contract, title_channel_context, channel_generation_spec_sections
 from .market import MARKET_PACKAGING_SCHEMA, build_market_packaging_prompt, market_context_for_title, reconcile_revision6_evidence, validate_market_packaging_evidence
 from .prompts import build_prompt, STAGE_DIRECTIVES
 from .rules import using_rules
@@ -84,6 +84,10 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
             channel = data['channel']
             playlists = [{**p, 'url': c.public_playlist_url(p['url'])} for p in channel['playlists']]
             clean['input_snapshot'] = {**data, 'channel': {**channel, 'playlists': playlists}}
+        if data['channel'].get('guidance_contract')=='current-analysis-v1':
+            clean['input_snapshot'] = deepcopy(clean.get('input_snapshot', data))
+            clean['input_snapshot']['channel']['current_channel_theme_contract'] = channel_theme_contract(
+                data['channel'], reference=_current_guidance(data['channel'], node_type))
         prepared = invoke_bundle(archive_from_snapshot(bundle), 'prepare', {'envelope': clean, 'node': node_type})
         return _wire_stage(StageInput(**prepared, skill_bundle=bundle), data)
     data = deepcopy(envelope["input_snapshot"])
@@ -107,7 +111,7 @@ def build_stage_input(envelope: dict, node_type: str) -> StageInput:
     context = {"task": item, "identity": identity, "plot_payload": plot,
         "source_language": data["drama"].get("source_language"),
         "semantic_contract": rules["semantic_contract"],
-        "channel_snapshot": channel["generation_spec"], "channel_theme_contract": channel_theme_contract(item, plot),
+        "channel_snapshot": channel["generation_spec"], "channel_theme_contract": channel_theme_contract(item, plot, reference=_current_guidance(channel, node_type) if channel.get('guidance_contract')=='current-analysis-v1' else None),
         "playlists": channel.get("playlists", []), "creative_slot": {"creative_slot_id": envelope["run_id"]},
         "description_fixed_assets": channel["description_fixed_assets"], "description_assets_frozen": True,
         "community_footer_cta": channel.get("community_footer_cta", {}),
@@ -159,6 +163,8 @@ def _wire_stage(stage, data):
                          + json.dumps(playlist, ensure_ascii=False))
     revision6 = is_v20_revision_6(stage.skill_bundle)
     fixed_titles = uses_fixed_v20_titles(stage.skill_bundle)
+    if channel.get('guidance_contract')=='current-analysis-v1':
+        _wire_current_guidance(stage, channel)
     if not (revision6 or fixed_titles):
         return stage
     if stage.node_type == 'search':
@@ -169,7 +175,7 @@ def _wire_stage(stage, data):
                          'Never claim an additional external search or cite a missing result.')
     reference = channel.get('operating_reference')
     fields = {'title': ('empathy', 'reusable_patterns', 'title'), 'cover': ('cover',)}.get(stage.node_type)
-    if reference and fields:
+    if reference and fields and channel.get('guidance_contract')!='current-analysis-v1':
         parts = {key: reference['sections'][key] for key in fields}
         guide = ('\n\nApplied channel guidance. Use only applicable advice, retain evidence status, '
                  'and ground all story claims in the library: ' + json.dumps(parts, ensure_ascii=False))
@@ -187,8 +193,40 @@ def _wire_stage(stage, data):
             'overlay_word_limit': options.get('overlay_word_limit', 'short, mobile-readable'),
             'requirements': options.get('requirements', ''), 'count': data['community_count'],
         }
+        if channel.get('guidance_contract')=='current-analysis-v1':
+            stage.rules['native_community']['applied_channel_guidance'] = deepcopy(stage.context['applied_channel_guidance'])
+            stage.rules['native_community']['emotion'] = reference.get('sections',{}).get('empathy',{}).get('conclusion') or '未知，待验证'
     return stage
 
+
+
+def _current_guidance(channel, node):
+    specs = {'search':(), 'title':('TITLE',), 'cover':('COVER',),
+             'description':('DESCRIPTION','HASHTAG','PLAYLIST'),
+             'community_scene':('COMMUNITY',), 'community':('COMMUNITY',)}.get(node)
+    if specs is None: return None
+    reference = channel['operating_reference']
+    common = ('positioning','topics','empathy','reusable_patterns','selection_guidance','validation')
+    fields = (*common, *({'title':('title',),'cover':('cover',)}.get(node,())))
+    sections = channel_generation_spec_sections(channel['generation_spec'])
+    guidance = {**{k:v for k,v in reference.items() if k != 'sections'},
+        'sections':{k:reference.get('sections',{}).get(k,{'status':'unknown','conclusion':'未知，待验证'}) for k in fields},
+        'generation_spec':{k:sections[k] for k in specs}}
+    return guidance
+
+
+def _wire_current_guidance(stage, channel):
+    node = stage.node_type
+    guidance = _current_guidance(channel, node)
+    if guidance is None: return
+    stage.context['applied_channel_guidance'] = guidance
+    guide = ('\n\nCurrent applied channel guidance (same frozen analysis version): '
+        'This is the sole current strategy. Retain evidence status and unknowns; judge applicability from the actual plot. '
+        'Do not require theme words, invent events, or refill missing conclusions from legacy directions. '
+        + json.dumps(guidance,ensure_ascii=False))
+    stage.prompt += guide
+    if node == 'title' and stage.rules.get('title_creation'):
+        stage.rules['title_creation']['prompt'] += guide
 
 def _scheduled_playlist_issues(stage, result):
     playlist = stage.context.get('scheduled_playlist')

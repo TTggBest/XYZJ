@@ -8,11 +8,11 @@ COLD_START = 'cold_start_hypothesis'
 
 
 def is_reference_revision(skill):
-    return skill.get('label') == 'xy-yt-report-v2' and skill.get('revision', 0) >= 3
+    return skill.get('label') == 'xy-yt-report-v3' or (skill.get('label') == 'xy-yt-report-v2' and skill.get('revision', 0) >= 3)
 
 
 def uses_selection_guidance(skill):
-    return is_reference_revision(skill) and skill['revision'] >= 4
+    return skill.get('label') == 'xy-yt-report-v3' or (is_reference_revision(skill) and skill['revision'] >= 4)
 
 
 def validate_reference(strategy, *, cold_start, skill):

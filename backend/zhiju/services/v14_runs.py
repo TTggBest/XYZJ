@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, load_only
 from zhiju.models import (Channel, Drama, DramaAlias, OperationPackage, PackageArtifact, PackageCommunityPost,
                           PackageCoverVariant, PackageDescription, PackageTitle, WorkOrder, OperationTask, Language, ChannelProfile, ChannelSchedulePlan)
 from zhiju.models.v14 import V14Run, V14Setting, V14Attempt
-from zhiju.services.channel_guidance import active_dna, applied_reference, resolve as resolve_guidance
+from zhiju.services.channel_guidance import active_dna, applied_reference, analysis_positioning, resolve as resolve_guidance
 from zhiju.services.production import NODE_SEQUENCE, _require_productive_channel, dispatch_task
 from zhiju.services.identity import ConflictError, channel_order_columns, _audit
 from zhiju.tenant_repository import require_tenant_entity
@@ -101,6 +101,10 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
         if guidance['source'] != 'legacy_reference':
             channel_input = {**channel_input, 'generation_spec':guidance['generation_spec'],
                              'analysis_version':{**{k:guidance[k] for k in ('dna_id','run_id','report_id')},'report_type':guidance['mode']}}
+    reference = applied_reference(session, current_dna) if current_dna else None
+    if reference:
+        channel_input = {**channel_input, 'direction': analysis_positioning(reference['sections']),
+                         'operating_reference': reference, 'guidance_contract': 'current-analysis-v1'}
     if is_v20_revision_6(bundle) or uses_fixed_v20_titles(bundle):
         if drama.source_language not in {'zh', 'en'}:
             raise ConflictError('请先在剧库登记中文或英语原片语言，供封面正确选角')
@@ -137,6 +141,8 @@ def create_run(session: Session, work_order_id: str, *, commit: bool = True, wor
             "target_publish_date": str(work.target_publish_date),
             "video_id": task.source_video_id or f"pending_{work.id}", "video_url": task.source_video_url,
         })
+    if channel_input.get('guidance_contract')=='current-analysis-v1':
+        run.rules_snapshot = {**run.rules_snapshot, 'executor_protocol':17}
     if uses_fixed_v20_titles(bundle):
         run.input_snapshot['drama']['aliases'] = list(session.scalars(select(DramaAlias.alias).where(
             DramaAlias.tenant_id == session.info['tenant_id'], DramaAlias.drama_id == drama.id

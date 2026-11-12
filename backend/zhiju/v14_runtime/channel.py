@@ -74,8 +74,18 @@ THEME_PROFILES = {
 }
 
 
-def channel_theme_contract(item: dict[str, Any], plot_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def channel_theme_contract(item: dict[str, Any], plot_payload: dict[str, Any] | None = None, *, reference=None) -> dict[str, Any]:
     """Build the shared channel-semantic contract used by every creative stage."""
+    if reference is not None:
+        sections = reference.get('sections', {})
+        positioning = sections.get('positioning', {}).get('conclusion') or '未知，待验证'
+        return {'source': 'current_applied_analysis', 'analysis_version': {
+                    k: reference.get(k) for k in ('channel_id','run_id','report_id','dna_id','version','mode')},
+                'channel_direction': positioning, 'channel_gender': item.get('gender', ''),
+                'audience_promise': positioning, 'plot_supported': False,
+                'plot_support_signals': [], 'required_output_signals': [],
+                'operating_reference': reference,
+                'truth_rule': 'Judge applicability from this drama. Unknown is not a legacy-theme fallback. Never add events or require literal theme keywords.'}
     nickname = str(item.get("nickname") or "").strip()
     parts = [part.strip() for part in nickname.split("-") if part.strip()]
     direction = str(item.get("direction") or (parts[-1] if parts else "")).strip()

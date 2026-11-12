@@ -68,6 +68,7 @@ def generate_sequence(model, snapshot, judgments, root, progress=None):
         'predecessor_drama_id为本次前一非空档，首档null；alternative_drama_id从该档尚未使用、'
         '同目标细分且有效的候选选，只有没有其他候选才为null。'
         '每档输出真实包装承诺及开场待查点，不声称已看媒体或可保证增长。'
+        '\n当前已应用运营参考：' + encode(snapshot['operating_reference']) +
         '\n全库比较：' + encode(review) + '\n全部候选的全文评估与原文引用：' + encode(compact) +
         '\n频道历史：' + encode(snapshot.get('history', [])) +
         '\n逐档要求：' + encode(snapshot['slot_topics']) + '\n档位：' + encode(snapshot['slots']) +

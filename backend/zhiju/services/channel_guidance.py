@@ -23,13 +23,13 @@ def applied_reference(session, dna):
         ChannelAnalysisRun.channel_id == dna.channel_id, ChannelAnalysisRun.dna_id == dna.id,
         ChannelAnalysisRun.report_id == dna.analysis_report_id, ChannelAnalysisRun.status == 'applied'))
     reference = (run.result or {}).get('operating_reference') if run else None
-    if not reference:
+    if not run:
         return None
     report = require_tenant_entity(session, ChannelAnalysisReport, run.report_id)
     return {'channel_id': dna.channel_id, 'run_id': run.id, 'report_id': report.id,
             'dna_id': dna.id, 'version': report.version_number, 'mode': run.mode,
             'skill_version': run.input_snapshot.get('operating_reference_skill'),
-            'sections': deepcopy(selection_reference(reference))}
+            'sections': deepcopy(selection_reference(reference or {}))}
 
 
 def resolve(session, channel_id, dna_id=None, *, use_plan_snapshot=True):
@@ -61,7 +61,7 @@ def resolve(session, channel_id, dna_id=None, *, use_plan_snapshot=True):
                 'profile':(run.result or {}).get('profile') if run else dna.audience_summary or (report.summary if report else ''),
                 'diagnosis':(run.result or {}).get('diagnosis') if run else ((report.recommendations or report.summary) if report else ''),
                 'generation_spec':spec,
-                'positioning':dna.primary_genre,
+                'positioning':analysis_positioning((run.result or {}).get('operating_reference')) if run else dna.primary_genre,
                 'normalized_snapshot':deepcopy((run.result or {}).get('normalized_snapshot')) if run else None}
     profile=session.scalar(select(ChannelProfile).where(ChannelProfile.channel_id==channel_id))
     positioning=(profile.positioning if profile else '') or ''
@@ -71,3 +71,8 @@ def resolve(session, channel_id, dna_id=None, *, use_plan_snapshot=True):
     return {'source':'initial','dna_id':None,'run_id':None,'report_id':None,'mode':'initial','profile':positioning,
             'diagnosis':'冷启动定位，未经数据验证','generation_spec':spec,'positioning':positioning,
             'normalized_snapshot':None}
+
+
+def analysis_positioning(reference):
+    """A missing new conclusion stays unknown; registered legacy genres are not evidence."""
+    return ((reference or {}).get('positioning') or {}).get('conclusion') or '未知，待验证'
