@@ -1,6 +1,18 @@
 from datetime import date,datetime
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
 from zhiju.schemas.production import PackageOutputsRead
+
+
+class DramaPackagePreviewImage(BaseModel):
+    aspect_ratio: str
+    asset_id: str | None
+
+
+class DramaPackageCoverPreview(BaseModel):
+    variant_number: int
+    localized_title: str
+    chinese_translation: str | None
+    covers: list[DramaPackagePreviewImage]
 
 
 class DramaPackageRecord(BaseModel):
@@ -15,6 +27,7 @@ class DramaPackageRecord(BaseModel):
     status: str
     created_at: datetime
     ready_at: datetime | None
+    cover_previews: list[DramaPackageCoverPreview] = Field(default_factory=list)
 
 
 class DramaPackageHistory(BaseModel):

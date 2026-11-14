@@ -88,3 +88,37 @@ def test_history_and_details_only_read_and_routes_are_tenant_classified(client,s
     assert not set(statements)&{'INSERT','UPDATE','DELETE'}
     for path in ('/api/v3/dramas/{drama_id}/packages','/api/v3/dramas/{drama_id}/packages/{package_id}'):
         assert ('GET',path) in TENANT_ROUTES
+
+
+def test_history_includes_inline_cover_previews_bound_to_current_titles(client,store):
+    from zhiju.models import PackageCoverVariant
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        seed(s)
+        old=s.scalar(select(PackageTitle).where(PackageTitle.package_id=='package-a'))
+        s.add_all([
+            PackageTitle(id='current-a',package_id='package-a',variant_number=1,generation_number=2,
+                localized_title='Current A',chinese_translation='当前标题A'),
+            PackageTitle(id='current-b',package_id='package-a',variant_number=2,localized_title='Current B'),
+            PackageCoverVariant(package_id='package-a',title_id=old.id,aspect_ratio='16:9',creative_prompt='Old title cover',asset_id='old-title-asset'),
+            PackageCoverVariant(package_id='package-a',title_id='current-a',aspect_ratio='16:9',generation_number=1,creative_prompt='Old attempt',asset_id='old-attempt-asset'),
+            PackageCoverVariant(package_id='package-a',title_id='current-a',aspect_ratio='16:9',generation_number=2,creative_prompt='Current cover',asset_id='current-landscape'),
+            PackageCoverVariant(package_id='package-a',title_id='current-a',aspect_ratio='4:5',creative_prompt='Portrait',asset_id='current-portrait'),
+            PackageCoverVariant(package_id='package-2',title_id=s.scalar(select(PackageTitle.id).where(PackageTitle.package_id=='package-2')),
+                aspect_ratio='16:9',creative_prompt='Other package',asset_id='other-package-image'),
+        ])
+        s.commit()
+    rows={row['package_id']:row for row in client.get('/api/v3/dramas/drama-a/packages').raise_for_status().json()['items']}
+    previews=rows['package-a']['cover_previews']
+    assert [p['variant_number'] for p in previews]==[1,2]
+    assert previews[0]['localized_title']=='Current A' and previews[0]['chinese_translation']=='当前标题A'
+    assert {c['asset_id'] for c in previews[0]['covers']}=={'current-landscape','current-portrait'}
+    assert previews[1]['covers']==[]
+    assert rows['package-2']['cover_previews'][0]['covers'][0]['asset_id']=='other-package-image'
+    assert rows['package-3']['cover_previews'][0]['covers']==[]
+
+    # An unfinished retry must not silently display an older generated image.
+    with TenantSession(store,info={'tenant_id':'tenant-a'}) as s:
+        s.add(PackageCoverVariant(package_id='package-a',title_id='current-a',aspect_ratio='16:9',generation_number=3,creative_prompt='Pending retry'))
+        s.commit()
+    row=next(row for row in client.get('/api/v3/dramas/drama-a/packages').json()['items'] if row['package_id']=='package-a')
+    assert next(c for c in row['cover_previews'][0]['covers'] if c['aspect_ratio']=='16:9')['asset_id'] is None

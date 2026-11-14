@@ -1135,7 +1135,25 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .drama-package-tools span { color: var(--muted); font-size: 13px; }
 .drama-package-identity strong, .drama-package-identity span { display: block; }
 .drama-package-identity span { margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: normal; }
-.drama-package-records { min-width: 620px; }
+.drama-package-records { display: grid; gap: 20px; }
+.drama-package-record { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.drama-package-record-head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 14px 16px; background: var(--surface-soft, #f3f7f5); }
+.drama-package-record-head .drama-package-identity { flex: 1; min-width: 180px; }
+.drama-package-record-head > input { width: 16px; height: 16px; accent-color: var(--green); }
+.drama-package-record-head > span { font-size: 12px; color: var(--muted); }
+.drama-package-preview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.drama-package-preview { min-width: 0; padding: 16px; }
+.drama-package-preview + .drama-package-preview { border-left: 1px solid var(--line); }
+.drama-package-preview h4 { margin: 0 0 8px; font-size: 14px; }
+.drama-package-preview-translation { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.drama-package-preview-images { display: grid; grid-template-columns: 1.5fr 1fr; gap: 8px; margin-top: 12px; }
+.drama-package-preview-images figure { min-width: 0; margin: 0; }
+.drama-package-preview-images figcaption { font-size: 11px; color: var(--muted); }
+.drama-package-preview-images .drama-package-image { max-height: 150px; }
+@media (max-width: 700px) {
+  .drama-package-preview-grid { grid-template-columns: 1fr; }
+  .drama-package-preview + .drama-package-preview { border-left: 0; border-top: 1px solid var(--line); }
+}
 .drama-package-comparison { overflow-x: auto; padding-bottom: 12px; }
 .drama-package-compare-grid { display: grid; grid-template-columns: repeat(var(--package-columns), minmax(300px, 1fr)); gap: 0 16px; align-items: stretch; }
 .drama-package-compare-head { padding: 16px; background: var(--surface-soft, #f3f7f5); border: 1px solid var(--line); border-radius: 8px 8px 0 0; }

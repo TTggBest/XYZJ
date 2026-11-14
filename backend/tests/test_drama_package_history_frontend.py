@@ -8,6 +8,7 @@ const historyUI=require(process.argv[1]+'/assets/drama-package-history.js');
 const calls=[];
 const records=[{package_id:'p1',channel_id:'c1',channel_name:'英语频道',language_name:'英语',production_date:'2026-10-01',version_number:1,status:'text_ready'},
  {package_id:'p2',channel_id:'c2',channel_name:'法语频道',language_name:'法语',production_date:'2026-11-01',version_number:1,status:'text_ready'}];
+for(const record of records)record.cover_previews=[{variant_number:1,localized_title:'Preview '+record.package_id,chinese_translation:'封面中文标题',covers:[{aspect_ratio:'16:9',asset_id:'preview-'+record.package_id},{aspect_ratio:'4:5',asset_id:'portrait-'+record.package_id}]}];
 const detail=id=>({record:records.find(r=>r.package_id===id),outputs:{titles:[{id:'title-'+id,variant_number:1,generation_number:1,localized_title:'Title '+id,chinese_translation:'中文 '+id,core_phrase:'真实卖点 '+id}],
  covers:[{id:'cover-'+id,title_id:'title-'+id,aspect_ratio:'16:9',creative_prompt:'不同封面 '+id}],descriptions:[{localized_text:'说明 '+id}],community_posts:[]}});
 const page=start(process.argv[1],auth,async(path,options={})=>{
@@ -29,7 +30,18 @@ assert.match(page.nodes.get('viewRoot').innerHTML,/2 个频道/);
 assert.match(page.nodes.get('viewRoot').innerHTML,/查看运营包/);
 await click('drama-package-history','d1');
 assert.match(page.nodes.get('drawerBody').innerHTML,/英语频道/);assert.match(page.nodes.get('drawerBody').innerHTML,/法语频道/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/\/media-assets\/preview-p1\/thumbnail/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/\/media-assets\/preview-p2\/thumbnail/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/Preview p1/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/封面中文标题/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/\/media-assets\/portrait-p2\/thumbnail/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/封面 B/);
+assert.match(page.nodes.get('drawerBody').innerHTML,/尚未关联封面图片/);
+assert.doesNotMatch(page.nodes.get('drawerBody').innerHTML,/target="_blank"/);
 assert.equal(calls.filter(([p])=>p.startsWith('/api/v3/dramas/d1/packages/')).length,0);
+const missing={hidden:true};const failedImage={hidden:false,matches:selector=>selector==='.drama-package-image',nextElementSibling:missing};
+await page.document.emit('error',{target:failedImage});
+assert.equal(failedImage.hidden,true);assert.equal(missing.hidden,false);
 await click('drama-package-open','p1');
 assert.match(page.nodes.get('drawerBody').innerHTML,/Title p1/);assert.match(page.nodes.get('drawerBody').innerHTML,/不同封面 p1/);
 await click('drama-package-back');
