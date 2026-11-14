@@ -27,6 +27,8 @@ from zhiju.services.drama_library import (
 )
 from zhiju.services.identity import ConflictError
 
+from zhiju.schemas.drama_packages import DramaPackageHistory,DramaPackageDetail
+from zhiju.services import drama_packages
 
 router = APIRouter(prefix="/v3", tags=["drama-library"])
 
@@ -132,4 +134,20 @@ def post_library_bulk_csv(
     try:
         return bulk_upsert_dramas(session, parse_drama_csv(payload.content))
     except ConflictError as exc:
+        raise _raise(exc) from exc
+
+
+@router.get('/dramas/{drama_id}/packages',response_model=DramaPackageHistory)
+def package_history(drama_id: str, session: Session = Depends(get_tenant_db)):
+    try:
+        return drama_packages.list_for_drama(session, drama_id)
+    except (NotFoundError, ConflictError) as exc:
+        raise _raise(exc) from exc
+
+
+@router.get('/dramas/{drama_id}/packages/{package_id}',response_model=DramaPackageDetail)
+def package_detail(drama_id: str, package_id: str, session: Session = Depends(get_tenant_db)):
+    try:
+        return drama_packages.detail(session, drama_id, package_id)
+    except (NotFoundError, ConflictError) as exc:
         raise _raise(exc) from exc

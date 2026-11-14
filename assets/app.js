@@ -47,6 +47,7 @@
   let channelAvatarSyncRevision = null;
   let realtimeRetryTimer = null;
   let realtimeGeneration = 0;
+  let dramaPackageHistory = null, dramaPackageSelected = new Set(), dramaPackageDetails = new Map();
   let workProgressTimer = null, workProgressBusy = false, drawerGeneration = 0;
   state.workDetailId = "";
 
@@ -185,6 +186,7 @@
   }
   function closeAccountMenu() { el("accountMenu").hidden = true; el("accountButton").setAttribute("aria-expanded", "false"); }
   function clearPageSession() {
+    dramaPackageHistory = null; dramaPackageSelected = new Set(); dramaPackageDetails = new Map();
     youtubeReauthorizationChannels.clear();
     el("youtubeReauthorizationNotice").hidden = true;
     el("youtubeReauthorizationNotice").innerHTML = "";
@@ -912,7 +914,7 @@
     const params = { page: state.dramaLibraryPage, page_size: state.dramaLibraryPageSize, sort_by: state.dramaLibrarySortBy, sort_order: state.dramaLibrarySortOrder, search: state.dramaLibrarySearch, status: state.dramaLibraryStatus, batch_name: state.dramaLibraryBatch };
     const data = await api(`/dramas/library${query(params)}`); state.dramaLibrary = data;
     const rows = data.items.map(item => `<tr class="drama-library-row ${item.status === "archived" ? "is-not-producing" : ""}"><td class="serial-cell">${item.drama_number}</td><td><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)} · ${item.source_row_number ? `飞书第 ${item.source_row_number} 行` : "手工录入"}</span></td><td>${item.comprehensive_score == null ? "—" : Number(item.comprehensive_score)}</td><td>${esc(item.batch_name || "—")}</td><td>${fmt(item.expires_at, true)}</td><td>${item.episode_count ?? "—"}</td><td class="mono">${formatDuration(item.total_duration_seconds)}</td><td><span class="cell-summary">${esc(item.content_summary || "尚未录入")}</span></td><td>${item.language_count}</td><td>${item.published_channel_count}</td><td>${tag(item.status)}</td><td><button class="icon-button" title="查看剧目" aria-label="查看剧目" data-action="drama-detail" data-id="${item.id}">${icon("arrow-right")}</button></td></tr>`);
-    const filters = `<div class="drama-library-toolbar"><div class="field search-field"><label>搜索</label><input class="input" id="dramaLibrarySearch" value="${esc(state.dramaLibrarySearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>状态</label><select class="select" id="dramaLibraryStatus"><option value="">全部状态</option>${dramaStatusOptions(state.dramaLibraryStatus)}</select></div><div class="field"><label>批次</label><input class="input" id="dramaLibraryBatch" value="${esc(state.dramaLibraryBatch)}" placeholder="全部批次"></div><div class="field"><label>排序字段</label><select class="select" id="dramaLibrarySortBy">${dramaSortByOptions(state.dramaLibrarySortBy)}</select></div><div class="field"><label>排序</label><select class="select" id="dramaLibrarySortOrder">${dramaSortOrderOptions(state.dramaLibrarySortOrder)}</select></div><div class="field"><label>每页</label><select class="select" id="dramaLibraryPageSize">${dramaPageSizeOptions(state.dramaLibraryPageSize)}</select></div><button class="button button-secondary" data-action="apply-drama-library-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div><button class="button button-secondary" data-action="go-drama-progress">${icon("workflow")} 制剧进度</button><button class="button button-secondary" data-action="sync-feishu-dramas">${icon("refresh-cw")} 同步飞书</button><button class="button button-secondary" data-action="bulk-add-dramas">${icon("file-up")} 批量录入</button><button class="button button-primary" data-action="add-drama">${icon("plus")} 新增剧目</button></div>`;
+    const filters = `<div class="drama-library-toolbar"><div class="field search-field"><label>搜索</label><input class="input" id="dramaLibrarySearch" value="${esc(state.dramaLibrarySearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>状态</label><select class="select" id="dramaLibraryStatus"><option value="">全部状态</option>${dramaStatusOptions(state.dramaLibraryStatus)}</select></div><div class="field"><label>批次</label><input class="input" id="dramaLibraryBatch" value="${esc(state.dramaLibraryBatch)}" placeholder="全部批次"></div><div class="field"><label>排序字段</label><select class="select" id="dramaLibrarySortBy">${dramaSortByOptions(state.dramaLibrarySortBy)}</select></div><div class="field"><label>排序</label><select class="select" id="dramaLibrarySortOrder">${dramaSortOrderOptions(state.dramaLibrarySortOrder)}</select></div><div class="field"><label>每页</label><select class="select" id="dramaLibraryPageSize">${dramaPageSizeOptions(state.dramaLibraryPageSize)}</select></div><button class="button button-secondary" data-action="apply-drama-library-filters">${icon("search")} 查询</button><div class="toolbar-spacer"></div><button class="button button-secondary" data-action="completed-drama-packages">${icon("package")} 已完成剧目</button><button class="button button-secondary" data-action="go-drama-progress">${icon("workflow")} 制剧进度</button><button class="button button-secondary" data-action="sync-feishu-dramas">${icon("refresh-cw")} 同步飞书</button><button class="button button-secondary" data-action="bulk-add-dramas">${icon("file-up")} 批量录入</button><button class="button button-primary" data-action="add-drama">${icon("plus")} 新增剧目</button></div>`;
     const pager = data.pages > 1 ? `<div class="pagination"><button class="button button-secondary button-small" data-action="drama-library-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${data.page} / ${data.pages} 页 · ${data.total} 条</span><button class="button button-secondary button-small" data-action="drama-library-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
     const tableContent = rows.length
       ? table(["序号", "剧目", "综合评分", "批次", "到期时间", "剧集数", "合集总时长", "内容概述", "语言", "频道", "状态", ""], rows, 1540, "drama-library-table")
@@ -964,16 +966,49 @@
   async function showDramaProgress() {
     const params = { page: state.dramaProgressPage, page_size: state.dramaProgressPageSize, sort_order: state.dramaProgressSortOrder, search: state.dramaProgressSearch, batch_name: state.dramaProgressBatch, overall_status: state.dramaProgressStatus, node: state.dramaProgressNode, node_status: state.dramaProgressNodeStatus };
     const data = await api(`/drama-production${query(params)}`); state.dramaProgress = data;
+    const showPackageUsage = state.dramaProgressStatus === "completed";
     const rows = data.items.map(item => {
       const nodeCells = item.is_production_excluded
         ? `<td class="drama-progress-excluded-cell" colspan="${DRAMA_PRODUCTION_NODES.length}">${tag("not_producing")}</td>`
         : DRAMA_PRODUCTION_NODES.map(([field]) => `<td class="drama-progress-node-cell">${dramaProgressNodeCell(item, field)}</td>`).join("");
-      return `<tr class="drama-progress-row ${dramaProgressRowClass(item)}" data-drama-progress-id="${item.drama_id}"><td class="serial-cell">${item.drama_number}</td><td class="drama-progress-title-cell"><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td class="drama-progress-batch-cell">${compactDramaBatch(item.batch_name)}</td>${nodeCells}<td class="drama-progress-spec-cell"><span>${item.episode_count == null ? "—" : `${item.episode_count} 集`}</span><span class="mono">${formatDuration(item.total_duration_seconds)}</span></td><td class="drama-progress-overall-cell">${item.is_production_excluded ? "—" : progress(item.progress_percent)}</td><td class="drama-progress-updated-cell">${dramaProgressUpdatedAt(item.updated_at)}</td><td class="drama-progress-actions-cell"><div class="row-actions"><button class="icon-button" title="编辑制剧进度" aria-label="编辑制剧进度" data-action="edit-drama-progress" data-id="${item.drama_id}" ${item.is_production_excluded ? "disabled" : ""}>${icon("pencil")}</button>${dramaProductionAction(item)}</div></td></tr>`;
+      return `<tr class="drama-progress-row ${dramaProgressRowClass(item)}" data-drama-progress-id="${item.drama_id}"><td class="serial-cell">${item.drama_number}</td><td class="drama-progress-title-cell"><span class="cell-main">${esc(item.chinese_title)}</span><span class="cell-sub mono">${esc(item.drama_code)}${sourceLanguageBadge(item.source_language)}</span></td><td class="drama-progress-batch-cell">${compactDramaBatch(item.batch_name)}</td>${nodeCells}<td class="drama-progress-spec-cell"><span>${item.episode_count == null ? "—" : `${item.episode_count} 集`}</span><span class="mono">${formatDuration(item.total_duration_seconds)}</span></td><td class="drama-progress-overall-cell">${item.is_production_excluded ? "—" : progress(item.progress_percent)}</td><td class="drama-progress-updated-cell">${dramaProgressUpdatedAt(item.updated_at)}</td>${showPackageUsage ? `<td class="drama-progress-packages-cell"><strong>${item.package_channel_count || 0} 个频道 · ${item.package_count || 0} 个运营包</strong><span>${item.latest_package_production_date ? `最近生产 ${esc(item.latest_package_production_date)}` : "尚未生产"}</span><button class="button button-secondary button-small" data-action="drama-package-history" data-id="${esc(item.drama_id)}">查看运营包</button></td>` : ""}<td class="drama-progress-actions-cell"><div class="row-actions"><button class="icon-button" title="编辑制剧进度" aria-label="编辑制剧进度" data-action="edit-drama-progress" data-id="${item.drama_id}" ${item.is_production_excluded ? "disabled" : ""}>${icon("pencil")}</button>${dramaProductionAction(item)}</div></td></tr>`;
     });
-    const filters = `<div class="drama-library-toolbar"><button class="button button-secondary" data-action="back-drama-library">${icon("arrow-left")} 返回剧库</button><div class="field search-field"><label>搜索</label><input class="input" id="dramaProgressSearch" value="${esc(state.dramaProgressSearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>批次</label><input class="input" id="dramaProgressBatch" value="${esc(state.dramaProgressBatch)}" placeholder="全部批次"></div><div class="field"><label>整剧状态</label><select class="select" id="dramaProgressStatus">${productionStatusOptions(state.dramaProgressStatus)}</select></div><div class="field"><label>制作节点</label><select class="select" id="dramaProgressNode">${productionNodeOptions(state.dramaProgressNode)}</select></div><div class="field"><label>节点状态</label><select class="select" id="dramaProgressNodeStatus">${productionNodeStatusOptions(state.dramaProgressNodeStatus)}</select></div><div class="field"><label>排序</label><select class="select" id="dramaProgressSortOrder">${dramaSortOrderOptions(state.dramaProgressSortOrder)}</select></div><div class="field"><label>每页</label><select class="select" id="dramaProgressPageSize">${dramaPageSizeOptions(state.dramaProgressPageSize)}</select></div><button class="button button-primary" data-action="apply-drama-progress-filters">${icon("search")} 查询</button><button class="button button-secondary" data-action="sync-zhihe-progress">${icon("refresh-cw")} 同步智核</button></div>`;
+    const filters = `<div class="drama-library-toolbar"><button class="button button-secondary" data-action="back-drama-library">${icon("arrow-left")} 返回剧库</button><button class="button button-secondary" data-action="completed-drama-packages">已完成剧目</button><div class="field search-field"><label>搜索</label><input class="input" id="dramaProgressSearch" value="${esc(state.dramaProgressSearch)}" placeholder="剧名或剧库 ID"></div><div class="field"><label>批次</label><input class="input" id="dramaProgressBatch" value="${esc(state.dramaProgressBatch)}" placeholder="全部批次"></div><div class="field"><label>整剧状态</label><select class="select" id="dramaProgressStatus">${productionStatusOptions(state.dramaProgressStatus)}</select></div><div class="field"><label>制作节点</label><select class="select" id="dramaProgressNode">${productionNodeOptions(state.dramaProgressNode)}</select></div><div class="field"><label>节点状态</label><select class="select" id="dramaProgressNodeStatus">${productionNodeStatusOptions(state.dramaProgressNodeStatus)}</select></div><div class="field"><label>排序</label><select class="select" id="dramaProgressSortOrder">${dramaSortOrderOptions(state.dramaProgressSortOrder)}</select></div><div class="field"><label>每页</label><select class="select" id="dramaProgressPageSize">${dramaPageSizeOptions(state.dramaProgressPageSize)}</select></div><button class="button button-primary" data-action="apply-drama-progress-filters">${icon("search")} 查询</button><button class="button button-secondary" data-action="sync-zhihe-progress">${icon("refresh-cw")} 同步智核</button></div>`;
     const pager = data.pages > 1 ? `<div class="pagination"><button class="button button-secondary button-small" data-action="drama-progress-page" data-page="${data.page - 1}" ${data.page <= 1 ? "disabled" : ""}>${icon("chevron-left")} 上一页</button><span>第 ${data.page} / ${data.pages} 页 · ${data.total} 条</span><button class="button button-secondary button-small" data-action="drama-progress-page" data-page="${data.page + 1}" ${data.page >= data.pages ? "disabled" : ""}>下一页 ${icon("chevron-right")}</button></div>` : "";
-    const content = `<div class="section-body drama-filter-body">${filters}<p class="field-help" role="status" aria-live="polite">筛选结果：共 <strong>${data.total}</strong> 条 · 本页 ${data.items.length} 条</p></div>${rows.length ? table(["序号", "剧目", "批次", ...DRAMA_PRODUCTION_NODES.map(([, text]) => text), "规格", "整体进度", "最后更新", ""], rows, 1320, "drama-progress-table") : empty("没有符合条件的剧目", "调整筛选条件后重试。")}${pager}`;
-    root.innerHTML = `<div class="page-stack drama-progress-page">${section("制剧进度", "每部剧唯一一套进度 · 与语言覆盖无关", content)}</div>`;
+    const columns = ["序号", "剧目", "批次", ...DRAMA_PRODUCTION_NODES.map(([, text]) => text), "规格", "整体进度", "最后更新", ...(showPackageUsage ? ["已生产运营包"] : []), ""];
+    const content = `<div class="section-body drama-filter-body">${filters}<p class="field-help" role="status" aria-live="polite">筛选结果：共 <strong>${data.total}</strong> 条 · 本页 ${data.items.length} 条</p></div>${rows.length ? (showPackageUsage ? table(columns, rows, 1500, "drama-progress-table has-package-usage") : table(columns, rows, 1320, "drama-progress-table")) : empty("没有符合条件的剧目", "调整筛选条件后重试。")}${pager}`;
+    root.innerHTML = `<div class="page-stack drama-progress-page">${section(showPackageUsage ? "已完成剧目" : "制剧进度", showPackageUsage ? "按剧查看已生产运营包 · 覆盖所有频道与生产日期" : "每部剧唯一一套进度 · 与语言覆盖无关", content)}</div>`;
+  }
+  function renderDramaPackageHistory() {
+    el("drawerBody").innerHTML = window.ZhijuDramaPackages.renderHistory(dramaPackageHistory, dramaPackageSelected, label);
+    renderIcons();
+  }
+  async function showDramaPackageHistory(dramaId) {
+    dramaPackageHistory = null; dramaPackageSelected = new Set(); dramaPackageDetails = new Map();
+    openDrawer("剧目运营包", '<p role="status">正在读取这部剧的运营包记录…</p>');
+    const generation = drawerGeneration, revision = auth.capture();
+    try {
+      const history = await api(`/dramas/${encodeURIComponent(dramaId)}/packages`);
+      if (generation !== drawerGeneration || !auth.isCurrent(revision)) return;
+      dramaPackageHistory = history;
+      renderDramaPackageHistory();
+    } catch (error) {
+      if (generation === drawerGeneration && auth.isCurrent(revision)) {
+        el("drawerBody").innerHTML = `<div class="drama-package-view"><p role="alert">运营包记录读取失败：${esc(error.message)}</p><button class="button button-secondary" data-action="drama-package-history" data-id="${esc(dramaId)}">重新读取</button></div>`;
+      }
+      throw error;
+    }
+  }
+  async function showDramaPackageDetails(ids) {
+    const history = dramaPackageHistory;
+    if (!history) return;
+    const generation = drawerGeneration, revision = auth.capture();
+    const details = await Promise.all(ids.map(id => dramaPackageDetails.get(id) || api(`/dramas/${encodeURIComponent(history.drama_id)}/packages/${encodeURIComponent(id)}`)));
+    if (generation !== drawerGeneration || history !== dramaPackageHistory || !auth.isCurrent(revision)) return;
+    details.forEach((detail, index) => dramaPackageDetails.set(ids[index], detail));
+    el("drawerBody").innerHTML = window.ZhijuDramaPackages.renderDetails(history, details, label);
+    renderIcons();
+    el("drawerBody").scrollTop = 0;
   }
   function dramaForm(drama = null) {
     const aliases = (drama?.aliases || []).map(item => item.alias).join("，");
@@ -2587,6 +2622,19 @@
   }
 
   document.addEventListener("change", event => {
+    const id = event.target.dataset?.dramaPackageSelect;
+    if (!id || !auth.current() || !dramaPackageHistory?.items.some(item => item.package_id === id)) return;
+    if (event.target.checked) dramaPackageSelected.add(id); else dramaPackageSelected.delete(id);
+    if (el("dramaPackageSelectedCount")) el("dramaPackageSelectedCount").textContent = `已选 ${dramaPackageSelected.size} 个运营包`;
+    if (el("dramaPackageCompare")) el("dramaPackageCompare").disabled = dramaPackageSelected.size < 2;
+  });
+  document.addEventListener("error", event => {
+    if (event.target.matches?.(".drama-package-image")) {
+      event.target.hidden = true;
+      if (event.target.nextElementSibling) event.target.nextElementSibling.hidden = false;
+    }
+  }, true);
+  document.addEventListener("change", event => {
     if (!auth.current()) return;
     if (event.target.matches('#channelAnalysisMaterialsForm input[type="file"]')) {
       updateAnalysisMaterialStatus(event.target);
@@ -2723,6 +2771,17 @@
         const result = await api("/feishu-sync/dramas", { method: "POST" });
         notify(`飞书剧库同步完成：剧目新增 ${result.rows_inserted}，更新 ${result.rows_updated}；集数/时长新增 ${result.metadata_rows_inserted || 0}，更新 ${result.metadata_rows_updated || 0}`);
         await loadView("dramas", { preservePosition: true });
+      }
+      else if (action === "completed-drama-packages") {
+        state.dramaProgressStatus = "completed"; state.dramaProgressNode = ""; state.dramaProgressNodeStatus = ""; state.dramaProgressPage = 1;
+        await loadView("dramaProgress");
+      }
+      else if (action === "drama-package-history") await showDramaPackageHistory(id);
+      else if (action === "drama-package-open") await showDramaPackageDetails([id]);
+      else if (action === "drama-package-back") { if (dramaPackageHistory) renderDramaPackageHistory(); }
+      else if (action === "drama-package-compare") {
+        if (dramaPackageSelected.size < 2) return notify("请选择至少两个运营包", true);
+        await showDramaPackageDetails([...dramaPackageSelected]);
       }
       else if (action === "go-drama-progress") await loadView("dramaProgress");
       else if (action === "back-drama-library") await loadView("dramas");

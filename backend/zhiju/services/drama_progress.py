@@ -259,8 +259,13 @@ def list_drama_progress(
         rows.append(item)
     total = len(rows)
     start = (page - 1) * page_size
+    page_rows=rows[start:start + page_size]
+    from zhiju.services.drama_packages import summaries
+    usage=summaries(session,[row["drama_id"] for row in page_rows])
+    for row in page_rows:
+        row.update(usage.get(row["drama_id"],{}))
     return {
-        "items": rows[start:start + page_size],
+        "items": page_rows,
         "page": page,
         "page_size": page_size,
         "total": total,

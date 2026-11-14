@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -46,6 +46,9 @@ class DramaProgressRow(DramaProductionStateRead):
     drama_code: str
     chinese_title: str
     batch_name: str | None
+    package_count: int = 0
+    package_channel_count: int = 0
+    latest_package_production_date: date | None = None
 
 
 class DramaProgressPage(BaseModel):

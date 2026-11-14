@@ -160,6 +160,8 @@ TENANT_ROUTES: frozenset[RouteKey] = frozenset({
     ("GET", "/api/v3/dramas"),
     ("GET", "/api/v3/dramas/{drama_id}"),
     ("GET", "/api/v3/dramas/{drama_id}/production-state"),
+    ("GET", "/api/v3/dramas/{drama_id}/packages"),
+    ("GET", "/api/v3/dramas/{drama_id}/packages/{package_id}"),
     ("GET", "/api/v3/dramas/{drama_id}/translations"),
     ("GET", "/api/v3/dramas/library"),
     ("GET", "/api/v3/dramas/match"),

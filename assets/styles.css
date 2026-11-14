@@ -1120,3 +1120,29 @@ button.media-batch-status.is-incomplete:hover, .media-missing-status:hover { bor
 .package-select-label { position:absolute; top:10px; left:9px; z-index:1; display:flex; padding:4px; }
 .package-selectable-card .package-card-head { padding-left:38px; }
 .package-selectable-card.is-selected .package-card { box-shadow:0 0 0 2px var(--green); }
+
+/* Read-only package history scoped to completed dramas. */
+.drama-progress-table.has-package-usage .data-table th:nth-child(16) { width: 180px; }
+.drama-progress-table.has-package-usage .data-table th:nth-child(17) { width: 104px; }
+.drama-progress-packages-cell { text-align: center; }
+.drama-progress-packages-cell strong, .drama-progress-packages-cell span { display: block; font-size: 11px; line-height: 1.6; }
+.drama-progress-packages-cell span { color: var(--muted); }
+.drama-progress-packages-cell .button { margin-top: 4px; }
+.drawer:has(.drama-package-view) { width: min(1280px, 100%); }
+.drama-package-summary h3 { margin: 0 0 6px; }
+.drama-package-summary p { color: var(--muted); }
+.drama-package-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 14px 0; }
+.drama-package-tools span { color: var(--muted); font-size: 13px; }
+.drama-package-identity strong, .drama-package-identity span { display: block; }
+.drama-package-identity span { margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: normal; }
+.drama-package-records { min-width: 620px; }
+.drama-package-comparison { overflow-x: auto; padding-bottom: 12px; }
+.drama-package-compare-grid { display: grid; grid-template-columns: repeat(var(--package-columns), minmax(300px, 1fr)); gap: 0 16px; align-items: stretch; }
+.drama-package-compare-head { padding: 16px; background: var(--surface-soft, #f3f7f5); border: 1px solid var(--line); border-radius: 8px 8px 0 0; }
+.drama-package-compare-cell { padding: 18px 16px; border: 1px solid var(--line); border-top: 0; min-width: 0; }
+.drama-package-compare-cell h4 { margin: 0 0 12px; font-size: 15px; }
+.drama-package-compare-cell h5 { margin: 18px 0 7px; color: var(--muted); font-size: 12px; }
+.drama-package-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; font-size: 13px; }
+.drama-package-missing { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.drama-package-image-link { display: block; margin-top: 12px; }
+.drama-package-image { width: 100%; max-height: 320px; object-fit: contain; border-radius: 6px; }
